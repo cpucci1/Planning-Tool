@@ -1,0 +1,33 @@
+{
+  "name": "shifty-planning",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "verificar": "esbuild scripts/verificar-calculo.ts --bundle --platform=node --format=esm --alias:@=./src --log-level=error --outfile=node_modules/.tmp/verificar.mjs && node node_modules/.tmp/verificar.mjs"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "idb-keyval": "^6.3.0",
+    "jspdf": "^4.2.1",
+    "lucide-react": "^0.562.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "recharts": "^3.7.0",
+    "tailwind-merge": "^3.5.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.2",
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.1.0",
+    "autoprefixer": "^10.4.21",
+    "tailwindcss": "^4.3.2",
+    "typescript": "~5.9.0",
+    "vite": "^7.1.0"
+  }
+}
