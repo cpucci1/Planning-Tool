@@ -6,8 +6,8 @@
      Lo propio de este repo se escribe en ese mismo repo, en repos/<repo>.md.
      Lo que edites aqui se pierde en la siguiente copia.
 
-     Este fichero y AGENTS.md son el MISMO texto: uno lo lee Claude y el otro
-     lo lee Codex. No los toques por separado.
+     AGENTS.md es un cargador pequeno que manda a Codex a leer este fichero.
+     Las reglas viven solo aqui; no las dupliques en AGENTS.md.
      ───────────────────────────────────────────────────────────────────── -->
 
 # Reglas comunes de Shifty
@@ -42,8 +42,8 @@ repositorio**: solo los contiene.
 
 **Debajo de estas reglas comunes va lo especifico de cada proyecto**, y eso manda sobre su propio
 terreno. Si algo de aqui y algo de abajo se contradicen, gana lo de abajo, salvo en las reglas
-inquebrantables, que no las pisa nadie. **El fichero de un proyecto se carga solo** cuando se lee o
-se edita un fichero de esa carpeta: nadie tiene que acordarse de abrirlo.
+inquebrantables, que no las pisa nadie. Claude carga las reglas al entrar en cada proyecto; el
+`AGENTS.md` del contenedor obliga a Codex a leer el `CLAUDE.md` correspondiente antes de trabajar.
 
 ---
 
@@ -220,7 +220,7 @@ push**, aunque sus ficheros digan lo contrario. Hay que ejecutarlo a mano o se s
 | Responder a un trabajador, revisar incidencias, cuadrar horas | skill **`shifty-soporte-trabajador`** |
 | Escribir copy, un post, un correo, una landing o una propuesta | skill **`shifty-marca-y-copy`** |
 | Añadir, mover o borrar una regla, o crear una skill | skill **`shifty-mantener-las-reglas`** |
-| Trabajar dentro de un repo concreto | su `CLAUDE.md`, que se carga solo |
+| Trabajar dentro de un repo concreto | su `CLAUDE.md`; el cargador del agente obliga a leerlo |
 | Cualquier cosa que afecte a más de una app | `shared/SOURCE_OF_TRUTH.md` **primero** |
 | Crear una RPC | `shared/rpc-functions.md`, para no duplicar una que ya existe |
 | Entender una feature | su fichero en `features/` |
@@ -243,10 +243,10 @@ documenta ahí primero**, se deja propagar, y solo después se implementa.
 - **El sync llega a los 6 repositorios**, incluidos Sales, el sales-tool y Planning-Tool. Los cuatro
   de producto reciben además los ~324 documentos en `agent_docs/`; los otros dos solo las reglas y
   las skills, que es lo que usan.
-- **La cabecera de este `CLAUDE.md` y todo el `AGENTS.md` se generan solos.** Editarlos en el repo
+- **La cabecera de este `CLAUDE.md` y el cargador `AGENTS.md` se generan solos.** Editarlos en el repo
   destino no sirve: lo común se escribe en `Docs/docs/shared/REGLAS-COMUNES.md` y lo propio de cada
-  proyecto en `Docs/repos/<proyecto>.md`. `AGENTS.md` es el mismo texto, para que Codex lea lo mismo
-  que Claude.
+  proyecto en `Docs/repos/<proyecto>.md`. `AGENTS.md` manda a Codex a leer ese mismo `CLAUDE.md` sin
+  duplicar ni truncar las reglas.
 - **El `SYNC_TOKEN` caduca y falla en silencio.** Tras tocar documentación importante:
   `gh run list --repo cpucci1/Docs --limit 5`.
 - **Los volcados de esquema se regeneran desde Supabase, no se editan a mano**, y llevan fecha: si

@@ -24,9 +24,8 @@ que diga dónde está la documentación correcta para que sea inteligente"*.
 **La regla de oro: el maestro es un mapa, no un almacén.**
 
 > En el resto de este documento, **"el maestro" es `Docs/docs/shared/REGLAS-COMUNES.md`**, el
-> fichero de reglas comunes. Hasta el 4 de septiembre de 2026 era el `CLAUDE.md` de la carpeta
-> contenedora, que hoy es un enlace a ese mismo fichero. Todo lo que se dice del maestro sigue
-> valiendo; lo que cambia es dónde se escribe.
+> fichero de reglas comunes. El `CLAUDE.md` de la carpeta contenedora es una copia generada desde
+> ese fichero. Todo lo que se dice del maestro sigue valiendo; lo que cambia es dónde se escribe.
 
 ---
 
@@ -41,13 +40,14 @@ Cuatro sitios, y el criterio para elegir es **cuándo hace falta ese conocimient
 
 | Se lee en | Cuándo se carga | Qué va aquí | Se ESCRIBE en |
 |---|---|---|---|
-| **`CLAUDE.md` y `AGENTS.md`**, cabecera | En **todas** las sesiones, entero | Solo lo que se necesita saber **siempre**, porque equivocarse es caro e irreversible (< 200 líneas) | `Docs/docs/shared/REGLAS-COMUNES.md` |
-| **`CLAUDE.md` y `AGENTS.md`**, segunda mitad | Con el resto del fichero | Lo que solo tiene sentido en ese proyecto: carpetas, componentes, colores, su stack (200-400 líneas) | `Docs/repos/<proyecto>.md` |
+| **`CLAUDE.md`**, cabecera | En **todas** las sesiones, entero | Solo lo que se necesita saber **siempre**, porque equivocarse es caro e irreversible (< 200 líneas) | `Docs/docs/shared/REGLAS-COMUNES.md` |
+| **`CLAUDE.md`**, segunda mitad | Con el resto del fichero | Lo que solo tiene sentido en ese proyecto: carpetas, componentes, colores, su stack (200-400 líneas) | `Docs/repos/<proyecto>.md` |
 | **`.claude/skills/*/SKILL.md`** | Solo el nombre y la descripción al arrancar. El cuerpo, **cuando hace falta** | El detalle por área: la base, el dinero, el soporte, la marca. Sin límite práctico | `Docs/skills/shared/` o `Docs/skills/<repo>/` |
+| **`AGENTS.md` y `.agents/skills/`** | Cargadores y enlaces para Codex | Solo apuntan a `CLAUDE.md` y `.claude/skills/`; nunca contienen otra copia de las reglas | Se generan desde `Docs/repos/` y el workflow |
 | **`agent_docs/`** | Nunca solo. Se lee cuando las reglas o una skill te mandan | El contrato entre las 4 apps, los volcados de esquema, las fichas de feature, los incidentes | `Docs/docs/` |
 
-**`AGENTS.md` es el mismo texto que `CLAUDE.md`**, generado a la vez para que Codex lea lo mismo
-que Claude. Nunca se editan por separado, ni se edita ninguno de los dos a mano.
+**`AGENTS.md` manda a Codex a leer `CLAUDE.md`**, generado a la vez. Las skills de
+`.agents/skills/` son enlaces a `.claude/skills/`. Nunca se mantienen reglas duplicadas.
 
 ### El criterio, en una pregunta
 
@@ -72,13 +72,16 @@ hay dos malentendidos que hacen perder el tiempo.
 ### Lo que se carga solo, y cuándo
 
 1. **El `CLAUDE.md` de la carpeta desde la que se trabaja se carga entero, en cada sesión.** Si
-   trabajas desde la carpeta que contiene los ocho proyectos, es su `CLAUDE.md`, que hoy es un
-   **enlace** al fichero de reglas comunes. Si abres un proyecto suelto, es el suyo, que lleva esas
+   trabajas desde la carpeta que contiene los ocho proyectos, es su copia de las reglas comunes.
+   Si abres un proyecto suelto, es el suyo, que lleva esas
    mismas reglas en su cabecera. **En los dos casos cargas lo mismo**, y lo pagas siempre.
 2. **El `CLAUDE.md` de un repo que no es el tuyo NO se carga al arrancar.** Se carga **cuando Claude
    lee o edita un fichero de esa carpeta**. Eso es automático: nadie tiene que acordarse de abrirlo.
 3. **De una skill solo entran el nombre y la descripción al arrancar.** El cuerpo entra cuando la
    skill se invoca. **Este es el único mecanismo que de verdad ahorra contexto.**
+4. **Codex funciona mediante cargadores.** Su `AGENTS.md` se carga al iniciar y le obliga a leer el
+   `CLAUDE.md` correspondiente. Desde el contenedor, antes de tocar otro repo lee el suyo. Sus
+   skills son enlaces desde `.agents/skills/` a las mismas carpetas que usa Claude.
 
 ### ⚠️ Los dos malentendidos
 
@@ -170,7 +173,8 @@ es el número que marca la documentación oficial.
 **Qué se saca, por orden:**
 
 1. **Lo que ya no es cierto.** Una regla sobre algo que se cambió hace meses ocupa sitio y engaña.
-2. **Lo que solo aplica a un repo.** Se va a su `CLAUDE.md`, que se carga solo cuando toca.
+2. **Lo que solo aplica a un repo.** Se va a su `CLAUDE.md`; los cargadores garantizan que se lea
+   cuando toca.
 3. **El detalle de un área.** Se va a su skill. En el maestro queda una línea en la tabla de rutas.
 4. **Lo que está duplicado.** Se queda la versión más completa, normalmente la que trae el incidente
    que la originó, y se borra la otra.
