@@ -2,7 +2,7 @@
 name: shifty-mantener-las-reglas
 description: >
   Cómo se edita la estructura de reglas y documentación de Shifty sin desordenarla: qué va en el
-  CLAUDE.md maestro, qué va en una skill, qué va en el CLAUDE.md de un repo y qué va en el repo
+  fichero de reglas comunes, qué va en una skill, qué va en el trozo propio de un repo y qué va
   Docs. Incluye el criterio para decidir dónde va cada cosa, cómo se escribe una regla para que se
   cumpla, cómo se poda cuando crece, y las trampas del mecanismo (los imports no ahorran contexto,
   dos ficheros que se contradicen no tienen jerarquía). Úsala SIEMPRE que vayas a añadir, mover o
@@ -23,30 +23,44 @@ que diga dónde está la documentación correcta para que sea inteligente"*.
 
 **La regla de oro: el maestro es un mapa, no un almacén.**
 
+> En el resto de este documento, **"el maestro" es `Docs/docs/shared/REGLAS-COMUNES.md`**, el
+> fichero de reglas comunes. Hasta el 4 de septiembre de 2026 era el `CLAUDE.md` de la carpeta
+> contenedora, que hoy es un enlace a ese mismo fichero. Todo lo que se dice del maestro sigue
+> valiendo; lo que cambia es dónde se escribe.
+
 ---
 
 ## 1. Dónde va cada cosa
 
 Cuatro sitios, y el criterio para elegir es **cuándo hace falta ese conocimiento**.
 
-| Sitio | Cuándo se carga | Qué va aquí | Tamaño |
+> ⚠️ **Esto cambió el 4 de septiembre de 2026.** Antes cada regla se escribía en el sitio donde
+> se lee. Ahora **todo se escribe en el repo `Docs`** y de ahí se copia. Escribir en el sitio
+> donde se lee ya no sirve: la siguiente copia lo pisa. La columna de la derecha dice **dónde se
+> escribe de verdad**.
+
+| Se lee en | Cuándo se carga | Qué va aquí | Se ESCRIBE en |
 |---|---|---|---|
-| **`Github/CLAUDE.md`** | En **todas** las sesiones, entero | Solo lo que se necesita saber **siempre**, porque equivocarse es caro e irreversible | **< 200 líneas** |
-| **`Github/.claude/skills/*/SKILL.md`** | Solo el nombre y la descripción al arrancar. El cuerpo, **cuando hace falta** | El detalle por área: la base, el dinero, el soporte, la marca | Sin límite práctico |
-| **`<Repo>/CLAUDE.md`** | Solo cuando se toca un fichero **de ese repo** | Lo que solo tiene sentido dentro de ese proyecto: carpetas, componentes, colores, su stack | 200-400 líneas |
-| **`Docs/docs/`** | Nunca solo. Se lee cuando el maestro o una skill te mandan | El contrato entre las 4 apps, los volcados de esquema, las fichas de feature, los incidentes | Lo que haga falta |
+| **`CLAUDE.md` y `AGENTS.md`**, cabecera | En **todas** las sesiones, entero | Solo lo que se necesita saber **siempre**, porque equivocarse es caro e irreversible (< 200 líneas) | `Docs/docs/shared/REGLAS-COMUNES.md` |
+| **`CLAUDE.md` y `AGENTS.md`**, segunda mitad | Con el resto del fichero | Lo que solo tiene sentido en ese proyecto: carpetas, componentes, colores, su stack (200-400 líneas) | `Docs/repos/<proyecto>.md` |
+| **`.claude/skills/*/SKILL.md`** | Solo el nombre y la descripción al arrancar. El cuerpo, **cuando hace falta** | El detalle por área: la base, el dinero, el soporte, la marca. Sin límite práctico | `Docs/skills/shared/` o `Docs/skills/<repo>/` |
+| **`agent_docs/`** | Nunca solo. Se lee cuando las reglas o una skill te mandan | El contrato entre las 4 apps, los volcados de esquema, las fichas de feature, los incidentes | `Docs/docs/` |
+
+**`AGENTS.md` es el mismo texto que `CLAUDE.md`**, generado a la vez para que Codex lea lo mismo
+que Claude. Nunca se editan por separado, ni se edita ninguno de los dos a mano.
 
 ### El criterio, en una pregunta
 
 > **¿Se necesita esto en todas las sesiones, o solo cuando se hace una cosa concreta?**
 
-- **En todas** → maestro. Ejemplo: "nunca crear tablas sin permiso escrito".
+- **En todas** → `Docs/docs/shared/REGLAS-COMUNES.md`. Ejemplo: "nunca crear tablas sin permiso escrito".
 - **Solo al tocar la base** → skill `shifty-base-de-datos`.
 - **Solo al hablar de dinero** → skill `shifty-dinero`.
-- **Solo dentro del panel** → `Web-Panel/CLAUDE.md`.
+- **Solo dentro del panel** → `Docs/repos/Web-Panel.md`.
 - **Es una referencia larga que se consulta** → `Docs/docs/`, y se apunta desde donde toque.
 
-Si dudas, **no va en el maestro**. El maestro se gana el sitio, no se hereda.
+Si dudas, **no va en las comunes**. Ese sitio se gana, no se hereda: lo pagas en todas las sesiones
+de los siete proyectos.
 
 ---
 
@@ -57,11 +71,12 @@ hay dos malentendidos que hacen perder el tiempo.
 
 ### Lo que se carga solo, y cuándo
 
-1. **`Github/CLAUDE.md`** se carga **entero, en cada sesión**, porque es la carpeta desde la que se
-   trabaja. Todo lo que metas aquí lo pagas siempre.
-2. **El `CLAUDE.md` de un repo NO se carga al arrancar.** Se carga **cuando Claude lee o edita un
-   fichero de esa carpeta**. Eso es automático: nadie tiene que acordarse de abrirlo. Por eso la
-   estructura de dos niveles funciona sola.
+1. **El `CLAUDE.md` de la carpeta desde la que se trabaja se carga entero, en cada sesión.** Si
+   trabajas desde la carpeta que contiene los ocho proyectos, es su `CLAUDE.md`, que hoy es un
+   **enlace** al fichero de reglas comunes. Si abres un proyecto suelto, es el suyo, que lleva esas
+   mismas reglas en su cabecera. **En los dos casos cargas lo mismo**, y lo pagas siempre.
+2. **El `CLAUDE.md` de un repo que no es el tuyo NO se carga al arrancar.** Se carga **cuando Claude
+   lee o edita un fichero de esa carpeta**. Eso es automático: nadie tiene que acordarse de abrirlo.
 3. **De una skill solo entran el nombre y la descripción al arrancar.** El cuerpo entra cuando la
    skill se invoca. **Este es el único mecanismo que de verdad ahorra contexto.**
 
@@ -73,6 +88,9 @@ hay dos malentendidos que hacen perder el tiempo.
 - **Entre dos `CLAUDE.md` no hay jerarquía.** Se concatenan sin más, y ante una contradicción no
   gana el más específico: se elige de forma arbitraria. **Por eso mover una regla obliga a borrarla
   del sitio viejo**, no solo a copiarla al nuevo. Una regla en dos sitios es una bomba.
+  Dentro de UN fichero generado sí hay orden, porque lo pone escrito: lo común arriba, lo del
+  proyecto abajo, y ante una contradicción manda lo de abajo salvo en las inquebrantables. Eso
+  funciona porque está dicho en el texto, no porque el orden lo decida.
 
 ### El campo `paths` de una skill
 

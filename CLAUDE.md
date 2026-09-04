@@ -37,9 +37,13 @@ estas reglas son las mismas en todos: **un cambio de base afecta a los seis a la
 | `Sales/sales-tool` | Scrapper, Enricher, Navigator (CRM comercial) | |
 | `Planning-Tool` | Planificador de plantilla. El unico que NO toca Supabase | `npm run dev` → :5174 |
 
-**Debajo de estas reglas comunes va lo especifico de este repo**, y eso manda sobre su propio
+Los ocho viven en una misma carpeta en el ordenador, `~/Desktop/Shifty/Github/`, que **no es un
+repositorio**: solo los contiene.
+
+**Debajo de estas reglas comunes va lo especifico de cada proyecto**, y eso manda sobre su propio
 terreno. Si algo de aqui y algo de abajo se contradicen, gana lo de abajo, salvo en las reglas
-inquebrantables, que no las pisa nadie.
+inquebrantables, que no las pisa nadie. **El fichero de un proyecto se carga solo** cuando se lee o
+se edita un fichero de esa carpeta: nadie tiene que acordarse de abrirlo.
 
 ---
 
@@ -217,11 +221,15 @@ push**, aunque sus ficheros digan lo contrario. Hay que ejecutarlo a mano o se s
 | Escribir copy, un post, un correo, una landing o una propuesta | skill **`shifty-marca-y-copy`** |
 | Añadir, mover o borrar una regla, o crear una skill | skill **`shifty-mantener-las-reglas`** |
 | Trabajar dentro de un repo concreto | su `CLAUDE.md`, que se carga solo |
-| Cualquier cosa que afecte a más de una app | `agent_docs/shared/SOURCE_OF_TRUTH.md` **primero** (en el repo Docs: `docs/shared/`) |
-| Crear una RPC | `agent_docs/shared/rpc-functions.md`, para no duplicar una que ya existe |
-| Entender una feature | su fichero en `agent_docs/features/` |
-| Resolver una incidencia | `agent_docs/incidencias-tecnico/`, y dejar ficha al cerrarla |
-| Saber qué está pendiente de arreglar y de decidir | `agent_docs/shared/PENDIENTE.md` |
+| Cualquier cosa que afecte a más de una app | `shared/SOURCE_OF_TRUTH.md` **primero** |
+| Crear una RPC | `shared/rpc-functions.md`, para no duplicar una que ya existe |
+| Entender una feature | su fichero en `features/` |
+| Resolver una incidencia | `incidencias-tecnico/`, y dejar ficha al cerrarla |
+| Saber qué está pendiente de arreglar y de decidir | `shared/PENDIENTE.md` |
+
+Esas rutas son relativas a la documentación, que **está en dos sitios según desde dónde trabajes**:
+dentro de un repo es `agent_docs/`; desde la carpeta que contiene los ocho proyectos es `Docs/docs/`;
+y dentro del propio repo `Docs`, es `docs/`. El contenido es el mismo.
 
 ---
 
