@@ -154,8 +154,8 @@ Este es el momento de riesgo: la tentación es añadirlo al maestro porque es lo
 | Regla de dinero | Skill `shifty-dinero` |
 | Respuesta a un trabajador | Skill `shifty-soporte-trabajador` |
 | Copy y marca | Skill `shifty-marca-y-copy` |
-| De comportamiento tuyo, y aplica siempre | Maestro |
-| De comportamiento tuyo, solo en un repo | El `CLAUDE.md` de ese repo |
+| De comportamiento tuyo, y aplica siempre | `Docs/docs/shared/REGLAS-COMUNES.md` |
+| De comportamiento tuyo, solo en un repo | `Docs/repos/<proyecto>.md` |
 | Al cerrar una incidencia | Ficha obligatoria en `Docs/docs/incidencias-tecnico/` |
 
 ---
@@ -212,7 +212,9 @@ cuándo hay que revisarla, o qué se probó antes y no funcionó.
 - **Añadir al maestro "por si acaso".** El maestro se paga en cada sesión de cada día.
 - **Copiar una regla a un segundo sitio** en vez de moverla. Sin jerarquía entre ficheros, dos
   copias que divergen dan comportamientos distintos según por dónde entres.
-- **Escribir en `agent_docs/` o en `.claude/skills/` de los cuatro repos de app.** Son copias de
-  solo lectura: la siguiente sincronización desde `Docs/` las borra sin avisar.
+- **Escribir en `agent_docs/`, en `.claude/skills/`, en `CLAUDE.md` o en `AGENTS.md` de cualquiera
+  de los seis repos.** Son copias de solo lectura: la siguiente sincronización desde `Docs/` las
+  borra sin avisar. Y son seis, no cuatro: desde el 4 de septiembre de 2026 también Sales (raíz y
+  `sales-tool/`) y Planning-Tool.
 - **Editar a mano los volcados de esquema** de `Docs/docs/shared/`. Se regeneran desde Supabase.
 - **Dejar que la memoria automática crezca sin revisarla.** Acumula contradicciones en silencio.

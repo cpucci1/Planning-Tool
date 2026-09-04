@@ -40,7 +40,7 @@ luego en la empresa.
 - **Ejemplo directo:** 80 € de bruto. Comisión del 25 % = 20 €. Total empresa = 100 €.
 - **INCORRECTO en ETT:** aplicar el 25 % solo al bruto. Se deja fuera el coste de la ETT.
 
-⚠️ **`Client-App/CLAUDE.md` línea 368 dice lo contrario y está mal.** Manda esta tabla.
+⚠️ **Hay un texto que dice lo contrario y está mal**, en la parte propia de la app de empresas. Manda esta tabla. Si lo ves, se corrige en `Docs/repos/Client-App.md`, nunca en el fichero del repo: ese lo genera el sync y el arreglo se pierde.
 
 ### El porcentaje no está congelado
 
