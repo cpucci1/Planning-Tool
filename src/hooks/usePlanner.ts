@@ -19,7 +19,13 @@ import {
   usableWeeks,
 } from '@/lib/demand'
 import { detectSpecialWeeks } from '@/lib/holidays'
-import { buildNeedGrid, clampNeedToBlockHours, summarize, totalPeopleGrid } from '@/lib/staffing'
+import {
+  applyOpeningMinimums,
+  buildNeedGrid,
+  clampNeedToBlockHours,
+  summarize,
+  totalPeopleGrid,
+} from '@/lib/staffing'
 import { buildRoster } from '@/lib/roster'
 import { analyzePeaks, summarizePlan } from '@/lib/contracts'
 import {
@@ -61,7 +67,7 @@ export function usePlannerState() {
    */
   const [kitchenHours, setKitchenHours] = useState<OpeningHours | null>(null)
   const [specials, setSpecials] = useState<SpecialWeek[]>([])
-  const [blocks, setBlocks] = useState<Block[]>(DEFAULT_BLOCKS)
+  const [blocks, setBlocksRaw] = useState<Block[]>(DEFAULT_BLOCKS)
   const [roles, setRoles] = useState<Role[]>(DEFAULT_ROLES)
   const [tiers, setTiers] = useState<Tier[]>(DEFAULT_TIERS)
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
@@ -95,6 +101,14 @@ export function usePlannerState() {
     setPersonNames((prev) => ({ ...prev, [personId]: name }))
   }
 
+  /** Redondeado: es gente, no puede haber 2,5 personas de mínimo. */
+  function setMinStaffForBlock(blockId: string, value: number) {
+    setSettings((s) => ({
+      ...s,
+      minStaffByBlock: { ...s.minStaffByBlock, [blockId]: Math.round(value) },
+    }))
+  }
+
   function setTypicalOverride(day: number, slot: number, value: number) {
     setOverrides((prev) => {
       const next = new Map(prev)
@@ -111,6 +125,22 @@ export function usePlannerState() {
    *  desde una copia del horario general, no en blanco. */
   function setKitchenHoursEnabled(enabled: boolean) {
     setKitchenHours(enabled ? (hours ?? []).map((day) => day.map((b) => ({ ...b }))) : null)
+  }
+
+  /**
+   * Envuelve `setBlocksRaw` para podar `settings.minStaffByBlock` cuando un
+   * bloque desaparece — si no, el mínimo de un bloque borrado se queda
+   * huérfano en el estado para siempre (inofensivo hoy porque nadie lo lee,
+   * pero es basura que confunde si alguien exporta o inspecciona el ajuste).
+   */
+  function setBlocks(next: Block[]) {
+    setBlocksRaw(next)
+    const validIds = new Set(next.map((b) => b.id))
+    setSettings((s) => {
+      const entries = Object.entries(s.minStaffByBlock).filter(([id]) => validIds.has(id))
+      if (entries.length === Object.keys(s.minStaffByBlock).length) return s
+      return { ...s, minStaffByBlock: Object.fromEntries(entries) }
+    })
   }
 
   /** Carga el resultado del análisis y arranca con lo detectado. */
@@ -196,18 +226,48 @@ export function usePlannerState() {
     [weeks, settings.coveragePct, sorted],
   )
 
-  const needGrid = useMemo(() => {
+  /**
+   * Necesidad que sale SOLO de la curva de comensales, sin el mínimo por
+   * bloque. Es la base del ratio "horas por comensal" que estima las semanas
+   * punta (`analyzePeaks`, más abajo): el mínimo es un coste plano por estar
+   * abierto, igual todas las semanas, así que no debe repartirse otra vez de
+   * más en las semanas con más comensales — eso infla justo el número que
+   * vende Shifty. El cuadrante de verdad SÍ necesita el mínimo, por eso
+   * sigue en `needGrid` de abajo.
+   */
+  const needGridDemand = useMemo(() => {
     if (!lagged) return null
-    const grid = buildNeedGrid(lagged, model)
+    let grid = buildNeedGrid(lagged, model)
     // El horario propio de cocina solo RECORTA su necesidad, nunca la amplía
     // más allá de lo que ya marca el horario general — ver `clampNeedToBlockHours`.
-    if (!kitchenHours) return grid
-    return clampNeedToBlockHours(grid, model, KITCHEN_BLOCK_ID, kitchenHours)
+    if (kitchenHours) grid = clampNeedToBlockHours(grid, model, KITCHEN_BLOCK_ID, kitchenHours)
+    return grid
   }, [lagged, model, kitchenHours])
+
+  const needGrid = useMemo(() => {
+    if (!needGridDemand) return null
+    // `?? {}`: por si algún día vuelve a enchufarse `persistence.ts` con una
+    // foto guardada de antes de que existiera este campo — ver CLAUDE.md.
+    const minStaffByBlock = settings.minStaffByBlock ?? {}
+    // El mínimo por bloque va DESPUÉS: añade el personal de apertura/cierre
+    // aunque la curva esté a cero, respetando el horario propio de cada
+    // bloque si lo tiene (cocina) — ver `applyOpeningMinimums`.
+    if (hours && Object.values(minStaffByBlock).some((v) => v > 0)) {
+      return applyOpeningMinimums(needGridDemand, model, minStaffByBlock, (blockId) =>
+        blockId === KITCHEN_BLOCK_ID && kitchenHours ? kitchenHours : hours,
+      )
+    }
+    return needGridDemand
+  }, [needGridDemand, model, kitchenHours, hours, settings.minStaffByBlock])
 
   const needSummary = useMemo(
     () => (needGrid ? summarize(needGrid, model) : null),
     [needGrid, model],
+  )
+
+  const needSummaryDemand = useMemo(
+    () => (needGridDemand ? summarize(needGridDemand, model) : null),
+    [needGridDemand, model],
   )
 
   const peopleGrid = useMemo(
@@ -234,10 +294,14 @@ export function usePlannerState() {
   )
 
   const peaks = useMemo(() => {
-    if (!weeks.length || !coverage || !needSummary || !lagged) return null
+    if (!weeks.length || !coverage || !needSummaryDemand || !lagged) return null
     const covers = lagged.flat().reduce((a, b) => a + b, 0)
-    return analyzePeaks(weeks, coverage.threshold, needSummary.totalHours, covers)
-  }, [weeks, coverage, needSummary, lagged])
+    // `needSummaryDemand`, no `needSummary`: el ratio horas/comensal que
+    // estima las semanas punta solo puede venir de lo que de verdad escala
+    // con los comensales. El mínimo por bloque es un coste plano, igual en
+    // todas las semanas, así que no debe repartirse otra vez de más aquí.
+    return analyzePeaks(weeks, coverage.threshold, needSummaryDemand.totalHours, covers)
+  }, [weeks, coverage, needSummaryDemand, lagged])
 
   return {
     step,
@@ -266,6 +330,7 @@ export function usePlannerState() {
     setTypicalOverride,
     clearOverrides,
     setPersonName,
+    setMinStaffForBlock,
     model,
     weeks,
     coverage,

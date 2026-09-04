@@ -371,6 +371,35 @@ export function TextInput({
 }
 
 // ─────────────────────────────────────────────────────────────
+// Field — etiqueta + pista + control, el envoltorio de cualquier ajuste
+// ─────────────────────────────────────────────────────────────
+
+export function Field({
+  label,
+  hint,
+  info,
+  children,
+}: {
+  label: string
+  hint?: string
+  info?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center gap-1.5">
+        <span className="text-[0.85rem] font-bold text-content-primary">{label}</span>
+        {info}
+      </div>
+      {hint && (
+        <p className="mb-2.5 text-[0.8rem] leading-relaxed text-content-secondary">{hint}</p>
+      )}
+      {children}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
 // InfoTip — explicación a demanda, nunca encima
 // ─────────────────────────────────────────────────────────────
 

@@ -30,7 +30,19 @@ import { YearChart } from '@/components/charts/YearChart'
 import { WeekHeatmap } from '@/components/charts/WeekHeatmap'
 import { DayCurve } from '@/components/charts/DayCurve'
 import { HoursEditor } from '@/components/HoursEditor'
-import { Badge, Button, Card, CardHeader, InfoTip, Note, Stat, Toggle, cn } from '@/components/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  Field,
+  InfoTip,
+  Note,
+  NumberInput,
+  Stat,
+  Toggle,
+  cn,
+} from '@/components/ui'
 import { KITCHEN_BLOCK_ID } from '@/data/presets'
 import { SPECIAL_LABELS, describeMapping, isoWeekStart } from '@/lib/holidays'
 import { DAYS } from '@/lib/time'
@@ -486,6 +498,60 @@ export function StepDemand() {
               />
             )}
           </div>
+        )}
+
+        {/* Un bloque sin puestos no tiene a quién asignarle el mínimo — ver
+            `applyOpeningMinimums` en `lib/staffing.ts`, que lo ignora en
+            silencio. Mejor no enseñar un campo que no haría nada. */}
+        {p.model.blocks.some((b) => p.model.roles.some((r) => r.blockId === b.id)) && (
+        <Card>
+          <CardHeader
+            eyebrow="Mínimo por local"
+            title={
+              <>
+                El personal que hace falta <span className="text-brand italic">solo por estar abierto.</span>
+              </>
+            }
+            subtitle="Al margen de cuántos comensales tengas: quien abre, cierra o prepara. Se garantiza en todo el horario de cada área, el suyo propio si lo tiene, como cocina."
+            info={
+              <InfoTip title="Cómo se cubre">
+                El mínimo lo cubre el primer puesto de cada área (el responsable de abrirla), para
+                que el cuadrante se lo asigne a alguien concreto. Si la curva de comensales ya pide
+                más gente que el mínimo en una franja, este número no suma nada extra: solo actúa
+                donde la curva pide menos.
+              </InfoTip>
+            }
+          />
+          <div className="grid gap-4 border-t border-border-soft px-4 py-5 sm:grid-cols-2 sm:px-6">
+            {p.model.blocks
+              .filter((block) => p.model.roles.some((r) => r.blockId === block.id))
+              .map((block) => (
+                <Field key={block.id} label={block.name}>
+                  <div className="flex items-center gap-2.5">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-pill"
+                      style={{ background: block.color }}
+                      aria-hidden="true"
+                    />
+                    <NumberInput
+                      value={p.settings.minStaffByBlock[block.id] ?? 0}
+                      onChange={(v) => p.setMinStaffForBlock(block.id, v)}
+                      min={0}
+                      max={20}
+                      step={1}
+                      aria-label={`Mínimo de personas en ${block.name}, en todo su horario`}
+                      className="w-20"
+                    />
+                    <span className="text-[0.8rem] font-medium text-content-secondary">
+                      {(p.settings.minStaffByBlock[block.id] ?? 0) > 0
+                        ? 'personas mínimo, siempre'
+                        : 'sin mínimo'}
+                    </span>
+                  </div>
+                </Field>
+              ))}
+          </div>
+        </Card>
         )}
       </div>
       )}

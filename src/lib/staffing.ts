@@ -82,14 +82,20 @@ export function clampNeedToBlockHours(
 
 /**
  * Añade el personal de apertura y cierre: las franjas de horario en las que aún
- * no hay (o ya no hay) comensales pero alguien tiene que estar. Se aplica un
- * mínimo por bloque, configurable, sin tocar las franjas con servicio.
+ * no hay (o ya no hay) comensales pero alguien tiene que estar — el mínimo que
+ * pide un local por el simple hecho de estar abierto, independiente de la
+ * curva de demanda. Se aplica un mínimo por bloque, configurable, sin tocar
+ * las franjas donde el servicio ya pide más gente que ese mínimo.
+ *
+ * `hoursForBlock` resuelve el horario de CADA bloque por separado: cocina
+ * puede tener uno propio (ver el toggle de horario de cocina), y el mínimo
+ * tiene que respetarlo, no el horario general.
  */
 export function applyOpeningMinimums(
   grid: NeedGrid,
-  hours: OpeningHours,
   model: StaffingModel,
   minimumsByBlock: Record<string, number>,
+  hoursForBlock: (blockId: string) => OpeningHours,
 ): NeedGrid {
   const out: NeedGrid = {}
   for (const k of Object.keys(grid)) out[k] = grid[k].map((r) => [...r])
@@ -101,11 +107,12 @@ export function applyOpeningMinimums(
     // responsable de abrir, y así el cuadrante le asigna a alguien concreto.
     const role = model.roles.find((r) => r.blockId === block.id)
     if (!role) continue
+    const hours = hoursForBlock(block.id)
 
     for (let d = 0; d < 7; d++) {
       for (const b of hours[d] ?? []) {
         for (let s = 0; s < SLOTS_PER_DAY; s++) {
-          const minAbs = 6 * 60 + s * SLOT_MINUTES
+          const minAbs = slotStartMin(s)
           if (minAbs < b.startMin || minAbs >= b.endMin) continue
           const totalHere = model.roles
             .filter((r) => r.blockId === block.id)
