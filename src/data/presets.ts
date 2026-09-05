@@ -131,6 +131,7 @@ export const DEFAULT_SETTINGS: Settings = {
   allowSplitShifts: true,
   consecutiveDaysOff: true,
   minRestBetweenShifts: true,
+  weeklySalesEur: null,
   prepBeforeMin: 0,
   prepAfterMin: 0,
   minStaffByBlock: {},

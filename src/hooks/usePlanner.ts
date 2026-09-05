@@ -7,7 +7,7 @@
  * mientras el usuario arrastra.
  */
 
-import { createContext, useContext, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   applyLag,
   clampToHours,
@@ -30,6 +30,17 @@ import {
 } from '@/lib/staffing'
 import { buildRoster } from '@/lib/roster'
 import { analyzePeaks, summarizePlan } from '@/lib/contracts'
+import {
+  SNAPSHOT_SOURCE,
+  SNAPSHOT_VERSION,
+  clearAutosave,
+  downloadSnapshot,
+  loadAutosave,
+  metaOf,
+  saveAutosave,
+  type PlannerSnapshot,
+  type SnapshotMeta,
+} from '@/lib/persistence'
 import {
   DEFAULT_BLOCKS,
   DEFAULT_ROLES,
@@ -74,6 +85,15 @@ export function usePlannerState() {
   const [tiers, setTiers] = useState<Tier[]>(DEFAULT_TIERS)
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   const [seenTips, setSeenTips] = useState<Set<string>>(new Set())
+
+  /**
+   * Guardado sin cuenta. `savedMeta` es la foto que había al abrir: si hay
+   * algo, la pantalla de import PREGUNTA si quiere seguir con ello en vez de
+   * restaurarlo solo. Esta es la pantalla de venta del producto, y un visitante
+   * nuevo tiene que poder verla entera antes de que nada le salte encima.
+   */
+  const [savedMeta, setSavedMeta] = useState<SnapshotMeta | null>(null)
+  const savedSnap = useRef<PlannerSnapshot | null>(null)
 
   /**
    * Correcciones a mano de la semana tipo: `'dia:franja' → comensales`.
@@ -169,6 +189,98 @@ export function usePlannerState() {
 
   function markTipSeen(id: string) {
     setSeenTips((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+  }
+
+  // ── Guardado sin cuenta ───────────────────────────────────
+
+  /** La foto de lo que el usuario ha DECIDIDO. Lo derivado no se guarda: se
+   *  recalcula solo al cargarla, y guardarlo sería arriesgarse a que la foto
+   *  y el cálculo se contradigan. */
+  function buildSnapshot(): PlannerSnapshot | null {
+    if (!dataset) return null
+    return {
+      source: SNAPSHOT_SOURCE,
+      version: SNAPSHOT_VERSION,
+      savedAt: new Date().toISOString(),
+      step,
+      dataset,
+      hours,
+      kitchenHours,
+      specials,
+      blocks,
+      roles,
+      tiers,
+      settings,
+      overrides: [...overrides],
+      personNames,
+    }
+  }
+
+  /** Al abrir, mira si hay algo guardado. No lo restaura: solo lo ofrece. */
+  useEffect(() => {
+    let vivo = true
+    loadAutosave().then((snap) => {
+      if (!vivo || !snap) return
+      savedSnap.current = snap
+      setSavedMeta(metaOf(snap))
+    })
+    return () => {
+      vivo = false
+    }
+  }, [])
+
+  /**
+   * Autoguardado con un respiro de 600 ms: sin él se escribiría en cada tecla
+   * de la tabla de tramos y en cada fotograma de un arrastre.
+   */
+  useEffect(() => {
+    if (!dataset) return
+    const t = setTimeout(() => {
+      const snap = buildSnapshot()
+      if (snap) void saveAutosave(snap)
+    }, 600)
+    return () => clearTimeout(t)
+    // `buildSnapshot` lee todo el estado, así que las dependencias son los
+    // trozos que de verdad cambian el plan.
+  }, [dataset, hours, kitchenHours, specials, blocks, roles, tiers, settings, overrides, personNames, step])
+
+  /** Aplica una foto guardada al estado actual. */
+  function applySnapshot(snap: PlannerSnapshot) {
+    setDataset(snap.dataset)
+    setHours(snap.hours)
+    setKitchenHours(snap.kitchenHours ?? null)
+    setSpecials(snap.specials)
+    setBlocksRaw(snap.blocks)
+    setRoles(snap.roles)
+    setTiers(snap.tiers)
+    setSettings(snap.settings)
+    setOverrides(new Map(snap.overrides))
+    setPersonNames(snap.personNames ?? {})
+    setStep(snap.step)
+    setSavedMeta(null)
+  }
+
+  /** "Sigue donde lo dejaste". */
+  function resumeSaved() {
+    if (savedSnap.current) applySnapshot(savedSnap.current)
+  }
+
+  /** "Empiezo de cero": se olvida la foto para que no vuelva a ofrecerse. */
+  function discardSaved() {
+    savedSnap.current = null
+    setSavedMeta(null)
+    void clearAutosave()
+  }
+
+  /** El guardado de verdad: un fichero que cruza de ordenador. */
+  function exportSnapshot() {
+    const snap = buildSnapshot()
+    if (snap) downloadSnapshot(snap)
+  }
+
+  /** Carga un fichero guardado. Devuelve false si no es de esta herramienta. */
+  function importSnapshot(snap: PlannerSnapshot) {
+    applySnapshot(snap)
   }
 
   const model: StaffingModel = useMemo(() => ({ blocks, roles, tiers }), [blocks, roles, tiers])
@@ -362,10 +474,16 @@ export function usePlannerState() {
     seenTips,
     markTipSeen,
     overrides,
+    personNames,
     setTypicalOverride,
     clearOverrides,
     setPersonName,
     setMinStaffForBlock,
+    savedMeta,
+    resumeSaved,
+    discardSaved,
+    exportSnapshot,
+    importSnapshot,
     model,
     weeks,
     coverage,

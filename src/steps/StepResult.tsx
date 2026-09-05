@@ -17,12 +17,15 @@ import {
   Download,
   Gauge,
   Layers,
+  Link as LinkIcon,
   RotateCcw,
+  Save,
   Table2,
   Users,
 } from 'lucide-react'
-import { Badge, Button, Card, CardHeader, InfoTip, Modal, Note, Stat, cn } from '@/components/ui'
+import { Badge, Button, Card, CardHeader, InfoTip, Modal, Note, NumberInput, Stat, cn } from '@/components/ui'
 import { AccountTeaserModal } from '@/components/AccountTeaserModal'
+import { AvisosCuadrante } from '@/components/AvisosCuadrante'
 import { CriteriaModal, type Criterion } from '@/components/CriteriaModal'
 import { RosterGrid } from '@/components/RosterGrid'
 import { StaffTable } from '@/components/StaffTable'
@@ -32,6 +35,9 @@ import { YearChart } from '@/components/charts/YearChart'
 import { usePlanner } from '@/hooks/usePlanner'
 import { WEEKS_PER_YEAR, describeMix, fteFrom, summarizeCost } from '@/lib/contracts'
 import { riskRatio } from '@/lib/demand'
+import { revisarCuadrante } from '@/lib/avisos'
+import { calcularMetricas } from '@/lib/metricas'
+import { urlDelPlan } from '@/lib/compartir'
 import { downloadPlanCsv } from '@/lib/export'
 import { downloadReport } from '@/lib/report'
 import { DAYS, DAYS_SHORT, formatSlot } from '@/lib/time'
@@ -70,6 +76,7 @@ export function StepResult() {
   const [dayOverride, setDayOverride] = useState<DayIndex | null>(null)
   const [askReset, setAskReset] = useState(false)
   const [showCriteria, setShowCriteria] = useState(false)
+  const [enlaceCopiado, setEnlaceCopiado] = useState(false)
 
   /**
    * El teaser de cuenta sale UNA vez, cuando el usuario llega al cuadrante
@@ -172,6 +179,24 @@ export function StepResult() {
     : null
   const peakOnlyAnnualCostEur = avgHourlyCost ? peaks.peakHoursPerYear * avgHourlyCost : null
 
+  /** La revisión legal del cuadrante y las métricas que salen de él. */
+  const avisos = revisarCuadrante(roster, model, settings)
+  const metricas = calcularMetricas(roster, needGrid, model, lagged)
+
+  /** Coste de personal sobre ventas. Solo si él ha puesto las dos cifras. */
+  const ratioPersonal =
+    weeklyCostEur !== null && settings.weeklySalesEur && settings.weeklySalesEur > 0
+      ? Math.round((weeklyCostEur / settings.weeklySalesEur) * 100)
+      : null
+  const ratioTono =
+    ratioPersonal === null
+      ? ''
+      : ratioPersonal <= 32
+        ? 'text-success'
+        : ratioPersonal <= 40
+          ? 'text-warning'
+          : 'text-destructive'
+
   /** Todo lo que ha entrado en el cálculo, para el modal de criterios (7.8). */
   const criteria: Criterion[] = [
     { label: 'Cobertura', value: `${settings.coveragePct}%`, step: 'result', where: 'La línea del gráfico de arriba' },
@@ -257,6 +282,40 @@ export function StepResult() {
     peakHiredAnnualCostEur,
     peakOnlyAnnualCostEur,
   }
+  /**
+   * Copia un enlace que reproduce este mismo plan. El estado va dentro del
+   * `#` de la dirección, la parte que el navegador NO envía a ningún servidor:
+   * así se puede mandar al socio o a la gestoría sin que las ventas del
+   * restaurante pasen por ningún sitio.
+   */
+  async function copiarEnlace() {
+    const url = await urlDelPlan(
+      {
+        version: 1,
+        dataset: p.dataset,
+        hours: p.hours,
+        kitchenHours: p.kitchenHours,
+        specials: p.specials,
+        blocks: model.blocks,
+        roles: model.roles,
+        tiers: model.tiers,
+        settings,
+        overrides: [...p.overrides],
+        personNames: p.personNames,
+      },
+      window.location.href,
+    )
+    try {
+      await navigator.clipboard.writeText(url)
+      setEnlaceCopiado(true)
+      setTimeout(() => setEnlaceCopiado(false), 2500)
+    } catch {
+      // Sin permiso de portapapeles (pasa en algunos navegadores si no hay
+      // gesto del usuario): al menos se le enseña para que lo copie a mano.
+      window.prompt('Copia este enlace:', url)
+    }
+  }
+
   function handleDownloadReport() {
     void downloadReport(reportInput)
   }
@@ -497,6 +556,50 @@ export function StepResult() {
             . Esa gente está en nómina aunque entre todos no llenen la jornada.
           </Note>
 
+          {/* El ratio con el que de verdad piensa un hostelero. Solo aparece si
+              nos ha dicho lo que factura; si no, ni se menciona. */}
+          {weeklyCostEur !== null && (
+            <div className="mt-4 rounded-lg border border-border-soft bg-surface-alt p-4">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <span className="text-[0.85rem] font-bold text-content-primary">
+                  ¿Cuánto factura una semana normal?
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <NumberInput
+                    value={settings.weeklySalesEur ?? NaN}
+                    onChange={(v) =>
+                      p.setSettings((st) => ({ ...st, weeklySalesEur: v > 0 ? v : null }))
+                    }
+                    min={0}
+                    max={1000000}
+                    step={500}
+                    placeholder="—"
+                    aria-label="Ventas de una semana normal, en euros"
+                    className="w-28"
+                  />
+                  <span className="text-[0.85rem] font-bold text-content-secondary">€</span>
+                </span>
+                <InfoTip title="Para qué sirve">
+                  Para darte el coste de personal sobre ventas, que es el ratio con el que hablas
+                  con tu asesor. No se guarda en ningún sitio ni sale de tu navegador.
+                </InfoTip>
+              </div>
+
+              {ratioPersonal !== null && (
+                <p className="mt-3 text-[0.9rem] leading-relaxed text-content-secondary">
+                  Tu personal se lleva el{' '}
+                  <strong className={cn('text-[1.05rem]', ratioTono)}>{ratioPersonal}%</strong> de
+                  lo que facturas.{' '}
+                  {ratioPersonal <= 32
+                    ? 'Está en la banda sana del sector, entre el 25% y el 32%.'
+                    : ratioPersonal <= 40
+                      ? 'Por encima de la banda sana (25% a 32%), pero dentro de lo normal.'
+                      : 'Por encima del 40%, que es donde el sector enciende la alarma.'}
+                </p>
+              )}
+            </div>
+          )}
+
           {cost !== null && weeklyCostEur !== null && annualCostEur !== null && (
             <p className="mt-3 text-[0.85rem] leading-relaxed text-content-secondary">
               Con los costes de tu catálogo, esta plantilla sale por{' '}
@@ -650,6 +753,86 @@ export function StepResult() {
         </div>
       </Card>
 
+      {/* ── 4 bis. ¿Cuadra? ───────────────────────────────────── */}
+      {/* Antes del cuadrante a propósito: si algo incumple, que se sepa antes
+          de ponerse a leer nombres y horas. */}
+      <Card>
+        <CardHeader
+          eyebrow="La revisión"
+          title={
+            <>
+              Lo que hay que <span className="text-brand italic">mirar antes de firmarlo.</span>
+            </>
+          }
+          subtitle="Descansos, libranzas y horas de contrato, revisados uno a uno sobre el cuadrante de abajo."
+        />
+        <div className="border-t border-border-soft px-4 py-5 sm:px-6">
+          <AvisosCuadrante avisos={avisos} />
+        </div>
+
+        {metricas.comensalesPorHora !== null && (
+          <div className="grid gap-5 border-t border-border-soft px-6 py-5 sm:grid-cols-3">
+            <Stat
+              icon={<Users size={13} strokeWidth={2.6} />}
+              label="Comensales por hora"
+              value={nf1.format(metricas.comensalesPorHora)}
+              hint="Por cada hora de trabajo pagada"
+            />
+            <Stat
+              icon={
+                <InfoTip title="Dónde sobra gente">
+                  La holgura total no se puede accionar; saber la franja concreta sí. Estas son
+                  las horas donde hay más gente puesta de la que pide tu curva.
+                </InfoTip>
+              }
+              label="Franja con más sobra"
+              value={
+                metricas.peoresHolguras[0]
+                  ? `${nf1.format(metricas.peoresHolguras[0].horasSobrantes)} h`
+                  : '—'
+              }
+              hint={metricas.peoresHolguras[0]?.cuando ?? 'Nada que recortar'}
+              tone={metricas.peoresHolguras[0] ? 'warning' : 'default'}
+            />
+            <Stat
+              icon={
+                <InfoTip title="Reparto de fines de semana">
+                  La diferencia entre quien más findes trabaja y quien menos. Es lo que hace que
+                  un cuadrante se perciba justo, y de lo que más se habla en una plantilla.
+                </InfoTip>
+              }
+              label="Diferencia de findes"
+              value={metricas.desequilibrioFindes}
+              hint={
+                metricas.desequilibrioFindes <= 1
+                  ? 'Repartido de forma pareja'
+                  : 'Hay quien carga con más findes'
+              }
+              tone={metricas.desequilibrioFindes <= 1 ? 'default' : 'warning'}
+            />
+          </div>
+        )}
+
+        {metricas.peoresHolguras.length > 1 && (
+          <div className="border-t border-border-soft px-6 py-5">
+            <h4 className="h4">Dónde sobra gente</h4>
+            <ul className="mt-3 space-y-1.5">
+              {metricas.peoresHolguras.map((h) => (
+                <li
+                  key={`${h.day}-${h.slot}`}
+                  className="flex items-baseline justify-between gap-3 text-[0.88rem]"
+                >
+                  <span className="text-content-secondary">{h.cuando}</span>
+                  <span className="shrink-0 font-bold tabular-nums text-content-primary">
+                    {nf1.format(h.horasSobrantes)} h de más
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </Card>
+
       {/* ── 5. El cuadrante ───────────────────────────────────── */}
       {/* Marcador de 0 px: el teaser de cuenta dispara cuando ESTE punto
           cruza el centro de la pantalla, no cuando el cuadrante entero
@@ -785,6 +968,22 @@ export function StepResult() {
             onClick={() => downloadPlanCsv(exportInput)}
           >
             Exportar todo (CSV)
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<Save size={15} />}
+            onClick={p.exportSnapshot}
+          >
+            Guardar en un fichero
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<LinkIcon size={15} />}
+            onClick={() => void copiarEnlace()}
+          >
+            {enlaceCopiado ? 'Enlace copiado' : 'Copiar enlace'}
           </Button>
           <Button
             variant="ghost"

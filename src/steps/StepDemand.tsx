@@ -48,6 +48,7 @@ import {
   cn,
 } from '@/components/ui'
 import { KITCHEN_BLOCK_ID } from '@/data/presets'
+import { TERRITORIOS, sugerirNombreSemana } from '@/lib/territorio'
 import { overcoverage } from '@/lib/demand'
 import { SPECIAL_LABELS, describeMapping, isoWeekStart } from '@/lib/holidays'
 import { DAYS } from '@/lib/time'
@@ -218,6 +219,9 @@ export function StepDemand() {
 
   // Qué sección de las cinco se ve ahora mismo. Ver `DEMAND_SUBSTEPS`.
   const [sub, setSub] = useState(0)
+
+  /** Provincia del local. Solo sirve para proponer nombres de fiestas locales. */
+  const [territorio, setTerritorio] = useState<string | null>(null)
 
   // Igual que al cambiar de paso principal (ver App.tsx): moverse de sub-paso
   // no debe dejar al usuario a mitad de la pantalla anterior.
@@ -747,6 +751,34 @@ export function StepDemand() {
               {/* La acción en bloque va aquí y no en la cabecera de la Card:
                   en móvil le robaba el ancho al título y lo partía en cuatro
                   líneas. */}
+              {/* Dónde está el local. Con esto podemos proponer el nombre de las
+                  fiestas que le pegan a cada semana rara: el pico lo hemos
+                  medido nosotros y el nombre es una propuesta que él confirma.
+                  Ver `lib/territorio.ts`. */}
+              <div className="mb-4 rounded-lg border border-border-soft bg-surface-alt p-3">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <span className="text-[0.8rem] font-bold text-content-primary">
+                    ¿Dónde está el local?
+                  </span>
+                  <select
+                    value={territorio ?? ''}
+                    onChange={(e) => setTerritorio(e.target.value || null)}
+                    aria-label="Provincia del local, para reconocer las fiestas locales"
+                    className="h-9 rounded-md border border-border bg-surface-elevated px-2.5 text-[0.82rem] font-semibold text-content-primary transition-colors focus:border-border-focus focus:outline-none"
+                  >
+                    <option value="">Elige provincia</option>
+                    {TERRITORIOS.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.nombre}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[0.8rem] text-content-secondary">
+                    y te digo qué fiesta cae en cada semana rara.
+                  </span>
+                </div>
+              </div>
+
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-[0.78rem] font-bold text-content-secondary">
                   {pendingSpecials === 0
@@ -890,6 +922,32 @@ export function StepDemand() {
                           className="h-9 text-[0.82rem]"
                         />
                       </div>
+
+                      {(() => {
+                        const sug = sugerirNombreSemana(territorio, s.isoWeek, s.deviation)
+                        if (!sug || s.label === sug.nombre) return null
+                        return (
+                          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-brand-light px-2.5 py-2">
+                            <Sparkles size={14} className="shrink-0 text-brand" />
+                            <span className="min-w-0 flex-1 text-[0.8rem] leading-snug text-brand">
+                              {sug.motivo}
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() =>
+                                patchSpecial(s.isoWeek, {
+                                  label: sug.nombre,
+                                  note: s.note || sug.motivo,
+                                  confirmed: true,
+                                })
+                              }
+                            >
+                              Ponerle ese nombre
+                            </Button>
+                          </div>
+                        )
+                      })()}
 
                       {moveLine && (
                         <p className="mt-2 flex items-start gap-1.5 rounded-md bg-brand-light px-2.5 py-1.5 text-[0.78rem] leading-snug font-semibold text-brand">

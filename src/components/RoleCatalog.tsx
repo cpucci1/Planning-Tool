@@ -14,7 +14,8 @@
  */
 
 import { BadgeEuro } from 'lucide-react'
-import { Card, CardHeader, InfoTip, InlineName, NumberInput, Note, Toggle, cn } from './ui'
+import { Badge, Card, CardHeader, InfoTip, InlineName, NumberInput, Note, Toggle, cn } from './ui'
+import { SMI_HORA_EUR, porDebajoDelSmi } from '@/lib/contracts'
 import type { Block, Role } from '@/lib/types'
 
 const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' })
@@ -122,6 +123,9 @@ export function RoleCatalog({
                         className="w-20"
                       />
                       <span className="text-[0.78rem] font-medium text-content-secondary">/hora</span>
+                      {porDebajoDelSmi(role.hourlyCostEur) && (
+                        <Badge tone="warning">Por debajo del SMI</Badge>
+                      )}
                     </span>
 
                     <Toggle
@@ -140,7 +144,8 @@ export function RoleCatalog({
           Los puestos marcados como <strong>solo jornada completa</strong> no bajan nunca a un
           contrato parcial en el cuadrante, aunque sus horas quepan en uno. Es lo normal en los
           puestos de mando. Para añadir o quitar puestos, ve al paso de equipo: allí es donde hay
-          que decirles cuánta gente hace falta en cada tramo.
+          que decirles cuánta gente hace falta en cada tramo. Y si un coste baja de{' '}
+          {eur.format(SMI_HORA_EUR)} la hora te avisamos: es el mínimo legal de 2026.
         </Note>
       </div>
     </Card>

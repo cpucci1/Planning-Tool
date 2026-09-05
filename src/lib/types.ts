@@ -216,6 +216,13 @@ export interface Settings {
    */
   minRestBetweenShifts: boolean
   /**
+   * Ventas de una semana normal, en euros. Es el ÚNICO dato que la herramienta
+   * pide y no puede sacar del histórico, y sirve para el ratio con el que de
+   * verdad piensa un hostelero: cuánto se lleva el personal de lo que entra.
+   * `null` = no lo ha puesto, y entonces no se enseña ningún porcentaje.
+   */
+  weeklySalesEur: number | null
+  /**
    * Minutos de preparación antes de abrir y de cierre después de cerrar: la
    * mise en place, el montaje, la limpieza. El horario que edita el usuario es
    * el horario AL PÚBLICO; la gente entra antes y sale después.

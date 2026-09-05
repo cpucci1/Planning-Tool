@@ -171,6 +171,26 @@ export interface RoleCost {
  */
 export const WEEKS_PER_YEAR = 52
 
+/**
+ * Salario mínimo por hora, para avisar de que un coste se queda corto.
+ *
+ * Es la versión pequeña y segura de "meter el convenio": una cifra nacional
+ * que cambia una vez al año, en vez de cincuenta tablas provinciales que
+ * caducan a distinto ritmo y que nadie mantiene. Sale del SMI de 2026
+ * (1.221 € al mes en 14 pagas, RD 126/2026) repartido sobre la jornada de
+ * 40 h: 1.221 × 14 / 12 / (40 × 52 / 12).
+ *
+ * `SMI_DESDE` es la fecha de la cifra: sirve para avisar a quien vuelve con un
+ * plan guardado de antes de la última subida.
+ */
+export const SMI_HORA_EUR = 8.22
+export const SMI_DESDE = '2026-01-01'
+
+/** Coste por hora que se queda por debajo del mínimo legal. */
+export function porDebajoDelSmi(hourlyCostEur: number | null): boolean {
+  return hourlyCostEur !== null && hourlyCostEur > 0 && hourlyCostEur < SMI_HORA_EUR
+}
+
 export interface CostSummary {
   byRole: RoleCost[]
   /** Coste semanal de lo que SÍ tiene precio. */

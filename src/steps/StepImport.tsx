@@ -95,6 +95,18 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
+/** "hace 5 minutos" en vez de una fecha ISO: nadie lee una fecha para saber
+ *  si eso que hay guardado es de hoy o de la semana pasada. */
+function haceCuanto(iso: string): string {
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000))
+  if (min < 1) return 'hace un momento'
+  if (min < 60) return `hace ${min} ${min === 1 ? 'minuto' : 'minutos'}`
+  const h = Math.round(min / 60)
+  if (h < 24) return `hace ${h} ${h === 1 ? 'hora' : 'horas'}`
+  const d = Math.round(h / 24)
+  return `hace ${d} ${d === 1 ? 'día' : 'días'}`
+}
+
 export function StepImport() {
   const p = usePlanner()
   const inputId = useId()
@@ -243,6 +255,35 @@ export function StepImport() {
         ))}
       </div>
 
+      {/* Lo guardado se OFRECE, no se restaura solo: esta es la pantalla que
+          vende el producto, y a un visitante nuevo no le puede saltar encima
+          el plan de otro día antes de haberla visto. */}
+      {p.savedMeta && (
+        <div className="mt-8">
+          <Card className="animate-pop-in border-brand/30 bg-brand-light px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[0.95rem] font-bold text-content-primary">
+                  Sigues con {p.savedMeta.fileName}
+                </p>
+                <p className="mt-0.5 text-[0.82rem] text-content-secondary">
+                  {p.savedMeta.weeks} semanas de {p.savedMeta.year}, guardado {haceCuanto(p.savedMeta.savedAt)}.
+                  Se guarda solo en este navegador.
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <Button size="sm" onClick={p.resumeSaved} iconRight={<ArrowRight size={15} />}>
+                  Seguir donde lo dejé
+                </Button>
+                <Button size="sm" variant="ghost" onClick={p.discardSaved}>
+                  Empezar de cero
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
       {/* ── Subida / análisis ──────────────────────────────────── */}
       <div className="mt-10">
         {!working ? (
@@ -313,7 +354,6 @@ export function StepImport() {
               </div>
 
               <Button
-                variant="secondary"
                 size="lg"
                 className="mt-6"
                 onClick={() => void run(null)}
