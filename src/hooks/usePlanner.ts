@@ -219,15 +219,23 @@ export function usePlannerState() {
    */
   const lagged = useMemo(() => {
     if (!typical) return null
-    // El margen de seguridad va sobre la curva de comensales, antes de
-    // traducirla a personas: es "cuenta con algo más de gente de la que dice
-    // el histórico", no un ajuste de plantilla a posteriori.
-    const margin = 1 + Math.max(0, settings.safetyMarginPct) / 100
-    const cushioned =
-      margin === 1 ? typical : typical.map((day) => day.map((v) => Math.round(v * margin)))
-    const corrected = applyLag(cushioned, settings.lagMinutes)
+    const corrected = applyLag(typical, settings.lagMinutes)
     return hours ? clampToHours(corrected, hours) : corrected
-  }, [typical, settings.lagMinutes, settings.safetyMarginPct, hours])
+  }, [typical, settings.lagMinutes, hours])
+
+  /**
+   * La misma curva con el colchón de seguridad aplicado. Va SEPARADA de
+   * `lagged` a propósito: `lagged` es lo que se pinta en los gráficos con la
+   * etiqueta "comensales", y enseñar ahí un número inflado por una decisión de
+   * plantilla sería mentir sobre el dato. El colchón es política de personal,
+   * así que solo entra donde se traduce a personas.
+   */
+  const laggedStaffing = useMemo(() => {
+    if (!lagged) return null
+    const margin = 1 + Math.max(0, settings.safetyMarginPct || 0) / 100  // `|| 0`: ver CLAUDE.md, foto antigua sin el campo
+    if (margin === 1) return lagged
+    return lagged.map((day) => day.map((v) => Math.round(v * margin)))
+  }, [lagged, settings.safetyMarginPct])
 
   const inflation = useMemo(
     () => (weeks.length ? typicalWeekInflation(weeks, settings.coveragePct, sorted) : null),
@@ -244,13 +252,16 @@ export function usePlannerState() {
    * sigue en `needGrid` de abajo.
    */
   const needGridDemand = useMemo(() => {
-    if (!lagged) return null
-    let grid = buildNeedGrid(lagged, model)
+    if (!laggedStaffing) return null
+    let grid = buildNeedGrid(laggedStaffing, model)
     // El horario propio de cocina solo RECORTA su necesidad, nunca la amplía
     // más allá de lo que ya marca el horario general — ver `clampNeedToBlockHours`.
     if (kitchenHours) grid = clampNeedToBlockHours(grid, model, KITCHEN_BLOCK_ID, kitchenHours)
-    return grid
-  }, [lagged, model, kitchenHours])
+    // El techo del tramo entra YA aquí, no solo al final: si el suelo está en
+    // esta rejilla y el techo no, los picos se estiman con una plantilla que
+    // el plan se niega a montar.
+    return clampToTierMax(grid, laggedStaffing, model)
+  }, [laggedStaffing, model, kitchenHours])
 
   const needGrid = useMemo(() => {
     if (!needGridDemand) return null
@@ -265,14 +276,14 @@ export function usePlannerState() {
       // La ventana del mínimo incluye la preparación y el cierre: es
       // justamente la gente que entra antes y sale después (ver `expandHours`).
       const withPrep = (h: OpeningHours) =>
-        expandHours(h, settings.prepBeforeMin, settings.prepAfterMin)
+        expandHours(h, settings.prepBeforeMin || 0, settings.prepAfterMin || 0)
       grid = applyOpeningMinimums(needGridDemand, model, minStaffByBlock, (blockId) =>
         withPrep(blockId === KITCHEN_BLOCK_ID && kitchenHours ? kitchenHours : hours),
       )
     }
-    // El techo por tramo va el último: si se pudiera saltar por el mínimo por
-    // local, no sería un techo.
-    return lagged ? clampToTierMax(grid, lagged, model) : grid
+    // Y se vuelve a aplicar al final: si el mínimo por local se lo pudiera
+    // saltar, no sería un techo.
+    return laggedStaffing ? clampToTierMax(grid, laggedStaffing, model) : grid
   }, [
     needGridDemand,
     model,
@@ -281,7 +292,7 @@ export function usePlannerState() {
     settings.minStaffByBlock,
     settings.prepBeforeMin,
     settings.prepAfterMin,
-    lagged,
+    laggedStaffing,
   ])
 
   const needSummary = useMemo(

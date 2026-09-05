@@ -435,14 +435,26 @@ export function TiersTable({
     // Se prerrellena copiando el tramo de arriba: es lo que el usuario iba a
     // hacer de todas formas, y así solo corrige lo que cambia.
     const staff = { ...base.staff }
+    // Los límites se copian igual que el objetivo: duplicar un tramo y perder
+    // por el camino su suelo y su techo sorprende y no se ve.
+    const limits = {
+      staffMin: { ...(base.staffMin ?? {}) },
+      staffMax: { ...(base.staffMax ?? {}) },
+    }
 
     if (index === list.length - 1) {
       // El último tramo es el abierto: pasa a tener techo y el nuevo hereda el "o más".
       const to = Number.isFinite(base.to) ? base.to : base.from + width - 1
       list[index] = { ...base, to }
-      list.push({ id: newId('t'), from: to + 1, to: Number.POSITIVE_INFINITY, staff })
+      list.push({ id: newId('t'), from: to + 1, to: Number.POSITIVE_INFINITY, staff, ...limits })
     } else {
-      list.splice(index + 1, 0, { id: newId('t'), from: base.to + 1, to: base.to + width, staff })
+      list.splice(index + 1, 0, {
+        id: newId('t'),
+        from: base.to + 1,
+        to: base.to + width,
+        staff,
+        ...limits,
+      })
     }
     commitChain(list)
   }
@@ -475,7 +487,11 @@ export function TiersTable({
       tiers.map((t) => {
         const staff = { ...t.staff }
         delete staff[id]
-        return { ...t, staff }
+        const staffMin = { ...(t.staffMin ?? {}) }
+        const staffMax = { ...(t.staffMax ?? {}) }
+        delete staffMin[id]
+        delete staffMax[id]
+        return { ...t, staff, staffMin, staffMax }
       }),
     )
   }
@@ -511,9 +527,23 @@ export function TiersTable({
     )
   }
 
+  /**
+   * Los precios y el "solo jornada completa" se rellenan en el catálogo, en
+   * otro paso, y no tienen nada que ver con los números de esta tabla. Al
+   * restaurar los valores de ejemplo se conservan para los puestos que
+   * sobreviven: perderlos sin avisar deja la pantalla de coste en blanco y
+   * nadie relaciona una cosa con la otra.
+   */
+  function keepPrices(next: Role[]): Role[] {
+    return next.map((r) => {
+      const prev = roles.find((x) => x.id === r.id)
+      return prev ? { ...r, hourlyCostEur: prev.hourlyCostEur, fullTimeOnly: prev.fullTimeOnly } : r
+    })
+  }
+
   function restoreDefaults() {
     onBlocksChange(DEFAULT_BLOCKS)
-    onRolesChange(DEFAULT_ROLES)
+    onRolesChange(keepPrices(DEFAULT_ROLES))
     onTiersChange(DEFAULT_TIERS)
   }
 

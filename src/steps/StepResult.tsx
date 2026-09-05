@@ -30,7 +30,7 @@ import { DayCurve } from '@/components/charts/DayCurve'
 import { WeekHeatmap } from '@/components/charts/WeekHeatmap'
 import { YearChart } from '@/components/charts/YearChart'
 import { usePlanner } from '@/hooks/usePlanner'
-import { describeMix, fteFrom, summarizeCost } from '@/lib/contracts'
+import { WEEKS_PER_YEAR, describeMix, fteFrom, summarizeCost } from '@/lib/contracts'
 import { riskRatio } from '@/lib/demand'
 import { downloadPlanCsv } from '@/lib/export'
 import { downloadReport } from '@/lib/report'
@@ -161,12 +161,14 @@ export function StepResult() {
    * plantilla: los extras no son de un puesto concreto, así que ponerles el
    * precio del jefe de cocina o el del office sería igual de arbitrario.
    */
-  const cost = summarizeCost(roster, model, weeks.length)
+  const cost = summarizeCost(roster, model)
   const weeklyCostEur = cost?.weeklyEur ?? null
   const annualCostEur = cost?.annualEur ?? null
   const avgHourlyCost = cost?.avgHourlyEur ?? null
+  // 52 semanas, no las analizadas: a esa gente se le paga el año entero, que
+  // es justamente el argumento.
   const peakHiredAnnualCostEur = avgHourlyCost
-    ? extraPeopleIfHired * 40 * weeks.length * avgHourlyCost
+    ? extraPeopleIfHired * 40 * WEEKS_PER_YEAR * avgHourlyCost
     : null
   const peakOnlyAnnualCostEur = avgHourlyCost ? peaks.peakHoursPerYear * avgHourlyCost : null
 

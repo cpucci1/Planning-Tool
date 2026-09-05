@@ -254,11 +254,23 @@ export function StepDemand() {
     return bestIndex
   }, [typical])
 
-  /** 2.1 — cuánto sobra la plantilla en las semanas que sí cubre. */
-  const over = useMemo(
-    () => (p.coverage ? overcoverage(dataset?.weeks ?? [], p.coverage.threshold) : null),
-    [dataset, p.coverage],
-  )
+  /**
+   * 2.1 — cuánto sobra la plantilla en las semanas que sí cubre.
+   *
+   * Sobre `p.weeks` (las utilizables), NO sobre el histórico entero: la línea
+   * de cobertura se calcula con esas mismas, y las semanas excluidas son
+   * justo los cierres de agosto, que con 30 comensales darían un "sobra un
+   * 4000%" que no significa nada.
+   */
+  const over = useMemo(() => {
+    if (!p.coverage) return null
+    // Contra la capacidad de verdad: si hay colchón, la plantilla está
+    // dimensionada por encima de la línea y la sobrecobertura es mayor.
+    // Medirla contra la línea pelada dejaría el contrapeso corto justo cuando
+    // más gente sobra.
+    const conColchon = p.coverage.threshold * (1 + Math.max(0, p.settings.safetyMarginPct) / 100)
+    return overcoverage(p.weeks, conColchon)
+  }, [p.weeks, p.coverage, p.settings.safetyMarginPct])
 
   const mappingLines = useMemo(
     () => (dataset ? describeMapping(dataset.year, dataset.year + 1) : []),
@@ -675,6 +687,20 @@ export function StepDemand() {
                 }))}
               />
             </Field>
+
+            {/* Sin ningún mínimo puesto, la preparación no cambia nada: no hay
+                comensales a esa hora, así que no hay a quién estirar. Decirlo,
+                en vez de dejar al usuario tocando un control muerto. */}
+            {(p.settings.prepBeforeMin > 0 || p.settings.prepAfterMin > 0) &&
+              !Object.values(p.settings.minStaffByBlock).some((v) => v > 0) && (
+                <div className="sm:col-span-2">
+                  <Note tone="warning">
+                    La preparación y el cierre no cambian nada mientras no pongas un mínimo arriba:
+                    a esas horas no hay comensales, así que lo único que puede haber es la gente que
+                    abre y cierra, y eso sale del mínimo por local.
+                  </Note>
+                </div>
+              )}
           </div>
         </Card>
         )}

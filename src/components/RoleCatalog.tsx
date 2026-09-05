@@ -59,13 +59,18 @@ export function RoleCatalog({
           avg !== null ? (
             <div className="text-right whitespace-nowrap">
               <div className="text-[0.7rem] font-bold tracking-wide text-content-secondary uppercase">
-                Media
+                Media del catálogo
               </div>
               <div className="mt-1 text-[1.25rem] leading-none font-black tracking-tight text-content-primary">
                 {eur.format(avg)}
               </div>
               <div className="mt-1 text-[0.75rem] font-medium text-content-secondary">
                 {priced.length} de {roles.length} con precio
+              </div>
+              {/* Se avisa de que NO es el coste medio de la plantilla: aquel va
+                  ponderado por horas y sale distinto. */}
+              <div className="mt-0.5 text-[0.7rem] font-medium text-content-muted">
+                sin contar cuánta gente hay de cada
               </div>
             </div>
           ) : undefined

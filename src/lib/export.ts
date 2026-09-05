@@ -56,14 +56,17 @@ export function buildPlanCsv(input: ExportInput): string {
       const own = input.roster.people.filter((p) => p.roleId === role.id)
       if (own.length === 0) continue
       const h = own.reduce((a, p) => a + p.contractHours, 0)
+      // Misma guarda que `summarizeCost`: un precio a 0, nulo o roto es "sin
+      // definir", no un coste de cero euros.
       const c = role.hourlyCostEur
+      const tienePrecio = c !== null && Number.isFinite(c) && c > 0
       add(
         block.name,
         role.name,
         own.length,
         h,
-        c !== null ? c : 'sin definir',
-        c !== null ? Math.round(h * c) : 'sin definir',
+        tienePrecio ? c : 'sin definir',
+        tienePrecio ? Math.round(h * c) : 'sin definir',
       )
     }
   }
@@ -142,11 +145,15 @@ export function buildPlanCsv(input: ExportInput): string {
 
 /** Descarga el CSV completo. El BOM es para que Excel no rompa los acentos. */
 export function downloadPlanCsv(input: ExportInput): void {
-  const blob = new Blob(['﻿', buildPlanCsv(input)], { type: 'text/csv;charset=utf-8;' })
+  const blob = new Blob(['\uFEFF', buildPlanCsv(input)], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = 'plantilla-completa-shifty.csv'
+  // Enganchado al documento antes de pulsarlo: un enlace suelto no descarga
+  // en Firefox. Mismo patrón que el CSV del cuadrante y que persistence.ts.
+  document.body.appendChild(a)
   a.click()
+  a.remove()
   URL.revokeObjectURL(url)
 }

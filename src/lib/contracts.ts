@@ -164,6 +164,13 @@ export interface RoleCost {
   weeklyEur: number | null
 }
 
+/**
+ * Un año de nómina son 52 semanas, siempre. NO las semanas que queden en el
+ * análisis: excluir la Navidad del cálculo de la demanda no hace que ese mes
+ * no se pague.
+ */
+export const WEEKS_PER_YEAR = 52
+
 export interface CostSummary {
   byRole: RoleCost[]
   /** Coste semanal de lo que SÍ tiene precio. */
@@ -190,7 +197,7 @@ export interface CostSummary {
 export function summarizeCost(
   roster: Roster,
   model: StaffingModel,
-  weeksPerYear: number,
+  weeksPerYear = WEEKS_PER_YEAR,
 ): CostSummary | null {
   const byRole: RoleCost[] = []
   let weeklyEur = 0

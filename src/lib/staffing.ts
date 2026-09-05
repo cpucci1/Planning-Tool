@@ -106,9 +106,13 @@ export function applyOpeningMinimums(
   for (const block of model.blocks) {
     const min = minimumsByBlock[block.id] ?? 0
     if (min <= 0) continue
-    // El mínimo lo cubre el primer puesto declarado del bloque: es el
-    // responsable de abrir, y así el cuadrante le asigna a alguien concreto.
-    const role = model.roles.find((r) => r.blockId === block.id)
+    // El mínimo lo cubre el primer puesto del bloque que NO sea de solo
+    // jornada completa. Si cayera en uno de mando, abrir y cerrar (unas 20 h)
+    // obligaría a un contrato de 40 h y el resto serían horas pagadas sin
+    // trabajo. Si todos los puestos del bloque son de mando, se usa el
+    // primero: alguien tiene que abrir.
+    const own = model.roles.filter((r) => r.blockId === block.id)
+    const role = own.find((r) => !r.fullTimeOnly) ?? own[0]
     if (!role) continue
     const hours = hoursForBlock(block.id)
 
@@ -230,6 +234,26 @@ export function validateTiers(tiers: Tier[]): { tierId: string; message: string 
     const t = sorted[i]
     if (t.to < t.from) {
       issues.push({ tierId: t.id, message: 'El final del tramo es menor que el inicio.' })
+    }
+
+    // Un techo por debajo del objetivo (o del suelo) se aplica igualmente,
+    // pero la celda sigue enseñando el número grande: el usuario ve 7 y el
+    // plan monta 5 sin que nada lo explique.
+    for (const [roleId, max] of Object.entries(t.staffMax ?? {})) {
+      if (max <= 0) continue
+      const target = t.staff[roleId] ?? 0
+      const min = t.staffMin?.[roleId] ?? 0
+      if (min > max) {
+        issues.push({
+          tierId: t.id,
+          message: `Hay un puesto con el mínimo (${min}) por encima del máximo (${max}).`,
+        })
+      } else if (target > max) {
+        issues.push({
+          tierId: t.id,
+          message: `Hay un puesto con ${target} de objetivo pero un máximo de ${max}: manda el máximo.`,
+        })
+      }
     }
     const prev = sorted[i - 1]
     if (prev) {

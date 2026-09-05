@@ -41,8 +41,10 @@ export function CriteriaModal({
       subtitle="Todo lo que ha entrado en el cálculo. Toca cualquiera para ir a cambiarlo."
     >
       <ul className="divide-y divide-border-soft">
-        {criteria.map((c) => (
-          <li key={c.label}>
+        {criteria.map((c, i) => (
+          // Por índice: dos bloques pueden llamarse igual y la etiqueta no es
+          // única ("Mínimo en Terraza" dos veces).
+          <li key={`${c.label}-${i}`}>
             <button
               type="button"
               onClick={() => {
