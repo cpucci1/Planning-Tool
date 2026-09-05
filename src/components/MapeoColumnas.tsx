@@ -14,8 +14,8 @@
  * ahí es una ESTIMA a partir de tickets, nunca un dato del fichero.
  */
 
-import { ArrowRight, TriangleAlert } from 'lucide-react'
-import { Badge, Button, Card, CardHeader, Field, InfoTip, Note, NumberInput, cn } from './ui'
+import { TriangleAlert } from 'lucide-react'
+import { Badge, Card, CardHeader, Field, InfoTip, Note, NumberInput, cn } from './ui'
 
 export type DestinoColumna = 'fecha' | 'hora' | 'comensales' | 'tickets' | 'importe' | 'ignorada'
 
@@ -42,16 +42,28 @@ const DESTINO_OPTIONS: { value: DestinoColumna; label: string }[] = [
   { value: 'ignorada', label: 'No la uses' },
 ]
 
+/**
+ * ¿Se puede seguir con este mapeo? Vive fuera del componente porque quien
+ * bloquea el paso es el "Siguiente" del pie, no un botón de aquí dentro: la
+ * pantalla tenía dos botones grandes compitiendo y se quitó el de la tarjeta.
+ * Sin exportar esta condición, el aviso de "marca qué columna es la fecha"
+ * quedaba en un cartel que no impedía nada.
+ */
+export function mapeoSuficiente(columnas: ColumnaDetectada[]): boolean {
+  const tieneFecha = columnas.some((c) => c.destino === 'fecha')
+  const tieneComensales = columnas.some((c) => c.destino === 'comensales')
+  const tieneTickets = columnas.some((c) => c.destino === 'tickets')
+  return tieneFecha && (tieneComensales || tieneTickets)
+}
+
 export function MapeoColumnas({
   columnas,
   onChange,
-  onConfirmar,
   comensalesPorTicket,
   onComensalesPorTicket,
 }: {
   columnas: ColumnaDetectada[]
   onChange: (columnas: ColumnaDetectada[]) => void
-  onConfirmar: () => void
   /** Solo se usa si NINGUNA columna es 'comensales'. */
   comensalesPorTicket: number
   onComensalesPorTicket: (v: number) => void
@@ -59,7 +71,7 @@ export function MapeoColumnas({
   const tieneFecha = columnas.some((c) => c.destino === 'fecha')
   const tieneComensales = columnas.some((c) => c.destino === 'comensales')
   const tieneTickets = columnas.some((c) => c.destino === 'tickets')
-  const puedeConfirmar = tieneFecha && (tieneComensales || tieneTickets)
+  const puedeConfirmar = mapeoSuficiente(columnas)
 
   function setDestino(nombre: string, destino: DestinoColumna) {
     onChange(columnas.map((c) => (c.nombre === nombre ? { ...c, destino } : c)))
@@ -109,9 +121,14 @@ export function MapeoColumnas({
                       <span className="truncate text-[0.92rem] font-bold text-content-primary">
                         {c.nombre}
                       </span>
-                      <Badge tone={dudosa ? 'warning' : 'success'}>
-                        {Math.round(c.confianza * 100)}% {dudosa ? 'revisar' : 'segura'}
-                      </Badge>
+                      {/* Solo cuando hay algo que mirar. Cinco insignias de
+                          "94% segura" en la primera pantalla útil son cinco
+                          cifras que no piden nada: ruido con aspecto de dato. */}
+                      {dudosa && (
+                        <Badge tone="warning">
+                          {Math.round(c.confianza * 100)}%, échale un ojo
+                        </Badge>
+                      )}
                     </div>
 
                     {c.ejemplos.length > 0 && (
@@ -196,21 +213,18 @@ export function MapeoColumnas({
         </div>
       )}
 
-      <div className="flex flex-col items-center gap-3 border-t border-border-soft px-4 py-5 sm:px-6">
-        <Button
-          size="lg"
-          onClick={onConfirmar}
-          disabled={!puedeConfirmar}
-          iconRight={<ArrowRight size={18} />}
-        >
-          Confirmar y calcular
-        </Button>
-        {!puedeConfirmar && (
-          <p className="max-w-md text-center text-[0.82rem] leading-relaxed font-semibold text-warning">
+      {/* Ya no hay botón propio aquí. La pantalla tenía dos botones grandes
+          haciendo lo mismo: este y el "Siguiente" del pie del paso, y con dos
+          no se sabe cuál es el que avanza. Se queda solo el aviso de lo que
+          falta, que es la parte que aportaba de verdad. */}
+      {!puedeConfirmar && (
+        <div className="border-t border-border-soft px-4 py-4 sm:px-6">
+          <p className="flex items-start gap-1.5 text-[0.82rem] leading-relaxed font-semibold text-warning">
+            <TriangleAlert size={14} className="mt-0.5 shrink-0" />
             {queFalta()}
           </p>
-        )}
-      </div>
+        </div>
+      )}
     </Card>
   )
 }

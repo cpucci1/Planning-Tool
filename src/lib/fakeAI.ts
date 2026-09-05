@@ -143,9 +143,10 @@ export async function analyzeFile(
   for (let i = 0; i < ANALYSIS_STEPS.length; i++) {
     onProgress?.({ step: i, label: ANALYSIS_STEPS[i].label, detail: ANALYSIS_STEPS[i].detail })
     // Los pasos no duran lo mismo: leer es rápido, "entender" tarda. Que el
-    // ritmo sea irregular es lo que hace que parezca trabajo de verdad.
-    const base = i === 0 ? 320 : i === 2 ? 780 : 520
-    await new Promise((r) => setTimeout(r, (base + (seed % 200)) / speed))
+    // ritmo sea irregular es lo que hace que parezca trabajo de verdad. Con
+    // datos de ejemplo nadie quiere esperar: el total ronda los 3 segundos.
+    const base = i === 0 ? 250 : i === 2 ? 600 : 400
+    await new Promise((r) => setTimeout(r, (base + (seed % 150)) / speed))
   }
 
   // El año del histórico es el anterior completo.

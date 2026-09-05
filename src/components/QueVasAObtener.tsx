@@ -50,10 +50,10 @@ const ROSTER_ROWS: { name: string; shifts: (string | null)[] }[] = [
 
 /** Ejemplo ilustrativo con precio puesto a mano — ver nota de cabecera. */
 const ROLE_COSTS = [
-  { name: 'Encargado', pct: 45, color: '#4C1D95' },
+  { name: 'Encargado', pct: 45, color: 'var(--color-brand-dark)' },
   { name: 'Camarero', pct: 100, color: 'var(--color-brand-secondary)' },
   { name: 'Cocinero', pct: 62, color: 'var(--color-warning)' },
-  { name: 'Ayudante', pct: 38, color: '#0EA5E9' },
+  { name: 'Ayudante', pct: 38, color: 'var(--color-info)' },
 ]
 
 /**

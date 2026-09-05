@@ -278,8 +278,14 @@ export function DayCurve({
     hover === null ? 0 : Math.min(Math.max(xMid(hover), 78), Math.max(78, width - 78))
 
   return (
-    <div className={cn('w-full', className)}>
-      <div ref={wrapRef} className="relative w-full" style={{ height: h }}>
+    <div className={cn('relative w-full', className)}>
+      {/* `overflow-hidden` no es decorativo: el ancho del SVG sale de medir este
+          mismo contenedor, así que sin recorte un SVG que se queda ancho ensancha
+          a su padre y la medida siguiente vuelve a salir ancha. El bucle se nota
+          al girar el móvil estando ya en la pantalla: la página se quedaba con
+          scroll lateral y el gráfico no volvía a encoger. El tooltip vive dentro
+          y ya va sujeto a los bordes, así que no se recorta nada visible. */}
+      <div ref={wrapRef} className="relative w-full overflow-hidden" style={{ height: h }}>
         {width > 0 && (
           <svg
             ref={svgRef}
@@ -463,40 +469,46 @@ export function DayCurve({
           </span>
         )}
 
-        {hover !== null && (
-          <div
-            className="animate-fade-in pointer-events-none absolute z-20 -translate-x-1/2 rounded-lg border border-border-soft bg-surface-elevated px-3 py-2 shadow-lg"
-            style={{ left: tipX, top: padT + 2 }}
-          >
-            <div className="text-[0.72rem] font-bold text-content-primary">
-              {formatSlot(hover)} - {formatSlot(hover + 1)}
-            </div>
-            <div className="mt-1 space-y-0.5 text-[0.72rem] font-medium whitespace-nowrap text-content-secondary">
-              <div>
-                <span className="font-bold text-brand">{Math.round(tipCovers)}</span> comensales
-              </div>
-              {laggedCovers && (
-                <div>
-                  <span className="font-bold text-brand/70">{Math.round(tipLagged)}</span> con
-                  desgaste
-                </div>
-              )}
-              {hasPeople && (
-                <div>
-                  <span className="font-bold text-content-primary">{fmtPeople(tipPeople)}</span>{' '}
-                  {tipPeople === 1 ? 'persona' : 'personas'}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
+
+      {/* El tooltip va AQUÍ, fuera del contenedor recortado, y no dentro: el
+          `overflow-hidden` de arriba hace falta para que el SVG no se ensanche
+          a sí mismo, pero recortaría también este globo cuando cae pegado a un
+          borde. Fuera puede sobresalir un poco sobre el margen de la tarjeta,
+          que es lo que hacía antes. Las coordenadas son las mismas porque el
+          contenedor recortado es el primer hijo y arranca en este mismo punto. */}
+      {hover !== null && (
+        <div
+          className="animate-fade-in pointer-events-none absolute z-20 -translate-x-1/2 rounded-lg border border-border-soft bg-surface-elevated px-3 py-2 shadow-lg"
+          style={{ left: tipX, top: padT + 2 }}
+        >
+          <div className="text-[0.72rem] font-bold text-content-primary">
+            {formatSlot(hover)} - {formatSlot(hover + 1)}
+          </div>
+          <div className="mt-1 space-y-0.5 text-[0.72rem] font-medium whitespace-nowrap text-content-secondary">
+            <div>
+              <span className="font-bold text-brand">{Math.round(tipCovers)}</span> comensales
+            </div>
+            {laggedCovers && (
+              <div>
+                <span className="font-bold text-brand/70">{Math.round(tipLagged)}</span> hora real
+              </div>
+            )}
+            {hasPeople && (
+              <div>
+                <span className="font-bold text-content-primary">{fmtPeople(tipPeople)}</span>{' '}
+                {tipPeople === 1 ? 'persona' : 'personas'}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {!compact && (
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 text-[0.72rem] font-semibold text-content-secondary">
           <LegendDot color="var(--color-brand)" label="Comensales" />
           {laggedCovers && (
-            <LegendDot color="var(--color-brand)" faded dashed label="Con desgaste" />
+            <LegendDot color="var(--color-brand)" faded dashed label="Hora real del servicio" />
           )}
           {hasPeople && <LegendDot color="var(--color-content-primary)" label="Personas necesarias" />}
           {closedRuns.length > 0 && <LegendDot color="var(--color-surface)" bordered label="Cerrado" />}

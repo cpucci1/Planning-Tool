@@ -30,8 +30,12 @@ import { YearChart } from '@/components/charts/YearChart'
 import { WeekHeatmap } from '@/components/charts/WeekHeatmap'
 import { DayCurve } from '@/components/charts/DayCurve'
 import { HoursEditor } from '@/components/HoursEditor'
-import { RoleCatalog } from '@/components/RoleCatalog'
-import { MapeoColumnas, type ColumnaDetectada, type DestinoColumna } from '@/components/MapeoColumnas'
+import {
+  MapeoColumnas,
+  mapeoSuficiente,
+  type ColumnaDetectada,
+  type DestinoColumna,
+} from '@/components/MapeoColumnas'
 import {
   Badge,
   Button,
@@ -175,12 +179,16 @@ function SubNav({
   onNext,
   nextLabel,
   nextHint,
+  nextDisabled,
 }: {
   index: number
   onBack: () => void
   onNext: () => void
   nextLabel: string
   nextHint?: string
+  /** Bloquea el avance. Se usa en la lectura del fichero: sin saber qué columna
+   *  es la fecha no hay nada que calcular, y antes se podía seguir igualmente. */
+  nextDisabled?: boolean
 }) {
   return (
     <div className="flex flex-col items-center gap-3 pt-2 pb-4">
@@ -192,7 +200,7 @@ function SubNav({
         ) : (
           <span aria-hidden="true" />
         )}
-        <Button size="lg" onClick={onNext} iconRight={<ArrowRight size={18} />}>
+        <Button size="lg" onClick={onNext} disabled={nextDisabled} iconRight={<ArrowRight size={18} />}>
           {nextLabel}
         </Button>
       </div>
@@ -353,17 +361,12 @@ export function StepDemand() {
           <MapeoColumnas
             columnas={mapeo}
             onChange={setMapeo}
-            onConfirmar={() => setSub(1)}
             comensalesPorTicket={comensalesPorTicket}
             onComensalesPorTicket={setComensalesPorTicket}
           />
         </div>
       </Card>
 
-      {/* El catálogo de puestos vive aquí, antes que los tramos: primero qué
-          categorías hay y qué cuestan, y en el paso de equipo cuánta gente de
-          cada una. Ver `RoleCatalog`. */}
-      <RoleCatalog blocks={p.model.blocks} roles={p.model.roles} onRolesChange={p.setRoles} />
       </div>
       )}
 
@@ -444,7 +447,7 @@ export function StepDemand() {
                       punto que subes aquí es plantilla de más las 52 semanas.
                     </InfoTip>
                   </div>
-                  <div className="mt-2">
+                  <div className="scroll-thin -mx-1 mt-2 overflow-x-auto px-1 pb-1">
                     <Segmented
                       value={String(p.settings.safetyMarginPct)}
                       onChange={(v) =>
@@ -611,7 +614,7 @@ export function StepDemand() {
             </Field>
 
             <Field
-              label="Cierre después de cerrar"
+              label="Recogida al terminar"
               info={
                 <InfoTip title="El cierre">
                   Recoger, limpiar y cuadrar la caja. Igual que la preparación: durante ese rato se
@@ -861,7 +864,12 @@ export function StepDemand() {
                       </div>
 
                       {(() => {
-                        const sug = sugerirNombreSemana(territorio, s.isoWeek, s.deviation)
+                        // Solo para los picos que el calendario no ha sabido
+                        // nombrar, y solo mientras el usuario no lo haya
+                        // confirmado él: encima de una semana ya identificada
+                        // la sugerencia sobra y estorba.
+                        const sinNombre = s.kind === 'fiesta-local' && !s.confirmed
+                        const sug = sugerirNombreSemana(territorio, s.isoWeek, s.deviation, sinNombre)
                         if (!sug || s.label === sug.nombre) return null
                         return (
                           <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-brand-light px-2.5 py-2">
@@ -1053,6 +1061,7 @@ export function StepDemand() {
       {/* ── 6. Siguiente ─────────────────────────────────────────── */}
       <SubNav
         index={sub}
+        nextDisabled={sub === 0 && !mapeoSuficiente(mapeo)}
         onBack={() => setSub((s) => Math.max(0, s - 1))}
         onNext={() => {
           if (sub < DEMAND_SUBSTEPS.length - 1) setSub((s) => s + 1)

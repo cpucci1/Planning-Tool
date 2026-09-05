@@ -81,6 +81,23 @@ function fitFontPx(ctx: CanvasRenderingContext2D, text: string, maxWidth: number
   return size
 }
 
+/**
+ * Recorta con puntos suspensivos lo que no quepa.
+ *
+ * Encoger la letra tiene un suelo (por debajo de cierto tamaño no se lee en un
+ * móvil), así que hace falta la segunda red: los nombres los escribe el
+ * usuario a mano y no tienen límite, y un nombre con dos apellidos largos se
+ * salía del lienzo por la derecha.
+ */
+function recortarAlAncho(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (ctx.measureText(text).width <= maxWidth) return text
+  let corto = text
+  while (corto.length > 1 && ctx.measureText(`${corto}…`).width > maxWidth) {
+    corto = corto.slice(0, -1)
+  }
+  return `${corto}…`
+}
+
 /** Envuelve texto por palabras al ancho dado. Con los dos bloques de una
  *  jornada partida el texto cabe casi siempre en una línea (ver el análisis
  *  en la respuesta); esto es solo la red de seguridad para cuando no cabe. */
@@ -146,14 +163,15 @@ export function descargarTurnoPersona(person: Person, shifts: Shift[], roleName:
   ctx.font = `bold 32px ${FONT_STACK}`
   ctx.fillText('TU TURNO DE LA SEMANA', IMG_PAD, 64)
 
-  const nameSize = fitFontPx(ctx, person.label, IMG_W - IMG_PAD * 2, 80, 42)
+  const anchoUtil = IMG_W - IMG_PAD * 2
+  const nameSize = fitFontPx(ctx, person.label, anchoUtil, 80, 42)
   ctx.fillStyle = '#FFFFFF'
   ctx.font = `bold ${nameSize}px ${FONT_STACK}`
-  ctx.fillText(person.label, IMG_PAD, 168)
+  ctx.fillText(recortarAlAncho(ctx, person.label, anchoUtil), IMG_PAD, 168)
 
   ctx.fillStyle = 'rgba(255,255,255,0.85)'
   ctx.font = `40px ${FONT_STACK}`
-  ctx.fillText(roleName, IMG_PAD, 224)
+  ctx.fillText(recortarAlAncho(ctx, roleName, anchoUtil), IMG_PAD, 224)
 
   // ── Los siete días, uno por fila ──
   const boxY = IMG_H - IMG_FOOTER_H

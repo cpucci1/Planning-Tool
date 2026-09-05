@@ -372,7 +372,7 @@ export function TiersTable({
     const orphans = roles.filter((r) => !blocks.some((b) => b.id === r.blockId))
     if (orphans.length) {
       gs.push({
-        block: { id: ORPHAN_BLOCK_ID, name: 'Sin bloque', color: '#A1A1AA' },
+        block: { id: ORPHAN_BLOCK_ID, name: 'Sin bloque', color: 'var(--color-content-muted)' },
         roles: orphans,
       })
     }
@@ -955,9 +955,7 @@ export function TiersTable({
             </Button>
           </div>
           <p className="text-[0.78rem] font-medium text-content-muted">
-            Tab avanza por la fila, Enter baja al tramo siguiente y las flechas suben y bajan el
-            número. El <Plus size={11} className="inline -translate-y-px" strokeWidth={3} /> de la
-            cabecera añade una categoría, como Terraza.
+            Tab pasa a la siguiente celda y Enter baja al tramo de abajo.
           </p>
         </div>
       </Card>

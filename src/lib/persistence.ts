@@ -92,6 +92,7 @@ function isSnapshot(v: unknown): v is PlannerSnapshot {
     // calcular con un hueco.
     typeof (s.settings as Settings).safetyMarginPct === 'number' &&
     typeof (s.settings as Settings).prepBeforeMin === 'number' &&
+    typeof (s.settings as Settings).prepAfterMin === 'number' &&
     !!(s.settings as Settings).minStaffByBlock
   )
 }

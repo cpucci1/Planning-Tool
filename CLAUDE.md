@@ -485,6 +485,97 @@ que la herramienta hace. Se puede porque todo ese dataset es de mentira y está 
 como tal; en el fichero de una persona **jamás** se rellena un precio, y por eso el relleno
 va detrás de `dataset.source.isDemo`.
 
+### 2 undecies. El orden de la pantalla de resultado, y por qué
+
+Revisión de usabilidad del 2026-09-05. El resultado se leía mal por **dónde estaba cada
+cosa**, no por lo que decía:
+
+- **El cuadrante baja al final y va plegado.** Mide más de 2.000 px en ordenador y unos
+  9.000 en móvil: dejaba enterrado todo lo que iba detrás, incluido el argumento de
+  Shifty. Plegado, la pantalla de móvil pasa de 15.900 px a 7.200. Quien viene a ver el
+  cuadrante lo abre; quien viene a ver el número no tiene que pasarlo por encima.
+- **Los picos suben** por delante del cuadrante.
+- **"Cobertura" significaba dos cosas**: el porcentaje de la línea y "está todo cubierto".
+  En el cuadrante pasa a ser "Sin cubrir · 0 h".
+- **Un botón por acción.** El mapeo de columnas tenía su propio "Confirmar y calcular"
+  compitiendo con el "Siguiente" del pie del paso; se queda solo el aviso de lo que falta.
+  Y los cinco botones iguales del final son ahora dos importantes y tres pequeños. El PDF
+  aparece dos veces a propósito (arriba y abajo), pero **con el mismo nombre**: repetir una
+  acción en una página larga está bien, llamarla de dos maneras no.
+- **El catálogo de puestos se muda al paso de Equipo.** Estaba en la pantalla de lectura
+  del fichero, tres pasos antes de que esos puestos aparecieran como columnas de la tabla
+  de tramos, y allí no se entendía para qué servía.
+
+### 2 duodecies. Lo que la revisión dice que SÍ cumple
+
+`comprobacionesHechas` (`lib/avisos.ts`) devuelve qué comprobaciones se han llegado a
+hacer, para que la pantalla pueda decir "lo demás está en regla" y no solo lo que falla.
+Una lista con dos avisos sueltos deja sin saber si el resto se ha mirado, y esa duda es la
+que hace que nadie se fíe del resultado.
+
+No entra en la lista lo que el usuario ha apagado: si no ha pedido libranzas seguidas,
+decirle que las cumple sería apuntarse un tanto que no existe.
+
+Las tres métricas también dejaron de repetirse entre ellas: "la franja con más sobra"
+decía lo mismo que la lista de justo debajo, así que ahora es **el total de horas de más
+sobre las horas contratadas**, que es una cifra distinta y comparable. Y a comensales por
+hora **no se le pone un baremo de industria**, porque no lo hay: un menú del día y un
+restaurante de mantel no se parecen. Se dice contra qué sí se puede comparar, que es
+contra uno mismo dentro de tres meses.
+
+### 2 terdecies. La sugerencia de festivo solo donde no hay nombre
+
+`sugerirNombreSemana` recibe ahora `sinNombre` y solo propone para los picos que el
+calendario **no ha sabido nombrar** (`kind === 'fiesta-local'` y sin confirmar por el
+usuario). Antes se ofrecía encima de una semana ya etiquetada como Semana Santa la
+propuesta de llamarla Feria de Abril. **Una sugerencia que discute con un dato correcto
+enseña a ignorar todas las sugerencias, incluida la buena.**
+
+### 2 quaterdecies. El gráfico del día se recortaba a sí mismo
+
+`DayCurve` mide su propio contenedor para saber cuánto medir. Sin `overflow-hidden` en ese
+contenedor, un SVG que se queda ancho ensancha a su padre y la medida siguiente vuelve a
+salir ancha. Se notaba **al girar el móvil estando ya en la pantalla**: la página se
+quedaba con scroll lateral (1.215 px de ancho en una pantalla de 375) y el gráfico no
+volvía a encoger. Recargando no pasaba, y por eso no se había visto.
+
+### 2 quindecies. Lo que NO se ha podido verificar
+
+El **teaser de cuenta** (`AccountTeaserModal`) se engancha ahora al botón del cuadrante en
+vez de a un div vacío de 0 px de alto. El cambio es por robustez, **no porque se haya
+comprobado que el anterior fallara**: el panel de pruebas del agente corre con la pestaña
+oculta, y ahí el navegador no dispara ningún `IntersectionObserver`, ni siquiera sobre el
+`body`. Sin una pantalla visible de verdad, ese modal no se puede dar por probado. Es el
+primer sitio que hay que mirar a mano.
+
+### 2 sexdecies. Lo que sacó la revisión del 2026-09-05
+
+Tres de los ocho hallazgos eran de verdad, y los tres del mismo sitio: **el enlace
+compartido**.
+
+1. **Quien abría un enlace y trabajaba encima no guardaba nada.** Había un `adoptarPlan()`
+   escrito para bajar la bandera de "esto viene de un enlace"… que no llamaba nadie. Así que
+   el autoguardado quedaba apagado toda la sesión y al cerrar la pestaña se perdía el
+   trabajo. Ahora son **dos banderas y ninguna función**: `vieneDeEnlace` tapa el aviso de
+   "sigues con…" toda la sesión, y `enlaceSinTocar` se baja sola en el primer disparo del
+   efecto, que es el de la propia carga. Una bandera que hay que acordarse de bajar a mano
+   acaba sin bajarse.
+2. **`reset()` no bajaba esa bandera**, así que el fichero que subieras después tampoco se
+   guardaba. Y el aviso de "el enlace no se puede leer" se quedaba en pantalla para siempre.
+3. **Quitar el botón del mapeo se llevó por delante la única validación que había.** El
+   aviso de "marca qué columna es la fecha" pasó a ser un cartel que no impedía nada. El
+   bloqueo vive ahora en el "Siguiente" del pie (`mapeoSuficiente` + `nextDisabled`).
+
+Y uno de cifras: **"76 h de más sobre las 675 h que contratas" no cuadraba**, porque
+675 − 501 son 174, no 76. Eran dos cosas distintas: las horas contratadas incluyen contrato
+que no llega a ponerse en ningún turno. Se compara contra las **horas en turnos** (577), y
+entonces las tres cifras suman: 501 que pide la curva + 76 de más = 577 en el local.
+
+La lección que se queda: **al quitar un botón, mirar qué validación se va con él**, y
+**al enseñar un porcentaje o una resta, comprobar que los números de la misma pantalla
+cuadran entre sí**. Un número que no cuadra con el de al lado se lee como un error de
+cálculo aunque los dos sean correctos por separado.
+
 ### 3. Desfase del dato
 El fichero del TPV marca la hora del **cobro**, y se cobra al terminar — unos 30 minutos
 después de que el trabajo haya ocurrido. La curva del fichero va por tanto sistemáticamente

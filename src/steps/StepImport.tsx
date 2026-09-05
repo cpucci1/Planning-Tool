@@ -30,7 +30,6 @@ import {
   Loader2,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   TriangleAlert,
   Upload,
   Users,
@@ -259,6 +258,16 @@ export function StepImport() {
       {/* Lo guardado se OFRECE, no se restaura solo: esta es la pantalla que
           vende el producto, y a un visitante nuevo no le puede saltar encima
           el plan de otro día antes de haberla visto. */}
+      {p.enlaceRoto && (
+        <div className="mt-8">
+          <Note tone="warning" icon={<TriangleAlert size={15} />}>
+            El enlace que has abierto no se puede leer. Suele pasar cuando se corta al copiarlo o
+            al pasarlo por un correo. Pídele a quien te lo mandó que lo copie entero, o que te
+            mande el fichero guardado.
+          </Note>
+        </div>
+      )}
+
       {p.savedMeta && (
         <div className="mt-8">
           <Card className="animate-pop-in border-brand/30 bg-brand-light px-5 py-4">
@@ -351,31 +360,6 @@ export function StepImport() {
               <QueVasAObtener onDemo={() => void run(null)} />
             </div>
 
-            {/* ── Salida para quien no tenga el fichero a mano ──── */}
-            <div className="mt-7 flex flex-col items-center">
-              <div className="flex w-full items-center gap-4">
-                <span className="h-px flex-1 bg-border" />
-                <span className="text-[0.72rem] font-bold tracking-widest text-content-muted uppercase">
-                  o
-                </span>
-                <span className="h-px flex-1 bg-border" />
-              </div>
-
-              <Button
-                size="lg"
-                className="mt-6"
-                onClick={() => void run(null)}
-                icon={<Sparkles size={17} strokeWidth={2.3} />}
-                iconRight={<ArrowRight size={16} />}
-              >
-                Probar con datos de ejemplo
-              </Button>
-
-              <p className="mt-3 max-w-md text-center text-[0.8rem] leading-relaxed text-content-secondary">
-                52 semanas de un restaurante de menú y carta de verdad, con su agosto flojo y sus
-                comidas de empresa de diciembre. Míralo funcionando y luego sube lo tuyo.
-              </p>
-            </div>
           </>
         ) : (
           <Card className="animate-pop-in overflow-hidden px-5 py-6 sm:px-7 sm:py-7">

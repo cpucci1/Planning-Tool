@@ -771,9 +771,7 @@ export function HoursEditor({
 
         <p className="mt-4 text-[0.78rem] leading-relaxed font-medium text-content-secondary">
           Toca una zona vacía de la pista para abrir un tramo nuevo, o la X de una barra para
-          cerrarlo. Con el teclado: <span className="font-bold text-content-primary">Tab</span> hasta
-          la barra, flechas para moverla y{' '}
-          <span className="font-bold text-content-primary">Mayús + flechas</span> para alargarla.
+          cerrarlo.
         </p>
       </div>
     </Card>

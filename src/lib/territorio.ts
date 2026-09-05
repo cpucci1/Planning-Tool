@@ -115,13 +115,20 @@ export interface Sugerencia {
  *
  * Se acepta una semana de margen porque las fiestas caen en fin de semana y
  * se comen parte de la semana ISO siguiente o anterior.
+ *
+ * `sinNombre` es la condición que faltaba: solo se propone para las semanas que
+ * el calendario NO ha sabido nombrar. Sin ella, una semana ya etiquetada como
+ * Semana Santa recibía encima la propuesta de llamarla Feria de Abril, y una
+ * sugerencia que discute con un dato correcto enseña a ignorar todas las
+ * sugerencias, incluida la buena.
  */
 export function sugerirNombreSemana(
   territorioId: string | null,
   isoWeek: number,
   deviation: number,
+  sinNombre: boolean,
 ): Sugerencia | null {
-  if (!territorioId) return null
+  if (!territorioId || !sinNombre) return null
   const fiestas = FIESTAS[territorioId]
   if (!fiestas) return null
 
@@ -132,7 +139,15 @@ export function sugerirNombreSemana(
   // un cierre) y eso lo sabe el dueño, no nosotros.
   if (deviation <= 0) return null
 
-  const fiesta = fiestas.find((f) => Math.abs(f.semana - isoWeek) <= 1)
+  // La MÁS cercana, no la primera que caiga cerca: la tabla no está ordenada,
+  // y con `find` la semana 15 de Sevilla (Semana Santa) se llevaba el nombre
+  // de la Feria de Abril, que está en la 16. Proponer la fiesta equivocada es
+  // justo la explicación falsa con cara de dato que este fichero evita.
+  const cerca = fiestas
+    .map((f) => ({ f, dist: Math.abs(f.semana - isoWeek) }))
+    .filter((x) => x.dist <= 1)
+    .sort((a, b) => a.dist - b.dist)
+  const fiesta = cerca[0]?.f
   if (!fiesta) return null
 
   const pct = Math.round(deviation * 100)

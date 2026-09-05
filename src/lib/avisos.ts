@@ -94,20 +94,25 @@ function avisosDescanso(roster: Roster, settings: Settings): Aviso[] {
 // ─────────────────────────────────────────────────────────────
 
 /**
- * True si los días libres forman un único tramo continuo en el círculo de la
- * semana (domingo-lunes son vecinos). Se cuenta cuántas veces un día libre
- * viene precedido de uno trabajado: un solo arranque de tramo es un bloque
- * seguido; más de uno son libranzas repartidas y sueltas.
+ * True si en algún sitio de la semana hay DOS días libres seguidos.
+ *
+ * Es exactamente el criterio con el que monta el cuadrante `roster.ts`
+ * (`DAY_OFF_PAIRS`): lo que se pidió fue "que tenga dos libranzas seguidas",
+ * no "que todos sus días libres formen un único bloque". La diferencia no es
+ * teórica: un contrato de 20 h libra cuatro días, y exigirle que los cuatro
+ * vayan pegados haría saltar el aviso en casi todas las plantillas con
+ * parciales. Una pantalla que se llama "lo que hay que mirar antes de
+ * firmarlo" no se puede permitir avisos falsos: a la segunda, nadie la mira.
  */
 function libranzasSeguidas(daysOff: DayIndex[]): boolean {
   if (daysOff.length <= 1) return true
   const libra = new Array(7).fill(false)
   for (const d of daysOff) libra[d] = true
-  let tramos = 0
+  // Domingo y lunes también cuentan como seguidos: la semana se repite.
   for (let d = 0; d < 7; d++) {
-    if (libra[d] && !libra[(d + 6) % 7]) tramos++
+    if (libra[d] && libra[(d + 1) % 7]) return true
   }
-  return tramos <= 1
+  return false
 }
 
 function avisosLibranzas(roster: Roster, settings: Settings): Aviso[] {
@@ -179,6 +184,24 @@ function avisoSinCubrir(roster: Roster): Aviso[] {
 }
 
 // ─────────────────────────────────────────────────────────────
+
+/**
+ * Qué comprobaciones se han llegado a hacer, con su nombre en castellano.
+ *
+ * Hace falta para poder decir en pantalla lo que SÍ cumple, no solo lo que
+ * falla: una lista con dos avisos y nada más deja sin saber si lo demás se ha
+ * mirado. Y no se puede dar por buena una comprobación que el usuario ha
+ * apagado — si no ha pedido libranzas seguidas, decirle que las cumple sería
+ * apuntarse un tanto que no existe.
+ */
+export function comprobacionesHechas(settings: Settings): { tipo: AvisoTipo; nombre: string }[] {
+  const hechas: { tipo: AvisoTipo; nombre: string }[] = []
+  if (settings.minRestBetweenShifts) hechas.push({ tipo: 'descanso', nombre: 'descanso de 12 h entre turnos' })
+  if (settings.consecutiveDaysOff) hechas.push({ tipo: 'libranzas', nombre: 'libranzas seguidas' })
+  hechas.push({ tipo: 'horas', nombre: 'horas dentro del contrato' })
+  hechas.push({ tipo: 'sin-cubrir', nombre: 'todas las franjas cubiertas' })
+  return hechas
+}
 
 export function revisarCuadrante(roster: Roster, model: StaffingModel, settings: Settings): Aviso[] {
   const avisos = [

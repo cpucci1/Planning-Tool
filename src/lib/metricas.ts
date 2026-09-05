@@ -10,7 +10,7 @@
 
 import { DAYS, SLOT_MINUTES, SLOTS_PER_DAY, formatMin, minToSlot, slotStartMin } from './time'
 import type { DayIndex, NeedGrid, Roster, StaffingModel } from './types'
-import { summarize, totalPeopleGrid } from './staffing'
+import { totalPeopleGrid } from './staffing'
 
 export interface HolguraFranja {
   day: DayIndex
@@ -34,6 +34,16 @@ export interface Metricas {
   comensalesPorHora: number | null
   /** Las franjas donde más gente sobra, de mayor a menor. Máximo 6. */
   peoresHolguras: HolguraFranja[]
+  /** Horas-persona de más en TODA la semana, no solo en los seis peores tramos.
+   *  Es el número que se puede comparar con el total contratado; el peor tramo
+   *  suelto ya lo cuenta la lista de debajo y repetirlo era decir dos veces lo
+   *  mismo con dos cifras distintas. */
+  horasSobrantesTotal: number
+  /** Horas-persona que la gente está en el local según el cuadrante. Es el
+   *  denominador con el que las horas de más cuadran: necesarias + de más =
+   *  esto. Las CONTRATADAS son otra cifra mayor, porque incluyen contrato que
+   *  no llega a ponerse en ningún turno, y compararlas mezclaba dos cosas. */
+  horasEnTurnos: number
   /** Cuántos findes trabaja cada persona, de más a menos. */
   findes: RepartoFindes[]
   /** Diferencia entre quien más findes trabaja y quien menos. */
@@ -67,8 +77,12 @@ function staffedPeopleGrid(roster: Roster): number[][] {
  * seguidos del mismo día, para no soltar un aviso por cada media hora. Es la
  * parte que hace la métrica accionable en vez de un muro de ruido.
  */
-function groupHolguras(staffed: number[][], needed: number[][]): HolguraFranja[] {
+function groupHolguras(
+  staffed: number[][],
+  needed: number[][],
+): { tramos: HolguraFranja[]; total: number } {
   const tramos: HolguraFranja[] = []
+  let total = 0
 
   for (let d = 0; d < 7; d++) {
     let groupStart = -1
@@ -82,7 +96,9 @@ function groupHolguras(staffed: number[][], needed: number[][]): HolguraFranja[]
 
       if (dentroDelGrupo) {
         if (groupStart === -1) groupStart = s
-        groupHoras += (sobra * SLOT_MINUTES) / 60
+        const horas = (sobra * SLOT_MINUTES) / 60
+        groupHoras += horas
+        total += horas
         continue
       }
 
@@ -102,7 +118,9 @@ function groupHolguras(staffed: number[][], needed: number[][]): HolguraFranja[]
     }
   }
 
-  return tramos.sort((a, b) => b.horasSobrantes - a.horasSobrantes).slice(0, 6)
+  // El total sale de TODOS los tramos; la lista se queda con los seis peores,
+  // que es lo que cabe en pantalla sin volverse un muro.
+  return { tramos: tramos.sort((a, b) => b.horasSobrantes - a.horasSobrantes).slice(0, 6), total }
 }
 
 export function calcularMetricas(
@@ -111,21 +129,28 @@ export function calcularMetricas(
   model: StaffingModel,
   lagged: number[][],
 ): Metricas {
-  // 1. Comensales por hora: comensales totales de la semana tipo entre las
-  // horas-persona que pide la curva de necesidad. Mismo criterio que
-  // `summarize()` — cada franja de necesidad son SLOT_MINUTES minutos de una
-  // persona — para que este número case con el resto de la herramienta.
+  // 1. Comensales por hora: comensales de la semana tipo entre las horas que
+  // de verdad se PAGAN, que son las contratadas del cuadrante, no las que
+  // pide la curva.
+  //
+  // La diferencia entre las dos cifras es exactamente la holgura, que esta
+  // misma pantalla enseña dos tarjetas más allá: dividir entre las horas de
+  // la curva daba un número inflado en esa proporción y contradecía al de al
+  // lado. Y lo que le importa a quien paga la nómina es cuántos comensales
+  // saca por cada hora que abona, no por cada hora teórica.
   let totalComensales = 0
   for (const day of lagged) for (const v of day) totalComensales += v
-  const { totalHours } = summarize(needGrid, model)
-  const comensalesPorHora = totalHours > 0 ? totalComensales / totalHours : null
+  const horasPagadas = roster.people.reduce((a, p) => a + p.contractHours, 0)
+  const comensalesPorHora = horasPagadas > 0 ? totalComensales / horasPagadas : null
 
   // 2. Holgura por franja: gente puesta en el cuadrante menos gente que pide
   // needGrid, franja a franja. Se compara en total (todos los puestos juntos),
   // igual que pide el encargo, no puesto a puesto.
   const staffed = staffedPeopleGrid(roster)
   const needed = totalPeopleGrid(needGrid, model)
-  const peoresHolguras = groupHolguras(staffed, needed)
+  let horasEnTurnos = 0
+  for (const day of staffed) for (const v of day) horasEnTurnos += (v * SLOT_MINUTES) / 60
+  const { tramos: peoresHolguras, total: horasSobrantesTotal } = groupHolguras(staffed, needed)
 
   // 3. Reparto de findes: sábado es el día 5 y domingo el 6 (ver DAYS en
   // lib/time.ts, semana española 0=lunes). Un turno partido en el mismo día
@@ -147,5 +172,12 @@ export function calcularMetricas(
         Math.min(...findes.map((f) => f.findesTrabajados))
       : 0
 
-  return { comensalesPorHora, peoresHolguras, findes, desequilibrioFindes }
+  return {
+    comensalesPorHora,
+    peoresHolguras,
+    horasSobrantesTotal,
+    horasEnTurnos,
+    findes,
+    desequilibrioFindes,
+  }
 }

@@ -241,7 +241,7 @@ export function RosterGrid({ roster, model, needGrid, openBlocks, onRenamePerson
       if (people.length > 0) out.push({ key: block.id, name: block.name, color: block.color, people })
     }
     const rest = roster.people.filter((p) => !placed.has(p.id))
-    if (rest.length > 0) out.push({ key: '__sin-bloque', name: 'Sin bloque', color: '#A1A1AA', people: rest })
+    if (rest.length > 0) out.push({ key: '__sin-bloque', name: 'Sin bloque', color: 'var(--color-content-muted)', people: rest })
     return out
   }, [model.blocks, model.roles, roster.people])
 
@@ -436,7 +436,7 @@ export function RosterGrid({ roster, model, needGrid, openBlocks, onRenamePerson
               Tu plantilla <span className="italic text-brand">al detalle.</span>
             </>
           }
-          subtitle="Quién trabaja, qué día y a qué hora. Sale de tu curva de necesidad, no de una plantilla genérica. Pon nombres reales: doble clic o el lápiz de cada fila."
+          subtitle="Quién trabaja, qué día y a qué hora. Sale de tu curva de necesidad, no de una plantilla genérica."
           action={
             <div className="flex flex-wrap justify-end gap-2">
               <Button
@@ -494,7 +494,7 @@ export function RosterGrid({ roster, model, needGrid, openBlocks, onRenamePerson
               tone="warning"
             />
           ) : (
-            <Stat label="Cobertura" value="100%" hint="Toda la necesidad tiene a alguien" tone="success" />
+            <Stat label="Sin cubrir" value="0 h" hint="Toda la necesidad tiene a alguien" tone="success" />
           )}
         </div>
       </Card>
@@ -916,7 +916,7 @@ function DayView({
             .slice()
             .sort((a, b) => a.start - b.start)
             .map(({ person, role, shifts }) => {
-              const color = role?.color ?? blockOf.get(person.id)?.color ?? '#6C0FD8'
+              const color = role?.color ?? blockOf.get(person.id)?.color ?? 'var(--color-brand)'
               return (
                 <div key={person.id} className="flex items-stretch border-b border-border-soft">
                   <div

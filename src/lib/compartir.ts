@@ -164,6 +164,17 @@ function esPlanCompartido(v: unknown): v is PlanCompartido {
     Array.isArray(s.tiers) &&
     !!s.settings &&
     typeof s.settings === 'object' &&
+    // Los ajustes, campo a campo, igual que `isSnapshot` en `persistence.ts`:
+    // un enlace de una versión anterior con un ajuste de menos no revienta al
+    // abrirlo, revienta después y en silencio (una curva con NaN cae al último
+    // tramo y pide plantilla máxima en todas las franjas). Y sin `contracts`
+    // el cuadrante ni se puede montar.
+    typeof (s.settings as Settings).safetyMarginPct === 'number' &&
+    typeof (s.settings as Settings).prepBeforeMin === 'number' &&
+    typeof (s.settings as Settings).prepAfterMin === 'number' &&
+    typeof (s.settings as Settings).coveragePct === 'number' &&
+    !!(s.settings as Settings).minStaffByBlock &&
+    Array.isArray((s.settings as Settings).contracts) &&
     Array.isArray(s.overrides) &&
     !!s.personNames &&
     typeof s.personNames === 'object'

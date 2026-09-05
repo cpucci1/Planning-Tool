@@ -21,6 +21,7 @@ import {
   Sliders,
   Users,
 } from 'lucide-react'
+import { RoleCatalog } from '@/components/RoleCatalog'
 import { TiersTable } from '@/components/TiersTable'
 import { DayCurve } from '@/components/charts/DayCurve'
 import {
@@ -553,11 +554,6 @@ export function StepTeam() {
           Cuando entran 40 comensales,{' '}
           <span className="italic text-brand">¿con cuánta gente lo sacas?</span>
         </h1>
-        <p className="mt-3 text-[0.95rem] leading-relaxed text-content-secondary">
-          Eso es lo único que te pedimos. Tu histórico ya nos dice cuánta gente entra y a qué
-          hora; lo que no puede decirnos es cómo trabajáis vosotros. Rellena la tabla con lo que
-          ya haces de memoria cada semana y el resto lo montamos nosotros.
-        </p>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_336px] lg:items-start">
@@ -568,6 +564,12 @@ export function StepTeam() {
             onRolesChange={p.setRoles}
             onBlocksChange={p.setBlocks}
           />
+
+          {/* El catálogo estaba en la pantalla de lectura del fichero, tres
+              pasos antes de que estos puestos aparecieran como columnas de la
+              tabla de tramos. Ahí no se entendía para qué servía; aquí está al
+              lado de lo que modifica. */}
+          <RoleCatalog blocks={p.model.blocks} roles={p.model.roles} onRolesChange={p.setRoles} />
 
           <AdvancedSettings />
 

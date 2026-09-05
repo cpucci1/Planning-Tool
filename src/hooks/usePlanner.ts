@@ -97,6 +97,28 @@ export function usePlannerState() {
    */
   const [savedMeta, setSavedMeta] = useState<SnapshotMeta | null>(null)
   const savedSnap = useRef<PlannerSnapshot | null>(null)
+  /**
+   * Este arranque vino de un enlace compartido. Mientras siga en pie:
+   * - NO se autoguarda, porque el plan es de otro y machacaría el del dueño
+   *   del navegador, que igual lo tenía a medias.
+   * - NO se ofrece lo guardado, porque ha venido a ver ESTE plan.
+   * Se levanta en cuanto toca cualquier cosa: a partir de ahí el plan ya es
+   * suyo y se guarda como cualquier otro.
+   */
+  const vieneDeEnlace = useRef(false)
+  /**
+   * Y esto es lo otro, que NO es lo mismo: el plan del enlace tal cual llegó,
+   * sin que nadie lo haya tocado. Se baja solo en el primer disparo del
+   * autoguardado, que es el de la propia carga. A partir del siguiente cambio
+   * el plan ya es suyo y se guarda como cualquier otro.
+   *
+   * Iban juntos en un solo ref con una función `adoptarPlan()` que no llamaba
+   * nadie: el resultado era que quien abría un enlace y se ponía a trabajar
+   * encima no guardaba NUNCA, y al cerrar la pestaña lo perdía todo.
+   */
+  const enlaceSinTocar = useRef(false)
+  /** Un enlace que no se puede leer: hay que decirlo, no callar. */
+  const [enlaceRoto, setEnlaceRoto] = useState(false)
 
   /**
    * Correcciones a mano de la semana tipo: `'dia:franja' → comensales`.
@@ -175,14 +197,34 @@ export function usePlannerState() {
     setSpecials(detectSpecialWeeks(d.weeks, d.year))
     // El ejemplo arranca con costes y ventas de muestra para que se vea el
     // producto entero. Un fichero de verdad NO: ahí el precio lo pone su dueño.
+    //
+    // El `else` no es simetría bonita, es obligatorio: quien prueba el ejemplo
+    // y luego sube SU fichero por la barra de arriba se llevaría los 16 €/h de
+    // encargado y las ventas de 26.000 € que nunca escribió, y el resultado le
+    // daría un coste inventado con cara de dato suyo.
     if (d.source.isDemo) {
       setRoles((prev) => prev.map((r) => ({ ...r, hourlyCostEur: DEMO_COSTES_HORA[r.id] ?? null })))
       setSettings((st) => ({ ...st, weeklySalesEur: DEMO_VENTAS_SEMANA }))
+    } else {
+      setRoles((prev) => prev.map((r) => ({ ...r, hourlyCostEur: null })))
+      setSettings((st) => ({ ...st, weeklySalesEur: null }))
     }
     setStep('demand')
   }
 
   function reset() {
+    // Y se borra lo guardado, que es lo que espera quien pulsa "empezar de
+    // nuevo": si no, al refrescar le saldría otra vez el aviso ofreciéndole
+    // justo el plan que acaba de tirar.
+    savedSnap.current = null
+    setSavedMeta(null)
+    void clearAutosave()
+    // Quien empieza de cero ya no viene de ningún enlace: si esto no se baja,
+    // el fichero que suba a continuación tampoco se autoguardaría, y el aviso
+    // del enlace roto seguiría en pantalla hablando de algo de hace media hora.
+    vieneDeEnlace.current = false
+    enlaceSinTocar.current = false
+    setEnlaceRoto(false)
     setDataset(null)
     setHours(null)
     setKitchenHours(null)
@@ -236,7 +278,17 @@ export function usePlannerState() {
     if (!hash || hash.length < 20) return
     let vivo = true
     decodificarPlan(hash).then((plan) => {
-      if (!vivo || !plan || !plan.dataset) return
+      if (!vivo) return
+      if (!plan || !plan.dataset) {
+        // Le han mandado un plan y no se puede abrir (enlace partido por el
+        // cliente de correo, navegador antiguo). Callarse es peor: creería
+        // que el plan no existía.
+        setEnlaceRoto(true)
+        window.history.replaceState(null, '', window.location.pathname + window.location.search)
+        return
+      }
+      vieneDeEnlace.current = true
+      enlaceSinTocar.current = true
       setDataset(plan.dataset)
       setHours(plan.hours)
       setKitchenHours(plan.kitchenHours)
@@ -260,7 +312,10 @@ export function usePlannerState() {
   useEffect(() => {
     let vivo = true
     loadAutosave().then((snap) => {
-      if (!vivo || !snap) return
+      // `vieneDeEnlace` se comprueba AQUÍ, no antes: IndexedDB tarda más que
+      // descomprimir el hash, así que sin esto el aviso reaparecería encima
+      // del plan compartido en cuanto el usuario volviera al primer paso.
+      if (!vivo || !snap || vieneDeEnlace.current) return
       savedSnap.current = snap
       setSavedMeta(metaOf(snap))
     })
@@ -275,6 +330,13 @@ export function usePlannerState() {
    */
   useEffect(() => {
     if (!dataset) return
+    if (enlaceSinTocar.current) {
+      // Este disparo es el del propio enlace al cargarse: ese no se guarda,
+      // porque machacaría el plan a medias del dueño del navegador. El
+      // siguiente ya viene de que él ha cambiado algo.
+      enlaceSinTocar.current = false
+      return
+    }
     const t = setTimeout(() => {
       const snap = buildSnapshot()
       if (snap) void saveAutosave(snap)
@@ -520,6 +582,7 @@ export function usePlannerState() {
     setPersonName,
     setMinStaffForBlock,
     savedMeta,
+    enlaceRoto,
     resumeSaved,
     discardSaved,
     exportSnapshot,
