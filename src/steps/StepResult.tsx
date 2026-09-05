@@ -391,10 +391,42 @@ export function StepResult() {
         </div>
       </Card>
 
+      {/* ── 2 bis. La plantilla, puesto por jornada ───────────── */}
+      <StaffTable
+        roster={roster}
+        model={model}
+        contracts={settings.contracts}
+        eyebrow="Plantilla total"
+        title={
+          <>
+            Lo que tendrías que <span className="text-brand italic">contratar.</span>
+          </>
+        }
+        subtitle="Cada puesto con su desglose de jornada. Es la lista con la que se ficha."
+      />
+
+      {/* Y la misma partida por bloque: quien contrata sala no contrata
+          cocina, y mirarlo junto obliga a hacer la resta a mano. */}
+      {model.blocks.length > 1 && (
+        <div className="grid gap-6 lg:grid-cols-2">
+          {model.blocks.map((b) => (
+            <StaffTable
+              key={b.id}
+              roster={roster}
+              model={model}
+              contracts={settings.contracts}
+              blockId={b.id}
+              eyebrow={`Plantilla ${b.name.toLowerCase()}`}
+              title={<>{b.name}</>}
+            />
+          ))}
+        </div>
+      )}
+
       {/* ── 3. De dónde sale el número ────────────────────────── */}
       <Card>
         <CardHeader
-          eyebrow="Tu plantilla"
+          eyebrow="De dónde sale"
           title={
             <>
               El número, <span className="text-brand italic">y de dónde sale.</span>
@@ -559,38 +591,6 @@ export function StepResult() {
           </div>
         </div>
       </Card>
-
-      {/* ── 3 bis. La plantilla, puesto por jornada ───────────── */}
-      <StaffTable
-        roster={roster}
-        model={model}
-        contracts={settings.contracts}
-        eyebrow="Plantilla total"
-        title={
-          <>
-            Lo que tendrías que <span className="text-brand italic">contratar.</span>
-          </>
-        }
-        subtitle="Cada puesto con su desglose de jornada. Es la lista con la que se ficha."
-      />
-
-      {/* Y la misma partida por bloque: quien contrata sala no contrata
-          cocina, y mirarlo junto obliga a hacer la resta a mano. */}
-      {model.blocks.length > 1 && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          {model.blocks.map((b) => (
-            <StaffTable
-              key={b.id}
-              roster={roster}
-              model={model}
-              contracts={settings.contracts}
-              blockId={b.id}
-              eyebrow={`Plantilla ${b.name.toLowerCase()}`}
-              title={<>{b.name}</>}
-            />
-          ))}
-        </div>
-      )}
 
       {/* ── 4. La semana, franja a franja ─────────────────────── */}
       <Card>
