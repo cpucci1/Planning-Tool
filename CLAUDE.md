@@ -411,6 +411,80 @@ elige QUÉ semanas se cubren, y esto añade holgura DENTRO de la semana elegida.
 encima de lo que pide cada semana que sí cubre. Se mide contra cada semana concreta, no
 contra la media del año, porque promediar primero escondería justo lo que se enseña.
 
+### 2 septies. Lo que se lleva puesto y lo que se guarda
+
+**Guardado sin cuenta, ya enchufado.** `lib/persistence.ts` volvió a conectarse en
+`usePlanner`: autoguardado en IndexedDB con 600 ms de respiro (sin él se escribiría en
+cada tecla de la tabla de tramos) y un fichero `.json` descargable, que es el guardado de
+verdad, el que cruza de ordenador. Lo guardado **se ofrece, no se restaura solo**: la
+pantalla de import pregunta "¿sigues con...?", porque esa pantalla es la que vende el
+producto y a un visitante nuevo no le puede saltar encima el plan de otro día.
+
+La foto va por la **versión 2**: la 1 es de antes del catálogo de puestos con coste, del
+horario de cocina y de los ajustes de margen y preparación, y sin esos campos el cálculo
+sale mal en silencio. Se rechaza en vez de adivinar.
+
+**Compartir por enlace** (`lib/compartir.ts`): el plan entero comprimido dentro del `#` de
+la dirección, que el navegador **no manda a ningún servidor**. Así el socio o la gestoría
+ven el mismo plan sin cuentas y sin que las ventas del restaurante pasen por ningún sitio.
+Dos detalles que costaron: el infinito del último tramo no lo sabe serializar JSON (viaja
+como centinela y se restaura al leer), y al abrir un enlace la dirección se limpia después,
+para que un refresco no vuelva a imponer el plan por encima de lo que se haya tocado. Un
+plan típico son unos 14.000 caracteres: se puede pegar y mandar, pero no es un enlace corto.
+
+**Los dos entregables nuevos** (`lib/cuadrante-imagen.ts`): una imagen vertical de 1080x1920
+con el turno de UNA persona, que es como de verdad viaja un cuadrante en España (por
+WhatsApp, no por una app), y un PDF A4 del cuadrante entero **sin una sola cifra de coste**,
+para colgarlo en cocina donde lo ve todo el turno.
+
+### 2 octies. La revisión del cuadrante y las tres métricas
+
+`lib/avisos.ts` recorre el cuadrante ya montado y saca lo que incumple: descanso de 12 h
+entre turnos (Art. 34.3 ET, con el cruce domingo→lunes porque la semana se repite),
+libranzas sueltas cuando se pidieron seguidas, horas por encima del contrato y franjas sin
+cubrir. Hasta ahora esas reglas eran parámetros con los que se dimensionaba; no había nadie
+mirando el resultado final. Es el error caro y silencioso de quien hace el cuadrante a mano.
+
+`lib/metricas.ts` añade tres cosas que ya se podían calcular y no se daban, sin pedir un
+dato nuevo: **comensales por hora trabajada** (como mide la industria si un cuadrante
+rinde), **la holgura desglosada por franja** (un total semanal no se puede accionar; "el
+lunes de 12:00 a 14:30 sobran 9 h" sí) y **el reparto de fines de semana**, que es lo que
+hace que un cuadrante se perciba justo.
+
+### 2 nonies. Lo que hoy está simulado, y por qué así
+
+Dos pantallas son el front de una llamada futura a un modelo barato. No hay backend: cuando
+se conecten, harán falta una función suelta en el mismo Vercel (la clave del modelo no puede
+ir en la web, cualquiera la vería) sin base de datos ni nada que guardar.
+
+- **Mapeo de columnas** (`components/MapeoColumnas.tsx`): el usuario ve qué se ha entendido
+  de cada columna de su fichero, con valores de ejemplo de verdad, y lo corrige en dos clics.
+  Nunca se adivina en silencio. Y si su TPV no trae comensales, que es lo normal en España,
+  se estima desde los tickets **diciéndolo**, no colando una estimación con cara de dato.
+- **Nombre de las semanas raras** (`lib/territorio.ts`): el reparto de papeles es lo que hace
+  la idea segura. **El pico lo detectamos nosotros** con su histórico; el modelo solo pone el
+  nombre ("esta semana se dispara un 59% en Sevilla" → "Feria de Abril"). Al revés, creerle
+  qué festivos tiene una provincia, sería meter datos inventados en el cálculo sin que nadie
+  los mire. Y solo se propone para semanas que SUBEN: una fiesta llena el local, no lo vacía,
+  y colgarle una fiesta a un valle sería una explicación falsa con cara de dato.
+
+### 2 decies. Coste sobre ventas, SMI y los datos de ejemplo
+
+`Settings.weeklySalesEur` es el **único dato que la herramienta pide y no puede sacar del
+histórico**, y desbloquea el ratio con el que de verdad piensa un hostelero: cuánto se lleva
+el personal de lo que entra (sano entre 25% y 32%, alarma por encima del 40%).
+
+Del convenio solo entra el **SMI** (`SMI_HORA_EUR` en `lib/contracts.ts`): una cifra
+nacional que cambia una vez al año, en vez de cincuenta tablas provinciales que caducan a
+distinto ritmo y que no mantiene nadie. Sirve para avisar de que un coste se queda corto.
+
+Y una excepción acotada a "nunca se inventa un precio": **los datos de ejemplo sí arrancan
+con costes y ventas de muestra** (`DEMO_COSTES_HORA`, `DEMO_VENTAS_SEMANA`). Con el catálogo
+en blanco, el ejemplo escondía media pantalla de resultado y el usuario no llegaba a ver lo
+que la herramienta hace. Se puede porque todo ese dataset es de mentira y está etiquetado
+como tal; en el fichero de una persona **jamás** se rellena un precio, y por eso el relleno
+va detrás de `dataset.source.isDemo`.
+
 ### 3. Desfase del dato
 El fichero del TPV marca la hora del **cobro**, y se cobra al terminar — unos 30 minutos
 después de que el trabajo haya ocurrido. La curva del fichero va por tanto sistemáticamente
