@@ -109,6 +109,19 @@ export interface Role {
   blockId: string
   /** Color del puesto en gráficos y cuadrante. Hex. */
   color: string
+  /**
+   * Coste por hora trabajada de esta categoría, en euros. `null` = sin
+   * rellenar, y entonces no se enseña ninguna cifra de coste de este puesto.
+   * Lo pone el usuario en el catálogo de puestos: **nunca se inventa un
+   * precio**, ni de mercado ni de Shifty.
+   */
+  hourlyCostEur: number | null
+  /**
+   * Puestos de mando que solo se contratan a jornada completa (jefe de
+   * cocina, encargado, responsable de turno). El cuadrante no les baja a
+   * parcial aunque sus horas asignadas quepan en uno.
+   */
+  fullTimeOnly: boolean
 }
 
 /** Un área del local: Sala, Cocina, y las que el usuario añada. */
@@ -132,6 +145,14 @@ export interface Tier {
   from: number
   to: number
   staff: Record<string, number>
+  /**
+   * Suelo y techo por puesto en este tramo, `roleId → personas`. La cifra de
+   * `staff` es el objetivo; estos dos son los límites operativos entre los que
+   * puede moverse cuando algo empuja el número (hoy, el mínimo por local).
+   * Sin entrada = sin límite por ese lado.
+   */
+  staffMin?: Record<string, number>
+  staffMax?: Record<string, number>
 }
 
 export interface StaffingModel {
@@ -179,10 +200,6 @@ export interface Settings {
    * así que por defecto va activado.
    */
   minRestBetweenShifts: boolean
-  /** Coste medio por hora trabajada, en euros. Opcional: si no se rellena,
-   *  el resultado no enseña ninguna cifra de coste. Lo pone el usuario, no
-   *  se inventa ningún precio de Shifty ni de mercado. */
-  hourlyCostEur: number | null
   /**
    * Mínimo de personas que tiene que haber en cada bloque (Sala, Cocina...)
    * durante TODO su horario de apertura, aunque la curva de comensales pida

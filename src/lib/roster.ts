@@ -428,7 +428,13 @@ export function buildRoster(grid: NeedGrid, model: StaffingModel, settings: Sett
   // aparecen los parciales: nadie con 18h asignadas se queda con un 40h.
   const ascending = [...contracts].sort((a, b) => a.hours - b.hours)
   for (const s of slots) {
-    const fit = ascending.find((c) => c.hours >= s.person.assignedHours)
+    // Los puestos de mando (jefe de cocina, encargado, responsable de turno)
+    // no bajan a parcial aunque sus horas quepan: se contratan a jornada
+    // completa o no se contratan. Se quedan con el contrato más grande activo.
+    const role = model.roles.find((r) => r.id === s.person.roleId)
+    const fit = role?.fullTimeOnly
+      ? biggest
+      : ascending.find((c) => c.hours >= s.person.assignedHours)
     if (fit) {
       s.person.contractId = fit.id
       s.person.contractHours = fit.hours

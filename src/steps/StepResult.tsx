@@ -28,7 +28,7 @@ import { DayCurve } from '@/components/charts/DayCurve'
 import { WeekHeatmap } from '@/components/charts/WeekHeatmap'
 import { YearChart } from '@/components/charts/YearChart'
 import { usePlanner } from '@/hooks/usePlanner'
-import { describeMix, fteFrom } from '@/lib/contracts'
+import { describeMix, fteFrom, summarizeCost } from '@/lib/contracts'
 import { riskRatio } from '@/lib/demand'
 import { downloadReport } from '@/lib/report'
 import { DAYS, DAYS_SHORT, formatSlot } from '@/lib/time'
@@ -148,14 +148,23 @@ export function StepResult() {
   const extraPeopleIfHired = peaks.worstWeek?.extraPeople ?? peaks.avgExtraPeople
 
   /**
-   * Coste, solo si el usuario lo ha rellenado en los ajustes avanzados: nunca
-   * se inventa un precio, ni de mercado ni de Shifty. Es la misma plantilla y
-   * los mismos picos de siempre, traducidos a euros con SU número.
+   * Coste, solo con los precios por categoría que haya rellenado el usuario
+   * en el catálogo de puestos: nunca se inventa un precio, ni de mercado ni
+   * de Shifty. Si no hay ninguno, `cost` es null y la pantalla se queda en
+   * personas y horas, como antes.
+   *
+   * Para valorar los picos se usa el coste medio por hora DE SU PROPIA
+   * plantilla: los extras no son de un puesto concreto, así que ponerles el
+   * precio del jefe de cocina o el del office sería igual de arbitrario.
    */
-  const hourlyCost = settings.hourlyCostEur
-  const weeklyCostEur = hourlyCost ? plan.contractedHours * hourlyCost : null
-  const peakHiredAnnualCostEur = hourlyCost ? extraPeopleIfHired * 40 * weeks.length * hourlyCost : null
-  const peakOnlyAnnualCostEur = hourlyCost ? peaks.peakHoursPerYear * hourlyCost : null
+  const cost = summarizeCost(roster, model, weeks.length)
+  const weeklyCostEur = cost?.weeklyEur ?? null
+  const annualCostEur = cost?.annualEur ?? null
+  const avgHourlyCost = cost?.avgHourlyEur ?? null
+  const peakHiredAnnualCostEur = avgHourlyCost
+    ? extraPeopleIfHired * 40 * weeks.length * avgHourlyCost
+    : null
+  const peakOnlyAnnualCostEur = avgHourlyCost ? peaks.peakHoursPerYear * avgHourlyCost : null
 
   /**
    * La línea manda: el usuario mueve comensales, nosotros traducimos a
@@ -196,8 +205,9 @@ export function StepResult() {
     peakWeekCount,
     peakHoursPerYear: peaks.peakHoursPerYear,
     extraPeopleIfHired,
-    hourlyCostEur: hourlyCost,
+    hourlyCostEur: avgHourlyCost,
     weeklyCostEur,
+    annualCostEur,
     peakHiredAnnualCostEur,
     peakOnlyAnnualCostEur,
   }
@@ -409,11 +419,17 @@ export function StepResult() {
             . Esa gente está en nómina aunque entre todos no llenen la jornada.
           </Note>
 
-          {hourlyCost !== null && weeklyCostEur !== null && (
+          {cost !== null && weeklyCostEur !== null && annualCostEur !== null && (
             <p className="mt-3 text-[0.85rem] leading-relaxed text-content-secondary">
-              Con tu coste de <strong className="text-content-primary">{eur.format(hourlyCost)}/h</strong>,
-              esta plantilla sale por{' '}
-              <strong className="text-content-primary">{eur.format(weeklyCostEur)} a la semana</strong>.
+              Con los costes de tu catálogo, esta plantilla sale por{' '}
+              <strong className="text-content-primary">{eur.format(weeklyCostEur)} a la semana</strong>{' '}
+              y <strong className="text-content-primary">{eur.format(annualCostEur)} al año</strong>.
+              {!cost.complete && (
+                <>
+                  {' '}
+                  Falta el coste de {cost.missing.join(', ')}, así que la cifra real es mayor.
+                </>
+              )}
             </p>
           )}
         </div>
@@ -624,9 +640,10 @@ export function StepResult() {
               .
             </p>
 
-            {hourlyCost !== null && peakHiredAnnualCostEur !== null && peakOnlyAnnualCostEur !== null && (
+            {avgHourlyCost !== null && peakHiredAnnualCostEur !== null && peakOnlyAnnualCostEur !== null && (
               <p className="mt-4 max-w-2xl text-[1rem] leading-relaxed font-medium text-content-inverted/85">
-                A tu coste de {eur.format(hourlyCost)}/h, contratar esa gente fija son{' '}
+                Al coste medio de tu plantilla, {eur.format(avgHourlyCost)}/h, contratar esa gente
+                fija son{' '}
                 <strong className="text-content-inverted">{eur.format(peakHiredAnnualCostEur)} al año</strong>
                 . Cubrir solo esas horas de pico, en cambio, son{' '}
                 <strong className="text-content-inverted">{eur.format(peakOnlyAnnualCostEur)}</strong>.

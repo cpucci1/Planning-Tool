@@ -30,6 +30,7 @@ import { YearChart } from '@/components/charts/YearChart'
 import { WeekHeatmap } from '@/components/charts/WeekHeatmap'
 import { DayCurve } from '@/components/charts/DayCurve'
 import { HoursEditor } from '@/components/HoursEditor'
+import { RoleCatalog } from '@/components/RoleCatalog'
 import {
   Badge,
   Button,
@@ -277,6 +278,7 @@ export function StepDemand() {
 
       {/* ── 1. Lo que ha leído la IA ─────────────────────────────── */}
       {sub === 0 && (
+      <div className="space-y-6">
       <Card className="p-5 sm:p-7">
         <span className="eyebrow eyebrow--purple">Lectura del fichero</span>
         <h1 className="h1 mt-3">
@@ -388,6 +390,12 @@ export function StepDemand() {
           </div>
         )}
       </Card>
+
+      {/* El catálogo de puestos vive aquí, antes que los tramos: primero qué
+          categorías hay y qué cuestan, y en el paso de equipo cuánta gente de
+          cada una. Ver `RoleCatalog`. */}
+      <RoleCatalog blocks={p.model.blocks} roles={p.model.roles} onRolesChange={p.setRoles} />
+      </div>
       )}
 
       {/* ── 2. El año de un vistazo ──────────────────────────────── */}

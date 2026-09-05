@@ -398,7 +398,10 @@ export function TiersTable({
       roles.map((r) => r.color),
       block.color,
     )
-    onRolesChange([...roles, { id, name: 'Nuevo puesto', blockId: block.id, color }])
+    onRolesChange([
+      ...roles,
+      { id, name: 'Nuevo puesto', blockId: block.id, color, hourlyCostEur: null, fullTimeOnly: false },
+    ])
     onTiersChange(tiers.map((t) => ({ ...t, staff: { ...t.staff, [id]: 0 } })))
     setPendingRoleId(id)
   }
@@ -424,7 +427,10 @@ export function TiersTable({
     const blockId = newId('b')
     const roleId = newId('r')
     onBlocksChange([...blocks, { id: blockId, name, color }])
-    onRolesChange([...roles, { id: roleId, name, blockId, color }])
+    onRolesChange([
+      ...roles,
+      { id: roleId, name, blockId, color, hourlyCostEur: null, fullTimeOnly: false },
+    ])
     onTiersChange(tiers.map((t) => ({ ...t, staff: { ...t.staff, [roleId]: 0 } })))
     setBlockModal(false)
   }
