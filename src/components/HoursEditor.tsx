@@ -144,10 +144,10 @@ export function HoursEditor({
   hours,
   onChange,
   detected,
-  eyebrow = 'Horario',
+  eyebrow = 'Horario de actividad del centro',
   title = (
     <>
-      Cuándo abres <span className="text-brand italic">de verdad.</span>
+      Cuándo está <span className="text-brand italic">en marcha el local.</span>
     </>
   ),
   subtitle = 'Arrastra las barras para ajustar cada día. Un día sin barras es un día cerrado.',

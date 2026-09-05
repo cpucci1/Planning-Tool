@@ -40,11 +40,13 @@ import {
   InfoTip,
   Note,
   NumberInput,
+  Segmented,
   Stat,
   Toggle,
   cn,
 } from '@/components/ui'
 import { KITCHEN_BLOCK_ID } from '@/data/presets'
+import { overcoverage } from '@/lib/demand'
 import { SPECIAL_LABELS, describeMapping, isoWeekStart } from '@/lib/holidays'
 import { DAYS } from '@/lib/time'
 import type { SpecialWeek } from '@/lib/types'
@@ -55,6 +57,9 @@ const nf = new Intl.NumberFormat('es-ES')
 // desencaja con las etiquetas del gráfico anual, que ya usan estos mismos.
 const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 const DAY_ABBR = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+
+/** Colchón sobre la demanda. Pasado el 20% deja de ser colchón y es otra plantilla. */
+const SAFETY_OPTIONS = [0, 5, 10, 15, 20]
 
 /** "13 – 19 abr" a partir de una semana ISO. */
 function weekDates(year: number, week: number): string {
@@ -243,6 +248,12 @@ export function StepDemand() {
     })
     return bestIndex
   }, [typical])
+
+  /** 2.1 — cuánto sobra la plantilla en las semanas que sí cubre. */
+  const over = useMemo(
+    () => (p.coverage ? overcoverage(dataset?.weeks ?? [], p.coverage.threshold) : null),
+    [dataset, p.coverage],
+  )
 
   const mappingLines = useMemo(
     () => (dataset ? describeMapping(dataset.year, dataset.year + 1) : []),
@@ -434,6 +445,63 @@ export function StepDemand() {
             La línea marca hasta dónde llegaría tu plantilla fija. Aquí solo te sitúa: dónde la
             dejas se decide al final, cuando ya se vea lo que cuesta cada centímetro.
           </p>
+
+          {over && (
+            <div className="mt-4 rounded-lg border border-border-soft bg-surface-alt p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-[0.75rem] font-bold tracking-wide text-content-secondary uppercase">
+                    Sobrecobertura
+                    <InfoTip title="Qué es la sobrecobertura">
+                      La plantilla se dimensiona para la línea, así que en una semana floja sobra
+                      gente. Esto mide cuánto: de media, cuánto queda tu plantilla por encima de lo
+                      que pide cada semana que sí cubre. Subir la línea cubre más semanas y sube
+                      esto; bajarla, al revés.
+                    </InfoTip>
+                  </div>
+                  <p className="mt-1.5 text-[0.85rem] leading-relaxed text-content-secondary">
+                    En las semanas que cubres, tu plantilla queda de media un{' '}
+                    <strong className="text-content-primary">
+                      {Math.round(over.avgPct)}% por encima
+                    </strong>{' '}
+                    de lo que pide esa semana
+                    {over.worstWeek !== null && (
+                      <>
+                        {' '}
+                        (la semana {over.worstWeek} es la que más sobra, un{' '}
+                        {Math.round(over.worstPct)}%)
+                      </>
+                    )}
+                    .
+                  </p>
+                </div>
+
+                <div className="w-full sm:w-auto">
+                  <div className="flex items-center gap-1.5 text-[0.75rem] font-bold tracking-wide text-content-secondary uppercase">
+                    Margen de seguridad
+                    <InfoTip title="Margen de seguridad">
+                      Un colchón deliberado sobre la demanda, por si entra más gente de la
+                      prevista. No es lo mismo que la cobertura: la cobertura elige qué semanas
+                      cubres, y esto añade holgura dentro de la semana que ya has elegido. Cada
+                      punto que subes aquí es plantilla de más las 52 semanas.
+                    </InfoTip>
+                  </div>
+                  <div className="mt-2">
+                    <Segmented
+                      value={String(p.settings.safetyMarginPct)}
+                      onChange={(v) =>
+                        p.setSettings((st) => ({ ...st, safetyMarginPct: Number(v) }))
+                      }
+                      options={SAFETY_OPTIONS.map((v) => ({
+                        value: String(v),
+                        label: v === 0 ? 'Sin colchón' : `+${v}%`,
+                      }))}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {yearStats && (
             <div className="mt-5 grid grid-cols-2 gap-5 border-t border-border-soft pt-5 sm:grid-cols-3">
@@ -796,6 +864,18 @@ export function StepDemand() {
         <Card className="p-4 sm:p-6">
           <span className="eyebrow eyebrow--purple mb-3">La semana tipo</span>
 
+          {/* La definición va ARRIBA y en grande a propósito: es la frase que
+              explica qué es esta pantalla y, de paso, para qué existe Shifty.
+              Sin ella el usuario ve una rejilla de números sin saber qué
+              decisión está tomando. */}
+          <Note tone="brand" icon={<Sparkles size={15} strokeWidth={2.3} />}>
+            La semana tipo recoge la actividad del{' '}
+            <strong>{p.settings.coveragePct}% de las semanas del año</strong>: es con la que se
+            planifica tu <strong>plantilla estable</strong>. Las{' '}
+            {Math.max(0, p.weeks.length - (p.coverage?.weeksCovered ?? 0))} semanas que se salen
+            piden gente puntual, y eso se cubre con extras en vez de contratando de más.
+          </Note>
+
           {/* Las celdas que el usuario corrige entran en la cadena completa
               (desfase → necesidad → cuadrante) a través de `overrides` en
               usePlanner, así que tocar una celda mueve de verdad el contador de
@@ -825,14 +905,10 @@ export function StepDemand() {
           )}
 
           <p className="mt-3 max-w-3xl text-[0.85rem] leading-relaxed text-content-secondary">
-            No es una semana concreta del fichero: es la semana que deja cubiertas{' '}
-            <span className="font-bold text-content-primary">
-              {p.coverage?.weeksCovered ?? 0} de {p.weeks.length}
-            </span>{' '}
-            semanas del año. Toca cualquier celda si sabes algo que el histórico no sabe. Y si lo
-            que no te cuadra es una franja entera, casi siempre es una semana especial mal
-            etiquetada o un horario mal detectado: arréglalo arriba y esta rejilla se recalcula
-            sola.
+            No es una semana concreta del fichero. Toca cualquier celda si sabes algo que el
+            histórico no sabe; si lo que no cuadra es una franja entera, casi siempre es una semana
+            especial mal etiquetada o un horario mal detectado: arréglalo atrás y esta rejilla se
+            recalcula sola.
           </p>
 
           <h4 className="h4 mt-6 flex items-center gap-2">

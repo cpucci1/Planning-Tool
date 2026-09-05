@@ -41,7 +41,11 @@ export function buildNeedGrid(week: number[][], model: StaffingModel): NeedGrid 
       const tier = tierFor(model.tiers, week[d][s])
       if (!tier) continue
       for (const role of model.roles) {
-        grid[role.id][d][s] = tier.staff[role.id] ?? 0
+        // El suelo del tramo solo actúa DENTRO del tramo: con cero comensales
+        // no hay tramo, y ahí sigue mandando "local abierto sin servicio no
+        // pide gente" (eso lo cubre el mínimo por local, si lo hay).
+        const target = tier.staff[role.id] ?? 0
+        grid[role.id][d][s] = Math.max(target, tier.staffMin?.[role.id] ?? 0)
       }
     }
   }
@@ -56,9 +60,8 @@ export function buildNeedGrid(week: number[][], model: StaffingModel): NeedGrid 
  *
  * Ojo: esto solo puede RECORTAR, nunca añadir. Si el horario propio se
  * adelanta a que abra sala (para el personal que prepara antes del servicio),
- * ahí no hay comensales en la curva y por tanto tampoco tramo — ese hueco no
- * lo cubre esta función, lo cubriría un mínimo de apertura por bloque
- * (`applyOpeningMinimums`), que es la extensión natural si hace falta.
+ * ahí no hay comensales en la curva y por tanto tampoco tramo — ese hueco lo
+ * cubre `applyOpeningMinimums`, el mínimo por local, que corre justo después.
  */
 export function clampNeedToBlockHours(
   grid: NeedGrid,
@@ -119,6 +122,33 @@ export function applyOpeningMinimums(
             .reduce((acc, r) => acc + out[r.id][d][s], 0)
           if (totalHere < min) out[role.id][d][s] += min - totalHere
         }
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * Aplica el techo por tramo y puesto. Va el ÚLTIMO de la cadena, después del
+ * mínimo por local: un tope que se pudiera saltar por otra vía no es un tope.
+ *
+ * Necesita la curva de comensales para saber en qué tramo cae cada franja, la
+ * misma con la que se construyó la rejilla.
+ */
+export function clampToTierMax(grid: NeedGrid, week: number[][], model: StaffingModel): NeedGrid {
+  const hasMax = model.tiers.some((t) => Object.values(t.staffMax ?? {}).some((v) => v > 0))
+  if (!hasMax) return grid
+
+  const out: NeedGrid = {}
+  for (const k of Object.keys(grid)) out[k] = grid[k].map((r) => [...r])
+
+  for (let d = 0; d < 7; d++) {
+    for (let s = 0; s < SLOTS_PER_DAY; s++) {
+      const tier = tierFor(model.tiers, week[d][s])
+      if (!tier?.staffMax) continue
+      for (const role of model.roles) {
+        const max = tier.staffMax[role.id] ?? 0
+        if (max > 0 && out[role.id][d][s] > max) out[role.id][d][s] = max
       }
     }
   }

@@ -23,6 +23,7 @@ import {
   applyOpeningMinimums,
   buildNeedGrid,
   clampNeedToBlockHours,
+  clampToTierMax,
   summarize,
   totalPeopleGrid,
 } from '@/lib/staffing'
@@ -217,9 +218,15 @@ export function usePlannerState() {
    */
   const lagged = useMemo(() => {
     if (!typical) return null
-    const corrected = applyLag(typical, settings.lagMinutes)
+    // El margen de seguridad va sobre la curva de comensales, antes de
+    // traducirla a personas: es "cuenta con algo más de gente de la que dice
+    // el histórico", no un ajuste de plantilla a posteriori.
+    const margin = 1 + Math.max(0, settings.safetyMarginPct) / 100
+    const cushioned =
+      margin === 1 ? typical : typical.map((day) => day.map((v) => Math.round(v * margin)))
+    const corrected = applyLag(cushioned, settings.lagMinutes)
     return hours ? clampToHours(corrected, hours) : corrected
-  }, [typical, settings.lagMinutes, hours])
+  }, [typical, settings.lagMinutes, settings.safetyMarginPct, hours])
 
   const inflation = useMemo(
     () => (weeks.length ? typicalWeekInflation(weeks, settings.coveragePct, sorted) : null),
@@ -252,13 +259,16 @@ export function usePlannerState() {
     // El mínimo por bloque va DESPUÉS: añade el personal de apertura/cierre
     // aunque la curva esté a cero, respetando el horario propio de cada
     // bloque si lo tiene (cocina) — ver `applyOpeningMinimums`.
+    let grid = needGridDemand
     if (hours && Object.values(minStaffByBlock).some((v) => v > 0)) {
-      return applyOpeningMinimums(needGridDemand, model, minStaffByBlock, (blockId) =>
+      grid = applyOpeningMinimums(needGridDemand, model, minStaffByBlock, (blockId) =>
         blockId === KITCHEN_BLOCK_ID && kitchenHours ? kitchenHours : hours,
       )
     }
-    return needGridDemand
-  }, [needGridDemand, model, kitchenHours, hours, settings.minStaffByBlock])
+    // El techo por tramo va el último: si se pudiera saltar por el mínimo por
+    // local, no sería un techo.
+    return lagged ? clampToTierMax(grid, lagged, model) : grid
+  }, [needGridDemand, model, kitchenHours, hours, settings.minStaffByBlock, lagged])
 
   const needSummary = useMemo(
     () => (needGrid ? summarize(needGrid, model) : null),

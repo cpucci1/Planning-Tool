@@ -126,6 +126,7 @@ export const DEFAULT_TIERS: Tier[] = [
 export const DEFAULT_SETTINGS: Settings = {
   lagMinutes: 30,
   coveragePct: 80,
+  safetyMarginPct: 0,
   sizingMode: 'calibrado',
   allowSplitShifts: true,
   consecutiveDaysOff: true,

@@ -295,3 +295,38 @@ export function weekTotal(days: number[][]): number {
 export function dayTotals(days: number[][]): number[] {
   return days.map((d) => d.reduce((a, b) => a + b, 0))
 }
+
+/**
+ * Sobrecobertura: cuánto se pasa la plantilla fija en las semanas que sí cubre.
+ *
+ * La plantilla se dimensiona para la línea de cobertura, así que en una semana
+ * floja sobra gente. Esto lo pone en número: de media, cuánto por encima de la
+ * demanda real de cada semana cubierta queda esa plantilla. Es la cara b del
+ * porcentaje de cobertura — subir la línea cubre más semanas, y a cambio sube
+ * esto.
+ *
+ * Se mide contra la demanda de cada semana concreta, no contra la media del
+ * año: promediar primero escondería justo lo que se quiere enseñar.
+ */
+export function overcoverage(
+  weeks: WeekDemand[],
+  threshold: number,
+): { avgPct: number; worstPct: number; worstWeek: number | null } | null {
+  const covered = weeks.filter((w) => w.total <= threshold && w.total > 0)
+  if (covered.length === 0) return null
+
+  let sum = 0
+  let worstPct = 0
+  let worstWeek: number | null = null
+
+  for (const w of covered) {
+    const pct = ((threshold - w.total) / w.total) * 100
+    sum += pct
+    if (pct > worstPct) {
+      worstPct = pct
+      worstWeek = w.isoWeek
+    }
+  }
+
+  return { avgPct: sum / covered.length, worstPct, worstWeek }
+}

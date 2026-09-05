@@ -270,10 +270,10 @@ export function StepResult() {
       {/* ── 2. Dónde te sitúas ────────────────────────────────── */}
       <Card>
         <CardHeader
-          eyebrow="Dónde te sitúas"
+          eyebrow="Tu semana tipo"
           title={
             <>
-              El año entero, <span className="text-brand italic">semana a semana.</span>
+              Tu semana tipo, <span className="text-brand italic">contra el año entero.</span>
             </>
           }
           subtitle="Arrastra la línea. Lo que queda por debajo lo cubre tu plantilla fija; lo que asoma por encima son picos. Todo lo demás de esta pantalla se recalcula solo."
@@ -375,9 +375,9 @@ export function StepResult() {
                 son de 15 horas.
               </InfoTip>
             }
-            label="Jornadas equiv."
+            label="Plantilla equivalente"
             value={nf1.format(fte)}
-            hint="Sobre jornada de 40 h"
+            hint="A jornada de 40 h: un 20 h cuenta 0,5"
           />
           <Stat
             icon={<Clock size={13} strokeWidth={2.6} />}

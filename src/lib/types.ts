@@ -184,6 +184,13 @@ export interface Settings {
   /** Porcentaje de semanas que se quieren cubrir con plantilla fija (0-100). */
   coveragePct: number
   /**
+   * Colchón deliberado sobre la demanda, en tanto por ciento. Es una decisión
+   * de negocio distinta de la cobertura: la cobertura elige QUÉ semanas se
+   * cubren, y esto añade holgura DENTRO de la semana elegida, para no ir al
+   * límite si un día entra más gente de la prevista. 0 = sin colchón.
+   */
+  safetyMarginPct: number
+  /**
    * Cómo se construye la semana tipo. 'calibrado' hace que el total coincida
    * con el percentil pedido; 'conservador' aplica el percentil a cada franja
    * por separado y sale una plantilla mayor. Ver lib/demand.ts.
