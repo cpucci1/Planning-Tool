@@ -12,24 +12,27 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
-  ArrowLeft,
   ArrowUpRight,
   Clock,
   Download,
   Gauge,
   Layers,
   RotateCcw,
+  Table2,
   Users,
 } from 'lucide-react'
 import { Badge, Button, Card, CardHeader, InfoTip, Modal, Note, Stat, cn } from '@/components/ui'
 import { AccountTeaserModal } from '@/components/AccountTeaserModal'
+import { CriteriaModal, type Criterion } from '@/components/CriteriaModal'
 import { RosterGrid } from '@/components/RosterGrid'
+import { StaffTable } from '@/components/StaffTable'
 import { DayCurve } from '@/components/charts/DayCurve'
 import { WeekHeatmap } from '@/components/charts/WeekHeatmap'
 import { YearChart } from '@/components/charts/YearChart'
 import { usePlanner } from '@/hooks/usePlanner'
 import { describeMix, fteFrom, summarizeCost } from '@/lib/contracts'
 import { riskRatio } from '@/lib/demand'
+import { downloadPlanCsv } from '@/lib/export'
 import { downloadReport } from '@/lib/report'
 import { DAYS, DAYS_SHORT, formatSlot } from '@/lib/time'
 import type { DayIndex } from '@/lib/types'
@@ -66,6 +69,7 @@ export function StepResult() {
   const p = usePlanner()
   const [dayOverride, setDayOverride] = useState<DayIndex | null>(null)
   const [askReset, setAskReset] = useState(false)
+  const [showCriteria, setShowCriteria] = useState(false)
 
   /**
    * El teaser de cuenta sale UNA vez, cuando el usuario llega al cuadrante
@@ -165,6 +169,46 @@ export function StepResult() {
     ? extraPeopleIfHired * 40 * weeks.length * avgHourlyCost
     : null
   const peakOnlyAnnualCostEur = avgHourlyCost ? peaks.peakHoursPerYear * avgHourlyCost : null
+
+  /** Todo lo que ha entrado en el cálculo, para el modal de criterios (7.8). */
+  const criteria: Criterion[] = [
+    { label: 'Cobertura', value: `${settings.coveragePct}%`, step: 'result', where: 'La línea del gráfico de arriba' },
+    { label: 'Margen de seguridad', value: `${settings.safetyMarginPct}%`, step: 'demand', where: 'Demanda, pantalla de tu año' },
+    { label: 'Dimensionado', value: settings.sizingMode === 'calibrado' ? 'Calibrado' : 'Conservador', step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: 'Desgaste del dato', value: `${settings.lagMinutes} min`, step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: 'Turno más largo', value: `${settings.maxShiftMinutes / 60} h`, step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: 'Turno más corto', value: `${settings.minShiftMinutes / 60} h`, step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: 'Jornada partida', value: settings.allowSplitShifts ? 'Sí' : 'No', step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: 'Dos libranzas seguidas', value: settings.consecutiveDaysOff ? 'Sí' : 'No', step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: '12 h de descanso', value: settings.minRestBetweenShifts ? 'Sí' : 'No', step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: 'Contratos activos', value: settings.contracts.filter((c) => c.enabled).map((c) => c.label).join(', '), step: 'team', where: 'Equipo, ajustes avanzados' },
+    ...model.blocks
+      .filter((b) => (settings.minStaffByBlock[b.id] ?? 0) > 0)
+      .map((b) => ({
+        label: `Mínimo en ${b.name}`,
+        value: `${settings.minStaffByBlock[b.id]} personas`,
+        step: 'demand' as const,
+        where: 'Demanda, pantalla de horario',
+      })),
+    { label: 'Tramos de personal', value: `${model.tiers.length} tramos`, step: 'team', where: 'Equipo, la tabla principal' },
+    { label: 'Puestos', value: `${model.roles.length} puestos`, step: 'demand', where: 'Demanda, catálogo de puestos' },
+    { label: 'Semanas excluidas', value: `${specials.filter((x) => x.excluded).length}`, step: 'demand', where: 'Demanda, semanas raras' },
+  ]
+
+  const exportInput = {
+    roster,
+    model,
+    settings,
+    cost,
+    hours: hours ?? null,
+    kitchenHours: p.kitchenHours,
+    coveragePct: settings.coveragePct,
+    weeksCovered: coverage.weeksCovered,
+    totalWeeks: weeks.length,
+    neededHours: plan.neededHours,
+    contractedHours: plan.contractedHours,
+    slackHours: plan.slackHours,
+  }
 
   /**
    * La línea manda: el usuario mueve comensales, nosotros traducimos a
@@ -516,6 +560,38 @@ export function StepResult() {
         </div>
       </Card>
 
+      {/* ── 3 bis. La plantilla, puesto por jornada ───────────── */}
+      <StaffTable
+        roster={roster}
+        model={model}
+        contracts={settings.contracts}
+        eyebrow="Plantilla total"
+        title={
+          <>
+            Lo que tendrías que <span className="text-brand italic">contratar.</span>
+          </>
+        }
+        subtitle="Cada puesto con su desglose de jornada. Es la lista con la que se ficha."
+      />
+
+      {/* Y la misma partida por bloque: quien contrata sala no contrata
+          cocina, y mirarlo junto obliga a hacer la resta a mano. */}
+      {model.blocks.length > 1 && (
+        <div className="grid gap-6 lg:grid-cols-2">
+          {model.blocks.map((b) => (
+            <StaffTable
+              key={b.id}
+              roster={roster}
+              model={model}
+              contracts={settings.contracts}
+              blockId={b.id}
+              eyebrow={`Plantilla ${b.name.toLowerCase()}`}
+              title={<>{b.name}</>}
+            />
+          ))}
+        </div>
+      )}
+
       {/* ── 4. La semana, franja a franja ─────────────────────── */}
       <Card>
         <CardHeader
@@ -701,20 +777,20 @@ export function StepResult() {
             Descargar informe
           </Button>
           <Button
-            variant="ghost"
+            variant="secondary"
             size="sm"
-            icon={<ArrowLeft size={15} />}
-            onClick={() => p.setStep('team')}
+            icon={<Table2 size={15} />}
+            onClick={() => downloadPlanCsv(exportInput)}
           >
-            Cambiar los tramos
+            Exportar todo (CSV)
           </Button>
           <Button
             variant="ghost"
             size="sm"
             icon={<Gauge size={15} />}
-            onClick={() => p.setStep('demand')}
+            onClick={() => setShowCriteria(true)}
           >
-            Revisar la demanda
+            Revisar algún criterio
           </Button>
         </div>
         <Button
@@ -755,6 +831,13 @@ export function StepResult() {
           guarda nada en ningún sitio.
         </p>
       </Modal>
+
+      <CriteriaModal
+        open={showCriteria}
+        onClose={() => setShowCriteria(false)}
+        criteria={criteria}
+        onGo={(step) => p.setStep(step)}
+      />
 
       <AccountTeaserModal open={showAccountTeaser} onClose={() => setShowAccountTeaser(false)} />
     </div>

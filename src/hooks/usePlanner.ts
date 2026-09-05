@@ -24,6 +24,7 @@ import {
   buildNeedGrid,
   clampNeedToBlockHours,
   clampToTierMax,
+  expandHours,
   summarize,
   totalPeopleGrid,
 } from '@/lib/staffing'
@@ -261,14 +262,27 @@ export function usePlannerState() {
     // bloque si lo tiene (cocina) — ver `applyOpeningMinimums`.
     let grid = needGridDemand
     if (hours && Object.values(minStaffByBlock).some((v) => v > 0)) {
+      // La ventana del mínimo incluye la preparación y el cierre: es
+      // justamente la gente que entra antes y sale después (ver `expandHours`).
+      const withPrep = (h: OpeningHours) =>
+        expandHours(h, settings.prepBeforeMin, settings.prepAfterMin)
       grid = applyOpeningMinimums(needGridDemand, model, minStaffByBlock, (blockId) =>
-        blockId === KITCHEN_BLOCK_ID && kitchenHours ? kitchenHours : hours,
+        withPrep(blockId === KITCHEN_BLOCK_ID && kitchenHours ? kitchenHours : hours),
       )
     }
     // El techo por tramo va el último: si se pudiera saltar por el mínimo por
     // local, no sería un techo.
     return lagged ? clampToTierMax(grid, lagged, model) : grid
-  }, [needGridDemand, model, kitchenHours, hours, settings.minStaffByBlock, lagged])
+  }, [
+    needGridDemand,
+    model,
+    kitchenHours,
+    hours,
+    settings.minStaffByBlock,
+    settings.prepBeforeMin,
+    settings.prepAfterMin,
+    lagged,
+  ])
 
   const needSummary = useMemo(
     () => (needGrid ? summarize(needGrid, model) : null),

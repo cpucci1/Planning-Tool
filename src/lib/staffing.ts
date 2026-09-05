@@ -11,7 +11,7 @@
  * mezclarlo aquí infla la plantilla en las horas muertas.
  */
 
-import { SLOTS_PER_DAY, SLOT_MINUTES, slotStartMin } from './time'
+import { GRID_END_MIN, GRID_START_MIN, SLOTS_PER_DAY, SLOT_MINUTES, slotStartMin } from './time'
 import type { DayIndex, NeedGrid, NeedSummary, StaffingModel, Tier, OpeningHours } from './types'
 
 /** Tramo al que corresponde un número de comensales. */
@@ -126,6 +126,23 @@ export function applyOpeningMinimums(
     }
   }
   return out
+}
+
+/**
+ * Estira el horario con los minutos de preparación y de cierre.
+ *
+ * Solo se usa para la ventana del mínimo por local: la curva de comensales
+ * sigue recortada al horario al público, porque antes de abrir no hay
+ * comensales por definición.
+ */
+export function expandHours(hours: OpeningHours, beforeMin: number, afterMin: number): OpeningHours {
+  if (beforeMin <= 0 && afterMin <= 0) return hours
+  return hours.map((day) =>
+    day.map((b) => ({
+      startMin: Math.max(GRID_START_MIN, b.startMin - beforeMin),
+      endMin: Math.min(GRID_END_MIN, b.endMin + afterMin),
+    })),
+  )
 }
 
 /**

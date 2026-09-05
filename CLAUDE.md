@@ -367,6 +367,50 @@ abrirlo), para que el cuadrante se lo asigne a alguien concreto en vez de repart
 puestos. No hay forma de elegir otro puesto todavía; si hace falta, es la extensión
 natural del día que se pida.
 
+### 2 quater. Catálogo de puestos, coste y límites
+
+Mejoras pedidas por Fernando el 2026-09-04 (ficha `shifty_planificador_mejoras_1`).
+
+**Catálogo de puestos** (`components/RoleCatalog.tsx`, en la pantalla de lectura del
+fichero): cada puesto lleva su **coste por hora** y si es de **solo jornada completa**.
+Vienen nueve categorías de partida — encargado, responsable de turno, responsable de
+sala, camarero, ayudante, jefe de cocina, jefe de partida, cocinero y office — pero
+**las de mando arrancan a cero en todos los tramos**: un local de menú no tiene jefe de
+partida, y meterlos con gente por defecto inflaría la plantilla de quien ni los tiene.
+Por eso los datos de ejemplo siguen dando las mismas 19 personas de siempre.
+
+El coste ya **no** es un campo global en ajustes avanzados: era un único "coste medio"
+para un jefe de cocina y un office, que no cuestan igual. `summarizeCost`
+(`lib/contracts.ts`) lo suma por categoría y **devuelve `null` si no hay ni un precio**;
+si solo faltan algunos, da lo que sabe y la lista de los que faltan, para poder decirlo
+en pantalla en vez de presentar un total incompleto como si fuera el total.
+
+**Solo jornada completa** (`Role.fullTimeOnly`): `buildRoster` no baja a esas personas al
+contrato parcial que les cabría por horas. Se quedan con el contrato más grande activo.
+
+**Mínimos y máximos por tramo y puesto** (`Tier.staffMin` / `Tier.staffMax`): el suelo se
+aplica dentro de `buildNeedGrid` (solo DENTRO del tramo: con cero comensales no hay
+tramo) y el techo en `clampToTierMax`, que corre **el último de la cadena** — un tope que
+se pudiera saltar por el mínimo por local no sería un tope. En la tabla van escondidos
+tras un botón: con ellos siempre visibles la tabla triplica y cuesta seguirla.
+
+### 2 quinquies. Horario al público y horario de preparación
+
+El horario que edita el usuario es el horario **al público**. `Settings.prepBeforeMin` y
+`prepAfterMin` son los minutos de mise en place y de cierre, y `expandHours` estira con
+ellos **solo la ventana del mínimo por local**: durante la preparación no hay comensales,
+así que no hay tramo ni plantilla de servicio, pero sí está la gente que abre y cierra.
+
+### 2 sexies. Margen de seguridad y sobrecobertura
+
+`Settings.safetyMarginPct` es un colchón deliberado **sobre la curva de comensales**,
+antes de traducirla a personas. Es una decisión distinta de la cobertura: la cobertura
+elige QUÉ semanas se cubren, y esto añade holgura DENTRO de la semana elegida.
+
+`overcoverage` (`lib/demand.ts`) es su contrapeso honesto: cuánto queda la plantilla por
+encima de lo que pide cada semana que sí cubre. Se mide contra cada semana concreta, no
+contra la media del año, porque promediar primero escondería justo lo que se enseña.
+
 ### 3. Desfase del dato
 El fichero del TPV marca la hora del **cobro**, y se cobra al terminar — unos 30 minutos
 después de que el trabajo haya ocurrido. La curva del fichero va por tanto sistemáticamente
@@ -466,11 +510,14 @@ Las franjas por encima de la línea de cobertura se marcan en el gráfico y se c
 más"*. Ese es el único momento de venta, y sale del propio cálculo.
 
 ### 8 bis. Coste (opcional)
-`Settings.hourlyCostEur` es un campo suelto en ajustes avanzados: coste medio por hora,
-en euros. **Lo pone el usuario o se queda en blanco — nunca se inventa un precio**, ni de
-mercado ni de Shifty. Si está relleno, el resultado y el PDF añaden un par de frases con
-la cifra en euros (coste semanal de la plantilla, coste de contratar el pico fijo frente a
-cubrir solo esas horas). Si no, todo se queda como antes: solo personas y horas.
+El coste vive **por categoría** en el catálogo de puestos (`Role.hourlyCostEur`), no como
+un campo global. **Lo pone el usuario o se queda en blanco — nunca se inventa un precio**,
+ni de mercado ni de Shifty. Si hay precios, el resultado y el PDF dan el coste semanal y
+anual de la plantilla; si no, todo se queda en personas y horas.
+
+Para valorar los picos se usa el **coste medio por hora de su propia plantilla**: un extra
+no es de un puesto concreto, así que ponerle el precio del jefe de cocina o el del office
+sería igual de arbitrario.
 
 ### 9. Guardado sin cuenta — construido, desconectado por ahora
 `src/lib/persistence.ts` implementa dos mecanismos, ninguno de los dos activo hoy:

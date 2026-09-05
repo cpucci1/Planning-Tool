@@ -68,6 +68,14 @@ export interface SpecialWeek {
   excluded: boolean
   /** True si es un festivo que cambia de semana según el año. */
   moveable: boolean
+  /**
+   * Por qué se salió esa semana, en palabras del usuario ("cerramos por obras",
+   * "congreso en el recinto ferial"). El desplegable solo tiene las diez
+   * etiquetas habituales, y la mitad de las anomalías de un local no están
+   * ahí. Se guarda con el plan para que el año que viene siga explicando por
+   * qué esa semana se trató distinto.
+   */
+  note?: string
 }
 
 export interface DemandDataset {
@@ -207,6 +215,17 @@ export interface Settings {
    * así que por defecto va activado.
    */
   minRestBetweenShifts: boolean
+  /**
+   * Minutos de preparación antes de abrir y de cierre después de cerrar: la
+   * mise en place, el montaje, la limpieza. El horario que edita el usuario es
+   * el horario AL PÚBLICO; la gente entra antes y sale después.
+   *
+   * No añade personal de servicio (a esas horas no hay comensales y no hay
+   * tramo): lo que hace es estirar la ventana en la que se garantiza el mínimo
+   * por local, que es exactamente la gente que abre y cierra.
+   */
+  prepBeforeMin: number
+  prepAfterMin: number
   /**
    * Mínimo de personas que tiene que haber en cada bloque (Sala, Cocina...)
    * durante TODO su horario de apertura, aunque la curva de comensales pida

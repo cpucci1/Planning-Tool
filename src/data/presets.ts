@@ -131,6 +131,8 @@ export const DEFAULT_SETTINGS: Settings = {
   allowSplitShifts: true,
   consecutiveDaysOff: true,
   minRestBetweenShifts: true,
+  prepBeforeMin: 0,
+  prepAfterMin: 0,
   minStaffByBlock: {},
   maxShiftMinutes: 9 * 60,
   minShiftMinutes: 3 * 60,

@@ -38,10 +38,12 @@ import {
   CardHeader,
   Field,
   InfoTip,
+  InlineName,
   Note,
   NumberInput,
   Segmented,
   Stat,
+  TextInput,
   Toggle,
   cn,
 } from '@/components/ui'
@@ -60,6 +62,9 @@ const DAY_ABBR = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 
 /** Colchón sobre la demanda. Pasado el 20% deja de ser colchón y es otra plantilla. */
 const SAFETY_OPTIONS = [0, 5, 10, 15, 20]
+
+/** Preparación y cierre, en minutos. Media hora y una hora son lo habitual. */
+const PREP_OPTIONS = [0, 30, 60, 90]
 
 /** "13 – 19 abr" a partir de una semana ISO. */
 function weekDates(year: number, week: number): string {
@@ -588,7 +593,7 @@ export function StepDemand() {
                 El personal que hace falta <span className="text-brand italic">solo por estar abierto.</span>
               </>
             }
-            subtitle="Al margen de cuántos comensales tengas: quien abre, cierra o prepara. Se garantiza en todo el horario de cada área, el suyo propio si lo tiene, como cocina."
+            subtitle="Al margen de cuántos comensales tengas: quien abre, cierra o prepara. Se garantiza en todo el horario de cada área, el suyo propio si lo tiene, como cocina, y también durante la preparación y el cierre."
             info={
               <InfoTip title="Cómo se cubre">
                 El mínimo lo cubre el primer puesto de cada área (el responsable de abrirla), para
@@ -626,6 +631,50 @@ export function StepDemand() {
                   </div>
                 </Field>
               ))}
+          </div>
+
+          {/* 3.2 — el horario de arriba es el horario AL PÚBLICO. La gente
+              entra antes y sale después, y esas horas son plantilla igual. */}
+          <div className="grid gap-4 border-t border-border-soft px-4 py-5 sm:grid-cols-2 sm:px-6">
+            <Field
+              label="Preparación antes de abrir"
+              info={
+                <InfoTip title="Horario al público y horario del personal">
+                  El horario que has puesto arriba es cuando entra el cliente. La mise en place, el
+                  montaje y la puesta a punto ocurren antes, y esas horas se pagan igual. Aquí se
+                  dice cuánto antes entra la gente: durante ese rato se mantiene el mínimo de cada
+                  área, no la plantilla de servicio.
+                </InfoTip>
+              }
+            >
+              <Segmented
+                value={String(p.settings.prepBeforeMin)}
+                onChange={(v) => p.setSettings((st) => ({ ...st, prepBeforeMin: Number(v) }))}
+                options={PREP_OPTIONS.map((v) => ({
+                  value: String(v),
+                  label: v === 0 ? 'Nada' : `${v} min`,
+                }))}
+              />
+            </Field>
+
+            <Field
+              label="Cierre después de cerrar"
+              info={
+                <InfoTip title="El cierre">
+                  Recoger, limpiar y cuadrar la caja. Igual que la preparación: durante ese rato se
+                  mantiene el mínimo del área, no la plantilla de servicio.
+                </InfoTip>
+              }
+            >
+              <Segmented
+                value={String(p.settings.prepAfterMin)}
+                onChange={(v) => p.setSettings((st) => ({ ...st, prepAfterMin: Number(v) }))}
+                options={PREP_OPTIONS.map((v) => ({
+                  value: String(v),
+                  label: v === 0 ? 'Nada' : `${v} min`,
+                }))}
+              />
+            </Field>
           </div>
         </Card>
         )}
@@ -718,11 +767,15 @@ export function StepDemand() {
                             <span className="rounded-pill bg-surface px-2 py-0.5 text-[0.7rem] font-black text-content-secondary">
                               S{s.isoWeek}
                             </span>
-                            <span
-                              className={cn('h4', s.excluded && 'text-content-muted line-through')}
-                            >
-                              {s.label}
-                            </span>
+                            <InlineName
+                              value={s.label}
+                              onCommit={(v) => patchSpecial(s.isoWeek, { label: v, confirmed: true })}
+                              ariaLabel={`Cambiar el nombre de la semana ${s.isoWeek}`}
+                              className={cn(
+                                'h4',
+                                s.excluded && 'text-content-muted line-through',
+                              )}
+                            />
                             <Badge tone={s.deviation > 0 ? 'success' : 'warning'}>
                               {deviationText(s.deviation)}
                             </Badge>
@@ -796,6 +849,20 @@ export function StepDemand() {
                             </span>
                           </button>
                         </div>
+                      </div>
+
+                      {/* 4.2 — el motivo en palabras del usuario. El desplegable
+                          no cubre "cerramos por obras" ni "congreso en la
+                          feria", y eso es justo lo que hay que recordar el año
+                          que viene. */}
+                      <div className="mt-2">
+                        <TextInput
+                          value={s.note ?? ''}
+                          onChange={(e) => patchSpecial(s.isoWeek, { note: e.target.value })}
+                          placeholder="¿Por qué se salió esta semana? (opcional)"
+                          aria-label={`Motivo de la semana ${s.isoWeek}`}
+                          className="h-9 text-[0.82rem]"
+                        />
                       </div>
 
                       {moveLine && (
