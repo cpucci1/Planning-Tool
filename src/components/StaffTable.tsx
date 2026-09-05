@@ -19,6 +19,7 @@ const eur = new Intl.NumberFormat('es-ES', {
   style: 'currency',
   currency: 'EUR',
   maximumFractionDigits: 0,
+  useGrouping: true,
 })
 
 interface Row {

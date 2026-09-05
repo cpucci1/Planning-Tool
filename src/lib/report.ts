@@ -52,7 +52,15 @@ function hexToRgb(hex: string): [number, number, number] {
 
 const nf = new Intl.NumberFormat('es-ES')
 const nf1 = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 })
-const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })
+// `useGrouping`: en es-ES, sin esto, un número de cuatro cifras sale
+// sin punto de millar ("7650 €") y al lado de uno de seis que sí lo lleva
+// parece un error de la herramienta.
+const eur = new Intl.NumberFormat('es-ES', {
+  style: 'currency',
+  currency: 'EUR',
+  maximumFractionDigits: 0,
+  useGrouping: true,
+})
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
 
 export async function downloadReport(input: ReportInput): Promise<void> {

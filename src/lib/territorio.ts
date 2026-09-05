@@ -125,13 +125,19 @@ export function sugerirNombreSemana(
   const fiestas = FIESTAS[territorioId]
   if (!fiestas) return null
 
+  // Solo para las semanas que SUBEN. Una fiesta local llena el local, no lo
+  // vacía: colgarle "Feria de Abril" a una semana que cae un 36% sería una
+  // explicación falsa con cara de dato, y esas son las que hacen daño. Los
+  // valles casi siempre son otra cosa (la ciudad se va de vacaciones, obras,
+  // un cierre) y eso lo sabe el dueño, no nosotros.
+  if (deviation <= 0) return null
+
   const fiesta = fiestas.find((f) => Math.abs(f.semana - isoWeek) <= 1)
   if (!fiesta) return null
 
-  const signo = deviation > 0 ? 'se dispara' : 'se hunde'
-  const pct = Math.round(Math.abs(deviation) * 100)
+  const pct = Math.round(deviation * 100)
   return {
     nombre: fiesta.nombre,
-    motivo: `La semana ${isoWeek} ${signo} un ${pct}% y coincide con ${fiesta.nombre}.`,
+    motivo: `La semana ${isoWeek} se dispara un ${pct}% y coincide con ${fiesta.nombre}.`,
   }
 }

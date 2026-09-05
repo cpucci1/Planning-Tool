@@ -30,6 +30,7 @@ import {
 } from '@/lib/staffing'
 import { buildRoster } from '@/lib/roster'
 import { analyzePeaks, summarizePlan } from '@/lib/contracts'
+import { decodificarPlan } from '@/lib/compartir'
 import {
   SNAPSHOT_SOURCE,
   SNAPSHOT_VERSION,
@@ -223,6 +224,37 @@ export function usePlannerState() {
       personNames,
     }
   }
+
+  /**
+   * Un plan compartido llega en el `#` de la dirección. Ese SÍ se carga solo:
+   * quien abre un enlace lo abre para ver ese plan, no para empezar de cero.
+   * Se limpia la dirección después para que un refresco no lo vuelva a
+   * imponer por encima de lo que el usuario haya tocado desde entonces.
+   */
+  useEffect(() => {
+    const hash = window.location.hash.slice(1)
+    if (!hash || hash.length < 20) return
+    let vivo = true
+    decodificarPlan(hash).then((plan) => {
+      if (!vivo || !plan || !plan.dataset) return
+      setDataset(plan.dataset)
+      setHours(plan.hours)
+      setKitchenHours(plan.kitchenHours)
+      setSpecials(plan.specials)
+      setBlocksRaw(plan.blocks)
+      setRoles(plan.roles)
+      setTiers(plan.tiers)
+      setSettings(plan.settings)
+      setOverrides(new Map(plan.overrides))
+      setPersonNames(plan.personNames ?? {})
+      setStep('result')
+      setSavedMeta(null)
+      window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    })
+    return () => {
+      vivo = false
+    }
+  }, [])
 
   /** Al abrir, mira si hay algo guardado. No lo restaura: solo lo ofrece. */
   useEffect(() => {

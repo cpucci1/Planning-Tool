@@ -45,7 +45,15 @@ import type { DayIndex } from '@/lib/types'
 
 const nf = new Intl.NumberFormat('es-ES')
 const nf1 = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 })
-const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })
+// `useGrouping`: en es-ES, sin esto, un número de cuatro cifras sale
+// sin punto de millar ("7650 €") y al lado de uno de seis que sí lo lleva
+// parece un error de la herramienta.
+const eur = new Intl.NumberFormat('es-ES', {
+  style: 'currency',
+  currency: 'EUR',
+  maximumFractionDigits: 0,
+  useGrouping: true,
+})
 
 /** Cobertura mínima y máxima que se deja elegir con la línea. */
 const MIN_PCT = 20

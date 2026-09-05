@@ -327,16 +327,7 @@ export function StepDemand() {
       {sub === 0 && (
       <div className="space-y-6">
       <Card className="p-5 sm:p-7">
-        <span className="eyebrow eyebrow--purple">Lectura del fichero</span>
-        <h1 className="h1 mt-3">
-          Esto es lo que <span className="text-brand italic">he entendido.</span>
-        </h1>
-        <p className="mt-2 max-w-2xl text-[0.95rem] leading-relaxed text-content-secondary">
-          Mira si te cuadra antes de seguir. Si me he colado en algo, corrígeme aquí mismo: todo lo
-          de esta pantalla es editable y el cálculo se rehace solo.
-        </p>
-
-        <div className="mt-5 grid gap-2 sm:grid-cols-3">
+        <div className="grid gap-2 sm:grid-cols-3">
           {[
             { icon: <FileSpreadsheet size={15} />, label: 'Fichero', value: src.fileName },
             { icon: <CalendarRange size={15} />, label: 'Rango de fechas', value: src.dateRange },
@@ -358,7 +349,7 @@ export function StepDemand() {
           ))}
         </div>
 
-        <div className="mt-6">
+        <div className="mt-5">
           <MapeoColumnas
             columnas={mapeo}
             onChange={setMapeo}
