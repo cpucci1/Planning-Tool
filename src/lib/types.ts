@@ -183,6 +183,13 @@ export interface Settings {
    *  el resultado no enseña ninguna cifra de coste. Lo pone el usuario, no
    *  se inventa ningún precio de Shifty ni de mercado. */
   hourlyCostEur: number | null
+  /**
+   * Mínimo de personas que tiene que haber en cada bloque (Sala, Cocina...)
+   * durante TODO su horario de apertura, aunque la curva de comensales pida
+   * menos o nada — el que abre, cierra o limpia. `blockId → personas`; un
+   * bloque sin entrada o a 0 no lleva mínimo. Ver `applyOpeningMinimums`.
+   */
+  minStaffByBlock: Record<string, number>
   /** Duración máxima de un turno, o de cada bloque si la jornada es partida (minutos). */
   maxShiftMinutes: number
   /** Duración mínima de un turno, para no generar turnos de una hora suelta (minutos). */

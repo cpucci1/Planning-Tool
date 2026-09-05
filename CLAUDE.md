@@ -347,9 +347,25 @@ cocina deja de pedir personal fuera de su horario propio aunque sala siga abiert
 curva de comensales aún tenga gente. Importante — **solo recorta, nunca añade**: si el
 horario de cocina se adelanta a que abra sala (para el personal que prepara antes del
 servicio), ahí no hay comensales en la curva y por tanto tampoco tramo, así que ese hueco
-sigue saliendo a cero. Cubrirlo de verdad pide un mínimo de apertura por bloque
-(`applyOpeningMinimums`, ya escrito en `staffing.ts` pero sin enganchar a nada) — la
-extensión natural el día que haga falta.
+sigue saliendo a cero. Eso lo cubre el mínimo de apertura por bloque de la sección 2 ter.
+
+### 2 ter. Mínimo por local (apertura y cierre)
+
+Corrección de Fernando, 2026-09-04: el mínimo no es por puesto, es **por local completo**
+(Sala, Cocina...) y se garantiza en **todo su horario**, tenga o no comensales la curva en
+ese momento — quien abre, prepara, cierra o limpia. Vive en la pantalla de Horario, justo
+debajo del horario de cocina: un número por cada bloque de `model.blocks`, en
+`Settings.minStaffByBlock` (`blockId → personas`, vacío por defecto).
+
+`applyOpeningMinimums` (`lib/staffing.ts`) lo aplica en `usePlanner.ts` **después** de
+`clampNeedToBlockHours`, para que respete el horario propio de cada bloque (cocina, si lo
+tiene) y no el general. Por franja y bloque, si la gente que ya pide la curva no llega al
+mínimo, sube hasta él; si ya lo supera, no toca nada — este número nunca resta gente.
+
+El mínimo lo asume siempre **el primer puesto declarado del bloque** (el responsable de
+abrirlo), para que el cuadrante se lo asigne a alguien concreto en vez de repartirlo entre
+puestos. No hay forma de elegir otro puesto todavía; si hace falta, es la extensión
+natural del día que se pida.
 
 ### 3. Desfase del dato
 El fichero del TPV marca la hora del **cobro**, y se cobra al terminar — unos 30 minutos

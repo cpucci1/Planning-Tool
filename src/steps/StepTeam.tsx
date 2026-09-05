@@ -10,7 +10,7 @@
  * segunda pregunta, no la primera. Quien no los abra tiene defaults sensatos.
  */
 
-import { useId, useMemo, useState, type ReactNode } from 'react'
+import { useId, useMemo, useState } from 'react'
 import {
   ArrowRight,
   ChevronDown,
@@ -28,6 +28,7 @@ import {
   Button,
   Card,
   CardHeader,
+  Field,
   InfoTip,
   Note,
   NumberInput,
@@ -264,31 +265,6 @@ function LivePanelMobile() {
 // ─────────────────────────────────────────────────────────────
 // Ajustes avanzados
 // ─────────────────────────────────────────────────────────────
-
-function Field({
-  label,
-  hint,
-  info,
-  children,
-}: {
-  label: string
-  hint?: string
-  info?: ReactNode
-  children: ReactNode
-}) {
-  return (
-    <div>
-      <div className="mb-1.5 flex items-center gap-1.5">
-        <span className="text-[0.85rem] font-bold text-content-primary">{label}</span>
-        {info}
-      </div>
-      {hint && (
-        <p className="mb-2.5 text-[0.8rem] leading-relaxed text-content-secondary">{hint}</p>
-      )}
-      {children}
-    </div>
-  )
-}
 
 function AdvancedSettings() {
   const p = usePlanner()

@@ -112,6 +112,7 @@ export const DEFAULT_SETTINGS: Settings = {
   consecutiveDaysOff: true,
   minRestBetweenShifts: true,
   hourlyCostEur: null,
+  minStaffByBlock: {},
   maxShiftMinutes: 9 * 60,
   minShiftMinutes: 3 * 60,
   contracts: DEFAULT_CONTRACTS as ContractType[],
