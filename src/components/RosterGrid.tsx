@@ -11,7 +11,7 @@
  */
 
 import { Fragment, useMemo, useState } from 'react'
-import { CalendarDays, Clock, Download, TriangleAlert, Users } from 'lucide-react'
+import { CalendarDays, Clock, Download, Printer, Share2, TriangleAlert, Users } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -25,6 +25,7 @@ import {
   cn,
 } from '@/components/ui'
 import { describeMix } from '@/lib/contracts'
+import { descargarCuadranteCocina, descargarTurnoPersona } from '@/lib/cuadrante-imagen'
 import {
   DAYS,
   DAYS_SHORT,
@@ -437,9 +438,19 @@ export function RosterGrid({ roster, model, needGrid, openBlocks, onRenamePerson
           }
           subtitle="Quién trabaja, qué día y a qué hora. Sale de tu curva de necesidad, no de una plantilla genérica. Pon nombres reales: doble clic o el lápiz de cada fila."
           action={
-            <Button variant="secondary" size="sm" icon={<Download size={16} />} onClick={downloadCsv}>
-              Descargar CSV
-            </Button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Printer size={16} />}
+                onClick={() => void descargarCuadranteCocina(roster, model)}
+              >
+                Para la cocina (PDF)
+              </Button>
+              <Button variant="secondary" size="sm" icon={<Download size={16} />} onClick={downloadCsv}>
+                CSV
+              </Button>
+            </div>
           }
         />
         <div className="grid grid-cols-2 gap-5 border-t border-border-soft px-6 py-5 sm:grid-cols-4">
@@ -557,6 +568,7 @@ export function RosterGrid({ roster, model, needGrid, openBlocks, onRenamePerson
             groups={groups}
             roleById={roleById}
             shiftsByPersonDay={shiftsByPersonDay}
+            todosLosTurnos={roster.shifts}
             onRenamePerson={onRenamePerson}
           />
         ) : (
@@ -623,11 +635,14 @@ function PersonView({
   groups,
   roleById,
   shiftsByPersonDay,
+  todosLosTurnos,
   onRenamePerson,
 }: {
   groups: Group[]
   roleById: Map<string, Role>
   shiftsByPersonDay: Map<string, Shift[]>
+  /** Hace falta la lista entera para poder armar la imagen de una persona. */
+  todosLosTurnos: Shift[]
   onRenamePerson?: (personId: string, name: string) => void
 }) {
   const week = [0, 1, 2, 3, 4, 5, 6] as DayIndex[]
@@ -697,6 +712,27 @@ function PersonView({
                         <span className="mt-0.5 block text-[0.75rem] font-medium text-content-secondary">
                           {role?.name ?? 'Sin puesto'}
                         </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            descargarTurnoPersona(
+                              person,
+                              todosLosTurnos.filter((sh) => sh.personId === person.id),
+                              role?.name ?? '',
+                            )
+                          }
+                          aria-label={`Descargar el turno de ${person.label} para mandarlo`}
+                          title="Descargar su turno para mandárselo"
+                          className={cn(
+                            'mt-1 inline-flex items-center gap-1 rounded-pill px-1.5 py-0.5',
+                            'text-[0.7rem] font-bold text-content-muted transition-colors',
+                            'hover:bg-brand-light hover:text-brand',
+                            'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand',
+                          )}
+                        >
+                          <Share2 size={11} strokeWidth={2.6} />
+                          Su turno
+                        </button>
                       </th>
                       {week.map((d) => {
                         const shifts = shiftsByPersonDay.get(`${person.id}|${d}`) ?? []

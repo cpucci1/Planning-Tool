@@ -37,6 +37,7 @@ import {
 } from 'lucide-react'
 import { ANALYSIS_STEPS, analyzeFile } from '@/lib/fakeAI'
 import { usePlanner } from '@/hooks/usePlanner'
+import { QueVasAObtener } from '@/components/QueVasAObtener'
 import { Button, Card, Modal, Note, cn } from '@/components/ui'
 
 const TOTAL_STEPS = ANALYSIS_STEPS.length
@@ -342,6 +343,13 @@ export function StepImport() {
                 </Note>
               </div>
             )}
+
+            {/* Lo que se lleva, antes de pedirle nada. Aquí es donde se cae la
+                gente: el que duda se pone a pelearse con el export de su TPV
+                sin saber todavía si le va a servir. */}
+            <div className="mt-10">
+              <QueVasAObtener onDemo={() => void run(null)} />
+            </div>
 
             {/* ── Salida para quien no tenga el fichero a mano ──── */}
             <div className="mt-7 flex flex-col items-center">

@@ -31,6 +31,7 @@ import { WeekHeatmap } from '@/components/charts/WeekHeatmap'
 import { DayCurve } from '@/components/charts/DayCurve'
 import { HoursEditor } from '@/components/HoursEditor'
 import { RoleCatalog } from '@/components/RoleCatalog'
+import { MapeoColumnas, type ColumnaDetectada, type DestinoColumna } from '@/components/MapeoColumnas'
 import {
   Badge,
   Button,
@@ -61,6 +62,14 @@ const nf = new Intl.NumberFormat('es-ES')
 const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 const DAY_ABBR = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 
+/** De cómo lo nombra la lectura simulada a lo que entiende el mapeo. */
+const DESTINO_POR_ETIQUETA: Record<string, DestinoColumna> = {
+  'Día del servicio': 'fecha',
+  'Franja horaria': 'hora',
+  Comensales: 'comensales',
+  Ignorada: 'ignorada',
+}
+
 /** Colchón sobre la demanda. Pasado el 20% deja de ser colchón y es otra plantilla. */
 const SAFETY_OPTIONS = [0, 5, 10, 15, 20]
 
@@ -80,12 +89,6 @@ function weekDates(year: number, week: number): string {
 
 function deviationText(d: number): string {
   return `${d > 0 ? '+' : '−'}${Math.round(Math.abs(d) * 100)}%`
-}
-
-function confidenceTone(c: number): 'success' | 'warning' | 'danger' {
-  if (c >= 0.95) return 'success'
-  if (c >= 0.85) return 'warning'
-  return 'danger'
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -205,10 +208,6 @@ function SubNav({
 export function StepDemand() {
   const p = usePlanner()
 
-  // Columnas que el usuario marca como mal leídas. De momento solo se apunta:
-  // remapear a mano necesita backend, y prometerlo sin tenerlo sería peor.
-  const [wrongCols, setWrongCols] = useState<string[]>([])
-
   // `null` = "el que mande el dato". Así el día grande sigue siendo el más
   // fuerte mientras el usuario no elija uno a mano.
   const [pickedDay, setPickedDay] = useState<number | null>(null)
@@ -222,6 +221,28 @@ export function StepDemand() {
 
   /** Provincia del local. Solo sirve para proponer nombres de fiestas locales. */
   const [territorio, setTerritorio] = useState<string | null>(null)
+
+  /**
+   * El mapa de columnas del fichero. Arranca con lo que ha entendido la
+   * lectura y el usuario lo confirma o lo corrige. Vive aquí, en la pantalla,
+   * porque hoy no cambia el cálculo: la lectura sigue siendo simulada y esto
+   * es el front de lo que hará el día que se conecte de verdad.
+   */
+  const [mapeo, setMapeo] = useState<ColumnaDetectada[]>([])
+  const [comensalesPorTicket, setComensalesPorTicket] = useState(2)
+
+  useEffect(() => {
+    const cols = p.dataset?.source.columnsDetected
+    if (!cols) return
+    setMapeo(
+      cols.map((c) => ({
+        nombre: c.label,
+        destino: DESTINO_POR_ETIQUETA[c.mappedTo] ?? 'ignorada',
+        confianza: c.confidence,
+        ejemplos: c.samples ?? [],
+      })),
+    )
+  }, [p.dataset])
 
   // Igual que al cambiar de paso principal (ver App.tsx): moverse de sub-paso
   // no debe dejar al usuario a mitad de la pantalla anterior.
@@ -298,12 +319,6 @@ export function StepDemand() {
   const visibleSpecials =
     collapsible && !showAllSpecials ? p.specials.slice(0, COLLAPSED) : p.specials
 
-  const toggleWrongCol = (label: string) => {
-    setWrongCols((prev) =>
-      prev.includes(label) ? prev.filter((x) => x !== label) : [...prev, label],
-    )
-  }
-
   return (
     <div className="stagger space-y-6">
       <SubProgress index={sub} onGo={setSub} />
@@ -343,84 +358,15 @@ export function StepDemand() {
           ))}
         </div>
 
-        <h4 className="h4 mt-6 flex items-center gap-2">
-          Las columnas, una a una
-          <InfoTip title="Qué es la confianza">
-            Cuánto de seguro estoy de haber entendido esa columna. Por debajo del 85% conviene que
-            le eches un ojo: suele pasar cuando la cabecera del fichero es rara o hay dos columnas
-            que se parecen.
-          </InfoTip>
-        </h4>
-        <p className="mt-1 text-[0.85rem] text-content-secondary">
-          A la izquierda, como se llama en tu fichero. A la derecha, para qué la he usado.
-        </p>
-
-        <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-          {src.columnsDetected.map((c) => {
-            const wrong = wrongCols.includes(c.label)
-            const ignored = c.mappedTo === 'Ignorada'
-            return (
-              <li
-                key={c.label}
-                className={cn(
-                  'flex items-center gap-3 rounded-lg border px-3.5 py-2.5 transition-colors',
-                  wrong ? 'border-warning/40 bg-warning-light' : 'border-border-soft bg-surface',
-                )}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 text-[0.88rem] font-bold">
-                    <span className="truncate text-content-primary">{c.label}</span>
-                    <ArrowRight size={13} className="shrink-0 text-content-muted" />
-                    <span className={cn('truncate', ignored ? 'text-content-muted' : 'text-brand')}>
-                      {c.mappedTo}
-                    </span>
-                  </div>
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <span className="h-1 w-14 shrink-0 overflow-hidden rounded-pill bg-border">
-                      <span
-                        className="block h-full rounded-pill bg-brand"
-                        style={{ width: `${Math.round(c.confidence * 100)}%` }}
-                      />
-                    </span>
-                    <Badge tone={confidenceTone(c.confidence)}>
-                      {Math.round(c.confidence * 100)}%
-                    </Badge>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  aria-pressed={wrong}
-                  aria-label={
-                    wrong
-                      ? `Deshacer: la columna ${c.label} sí está bien interpretada`
-                      : `Marcar la columna ${c.label} como mal interpretada`
-                  }
-                  onClick={() => toggleWrongCol(c.label)}
-                  className={cn(
-                    'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-pill px-3 text-[0.75rem] font-bold transition-colors',
-                    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand',
-                    wrong
-                      ? 'bg-warning text-content-inverted'
-                      : 'border border-border text-content-secondary hover:border-content-muted hover:text-content-primary',
-                  )}
-                >
-                  {wrong ? <Undo2 size={13} /> : null}
-                  {wrong ? 'Deshacer' : 'No es eso'}
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-
-        {wrongCols.length > 0 && (
-          <div className="mt-3">
-            <Note tone="warning" icon={<TriangleAlert size={15} />}>
-              Apuntado: {wrongCols.join(', ')}. En esta versión todavía no puedo reasignar una
-              columna a mano. Si el dato ha salido mal del todo, vuelve atrás y sube el fichero con
-              las cabeceras más claras — con "Fecha", "Hora" y "Comensales" no falla.
-            </Note>
-          </div>
-        )}
+        <div className="mt-6">
+          <MapeoColumnas
+            columnas={mapeo}
+            onChange={setMapeo}
+            onConfirmar={() => setSub(1)}
+            comensalesPorTicket={comensalesPorTicket}
+            onComensalesPorTicket={setComensalesPorTicket}
+          />
+        </div>
       </Card>
 
       {/* El catálogo de puestos vive aquí, antes que los tramos: primero qué

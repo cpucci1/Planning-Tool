@@ -42,6 +42,8 @@ import {
   type SnapshotMeta,
 } from '@/lib/persistence'
 import {
+  DEMO_COSTES_HORA,
+  DEMO_VENTAS_SEMANA,
   DEFAULT_BLOCKS,
   DEFAULT_ROLES,
   DEFAULT_SETTINGS,
@@ -170,6 +172,12 @@ export function usePlannerState() {
     setDataset(d)
     setHours(d.source.detectedHours)
     setSpecials(detectSpecialWeeks(d.weeks, d.year))
+    // El ejemplo arranca con costes y ventas de muestra para que se vea el
+    // producto entero. Un fichero de verdad NO: ahí el precio lo pone su dueño.
+    if (d.source.isDemo) {
+      setRoles((prev) => prev.map((r) => ({ ...r, hourlyCostEur: DEMO_COSTES_HORA[r.id] ?? null })))
+      setSettings((st) => ({ ...st, weeklySalesEur: DEMO_VENTAS_SEMANA }))
+    }
     setStep('demand')
   }
 

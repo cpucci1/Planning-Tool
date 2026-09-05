@@ -139,3 +139,29 @@ export const DEFAULT_SETTINGS: Settings = {
   minShiftMinutes: 3 * 60,
   contracts: DEFAULT_CONTRACTS as ContractType[],
 }
+
+/**
+ * Costes por hora de MUESTRA, solo para los datos de ejemplo.
+ *
+ * Con el catálogo en blanco, el ejemplo esconde media pantalla de resultado
+ * (el coste, el ratio sobre ventas) y el usuario no llega a ver lo que la
+ * herramienta hace. Aquí se puede rellenar porque todo el dataset es de
+ * mentira y está etiquetado como tal; en el fichero de una persona **jamás**
+ * se rellena un precio (ver `Role.hourlyCostEur`).
+ *
+ * Son cifras de andar por casa, por encima del SMI, de un menú y carta.
+ */
+export const DEMO_COSTES_HORA: Record<string, number> = {
+  encargado: 16,
+  'resp-turno': 14,
+  responsable: 13,
+  camarero: 11.5,
+  ayudante: 10,
+  'jefe-cocina': 17,
+  'jefe-partida': 13,
+  cocinero: 12,
+  office: 9.5,
+}
+
+/** Ventas de una semana normal del restaurante de ejemplo. */
+export const DEMO_VENTAS_SEMANA = 26000

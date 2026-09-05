@@ -86,9 +86,15 @@ export interface DemandDataset {
   /** Metadatos de lo que "leyó la IA", para enseñarlos en la pantalla de importación. */
   source: {
     fileName: string
+    /** True solo en los datos de ejemplo. Sirve para rellenar el catálogo con
+     *  costes de muestra: en el ejemplo se puede, en el fichero de alguien
+     *  jamás (nunca se inventa un precio de nadie). */
+    isDemo?: boolean
     rowsDetected: number
     dateRange: string
-    columnsDetected: { label: string; mappedTo: string; confidence: number }[]
+    /** `samples` son valores tal y como vienen en el fichero: es lo que de
+     *  verdad permite a alguien no técnico saber si la columna es la suya. */
+    columnsDetected: { label: string; mappedTo: string; confidence: number; samples: string[] }[]
     /** Horario detectado a partir de las franjas con comensales. */
     detectedHours: OpeningHours
   }

@@ -194,7 +194,7 @@ export function QueVasAObtener({ onDemo }: { onDemo: () => void }) {
             <div className="flex items-baseline gap-6" aria-hidden="true">
               <div>
                 <div className="tnum text-[1.3rem] font-black tracking-tight text-content-primary">
-                  ≈ 6.750 €
+                  7.650 €
                 </div>
                 <div className="mt-0.5 text-[0.66rem] font-bold tracking-wide text-content-muted uppercase">
                   a la semana
@@ -202,7 +202,7 @@ export function QueVasAObtener({ onDemo }: { onDemo: () => void }) {
               </div>
               <div>
                 <div className="tnum text-[1.3rem] font-black tracking-tight text-content-primary">
-                  ≈ 351.000 €
+                  397.800 €
                 </div>
                 <div className="mt-0.5 text-[0.66rem] font-bold tracking-wide text-content-muted uppercase">
                   al año
@@ -225,7 +225,7 @@ export function QueVasAObtener({ onDemo }: { onDemo: () => void }) {
               ))}
             </div>
             <p className="text-[0.72rem] leading-snug text-content-muted">
-              Ejemplo con el coste por hora puesto a mano. Tú pones el tuyo, o lo dejas en blanco.
+              Con los costes por hora del ejemplo. Pones los tuyos, o lo dejas en blanco y no se enseña ninguna cifra.
             </p>
           </div>
         </Card>
