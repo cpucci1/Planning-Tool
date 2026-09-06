@@ -10,6 +10,7 @@
     "verificar": "esbuild scripts/verificar-calculo.ts --bundle --platform=node --format=esm --alias:@=./src --log-level=error --outfile=node_modules/.tmp/verificar.mjs && node node_modules/.tmp/verificar.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.115.0",
     "clsx": "^2.1.1",
     "idb-keyval": "^6.3.0",
     "jspdf": "^4.2.1",
@@ -17,7 +18,8 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "recharts": "^3.7.0",
-    "tailwind-merge": "^3.5.0"
+    "tailwind-merge": "^3.5.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.2",
