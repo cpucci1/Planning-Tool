@@ -7,7 +7,7 @@
  * mientras el usuario arrastra.
  */
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   applyLag,
   clampToHours,
@@ -18,6 +18,16 @@ import {
   typicalWeekInflation,
   usableWeeks,
 } from '@/lib/demand'
+import {
+  actualizarPlan,
+  crearPlan,
+  leerPlanLocal,
+  olvidarPlanLocal,
+  recordarPlanLocal,
+  reclamarPlan,
+  type PlanLocalGuardado,
+} from '@/lib/backend'
+import { hayBackend } from '@/lib/supabase'
 import { detectSpecialWeeks } from '@/lib/holidays'
 import {
   applyOpeningMinimums,
@@ -105,6 +115,25 @@ export function usePlannerState() {
    * Se levanta en cuanto toca cualquier cosa: a partir de ahí el plan ya es
    * suyo y se guarda como cualquier otro.
    */
+  /**
+   * El plan tal y como esta guardado en el servidor, si lo esta.
+   *
+   * Se guarda al llegar a la pantalla de resultado, que es el primer instante en
+   * que la persona tiene algo que perder. Guardar solo despues de identificarse
+   * perderia el trabajo de todo el que cierre la pestana antes, que son la
+   * mayoria; y guardar desde el primer paso seria mandar datos de alguien que
+   * todavia no ha visto nada a cambio.
+   */
+  const [planRemoto, setPlanRemoto] = useState<PlanLocalGuardado | null>(() => leerPlanLocal())
+  /** Se esta guardando ahora mismo. Para poder decirlo en pantalla. */
+  const [guardando, setGuardando] = useState(false)
+  /** El ultimo guardado fallo. Callarse aqui es lo peor que se puede hacer. */
+  const [falloGuardado, setFalloGuardado] = useState(false)
+  /** Evita dos creaciones a la vez si el efecto se dispara dos veces. */
+  const guardadoEnCurso = useRef(false)
+  /** Siempre el `buildSnapshot` de este render. Ver `guardarEnServidor`. */
+  const ultimoSnapshot = useRef<() => PlannerSnapshot | null>(() => null)
+
   const vieneDeEnlace = useRef(false)
   /**
    * Y esto es lo otro, que NO es lo mismo: el plan del enlace tal cual llegó,
@@ -206,6 +235,14 @@ export function usePlannerState() {
 
   /** Carga el resultado del análisis y arranca con lo detectado. */
   function loadDataset(d: DemandDataset) {
+    // Un fichero nuevo es un plan NUEVO, y hay que olvidar el del servidor.
+    // Sin esto, quien sube su segundo fichero sin pasar por "empezar de nuevo"
+    // llega al resultado con el id y el secreto del plan anterior todavia en el
+    // navegador, y el guardado hace un UPDATE: el primer plan se sobrescribe
+    // con el segundo y desaparece, sin ningun error y sin que nadie lo vea.
+    olvidarPlanLocal()
+    setPlanRemoto(null)
+    setFalloGuardado(false)
     setDataset(d)
     setHours(d.source.detectedHours)
     setSpecials(detectSpecialWeeks(d.weeks, d.year))
@@ -239,6 +276,11 @@ export function usePlannerState() {
     vieneDeEnlace.current = false
     enlaceSinTocar.current = false
     setEnlaceRoto(false)
+    // Y se olvida el plan del servidor de ESTE navegador. Si no, el siguiente
+    // fichero que suba se guardaria encima del plan anterior.
+    olvidarPlanLocal()
+    setPlanRemoto(null)
+    setFalloGuardado(false)
     setDataset(null)
     setHours(null)
     setKitchenHours(null)
@@ -280,6 +322,8 @@ export function usePlannerState() {
       personNames,
     }
   }
+
+  ultimoSnapshot.current = buildSnapshot
 
   /**
    * Un plan compartido llega en el `#` de la dirección. Ese SÍ se carga solo:
@@ -566,6 +610,95 @@ export function usePlannerState() {
     return analyzePeaks(weeks, coverage.threshold, needSummaryDemand.totalHours, covers)
   }, [weeks, coverage, needSummaryDemand, lagged])
 
+  // ─────────────────────────────────────────────────────────────
+  // Guardado en el servidor
+  //
+  // Solo si hay backend configurado. Si no lo hay, TODO lo demas sigue igual:
+  // el calculo, el autoguardado en el navegador y el enlace. Es un lead magnet;
+  // que se caiga el servidor no puede significar que la gente no pueda calcular.
+  // ─────────────────────────────────────────────────────────────
+
+  /** Las cinco cifras del resultado que suben a columna propia para agruparlas. */
+  const metricasDelPlan = useMemo(
+    () => ({
+      peopleCount: plan?.totalPeople ?? null,
+      weeklyHours: needSummary ? Math.round(needSummary.totalHours * 10) / 10 : null,
+      coveragePct: settings.coveragePct,
+      peakWeeks: peaks?.peakWeeks.length ?? null,
+      peakHoursYear: peaks ? Math.round(peaks.peakHoursPerYear * 10) / 10 : null,
+    }),
+    [plan, needSummary, settings.coveragePct, peaks],
+  )
+
+  const guardarEnServidor = useCallback(async () => {
+    if (!hayBackend()) return
+    if (guardadoEnCurso.current) return
+    // Por el ref y no llamando a `buildSnapshot` directamente: esta funcion es
+    // un useCallback, asi que se queda con el `buildSnapshot` del render en que
+    // cambiaron sus dependencias. Cambiar un nombre del cuadrante NO mueve esas
+    // dependencias, asi que al reintentar se guardaba la foto de antes de los
+    // nombres. El ref siempre apunta al ultimo.
+    const snap = ultimoSnapshot.current()
+    if (!snap) return
+
+    guardadoEnCurso.current = true
+    setGuardando(true)
+    setFalloGuardado(false)
+    try {
+      if (planRemoto) {
+        await actualizarPlan(planRemoto.planId, planRemoto.editSecret, snap, metricasDelPlan)
+      } else {
+        const creado = await crearPlan(snap, metricasDelPlan)
+        const guardado = {
+          planId: creado.planId,
+          shareToken: creado.shareToken,
+          editSecret: creado.editSecret,
+        }
+        recordarPlanLocal(guardado)
+        setPlanRemoto(guardado)
+      }
+    } catch {
+      // No se enseña el error de la base. Lo que importa es que la persona sepa
+      // que su plan NO esta a salvo en el servidor, y eso lo dice `falloGuardado`.
+      setFalloGuardado(true)
+    } finally {
+      setGuardando(false)
+      guardadoEnCurso.current = false
+    }
+  }, [planRemoto, metricasDelPlan])
+
+  /**
+   * Al llegar al resultado, se guarda.
+   *
+   * Solo al ENTRAR en ese paso, no en cada cambio: reescribir 8 KB en cada tecla
+   * de la tabla de tramos seria absurdo. Para volver a guardar despues de tocar
+   * algo esta el boton de "Guardar en mi cuenta", que llama a lo mismo.
+   */
+  useEffect(() => {
+    if (step !== 'result') return
+    if (!hayBackend()) return
+    // Un plan que viene del enlace de otra persona NO se guarda. Abrir el
+    // enlace de tu jefe te deja en la pantalla de resultado, asi que sin esta
+    // guarda se subiria su plan como tuyo y, peor, si ya tenias uno guardado se
+    // sobrescribiria con el suyo. Se guarda en cuanto la persona toca algo, que
+    // es cuando el plan pasa a ser suyo de verdad.
+    if (vieneDeEnlace.current) return
+    void guardarEnServidor()
+    // A proposito solo depende del paso: se guarda al llegar, no al cambiar nada.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step])
+
+  /** Tras entrar con el email: el plan anonimo pasa a ser suyo. */
+  const reclamarEsteplan = useCallback(async () => {
+    if (!planRemoto) {
+      // Todavia no se habia guardado (por ejemplo si el guardado fallo antes).
+      // Se guarda ahora, y al crearlo ya con sesion nace suyo.
+      await guardarEnServidor()
+      return
+    }
+    await reclamarPlan(planRemoto.planId, planRemoto.editSecret)
+  }, [planRemoto, guardarEnServidor])
+
   return {
     step,
     setStep,
@@ -598,6 +731,11 @@ export function usePlannerState() {
     setModelParts,
     savedMeta,
     enlaceRoto,
+    planRemoto,
+    guardando,
+    falloGuardado,
+    guardarEnServidor,
+    reclamarEstePlan: reclamarEsteplan,
     resumeSaved,
     discardSaved,
     exportSnapshot,

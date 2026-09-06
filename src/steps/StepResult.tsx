@@ -25,7 +25,7 @@ import {
   Users,
 } from 'lucide-react'
 import { Badge, Button, Card, CardHeader, InfoTip, Modal, Note, NumberInput, Stat, cn } from '@/components/ui'
-import { AccountTeaserModal } from '@/components/AccountTeaserModal'
+import { CuentaModal } from '@/components/CuentaModal'
 import { AvisosCuadrante } from '@/components/AvisosCuadrante'
 import { CriteriaModal, type Criterion } from '@/components/CriteriaModal'
 import { RosterGrid } from '@/components/RosterGrid'
@@ -1156,6 +1156,30 @@ export function StepResult() {
         <h3 className="text-[1.05rem] font-extrabold tracking-[-0.02em] text-content-primary">
           Llévatelo
         </h3>
+
+        {/* El estado del guardado, dicho. Con un guardado que ocurre solo, la
+            unica senal de que el trabajo esta a salvo es la que le demos aqui, y
+            callarse cuando falla es la peor de las opciones. */}
+        {p.falloGuardado && (
+          <div className="mt-3">
+            <Note tone="warning">
+              No hemos podido guardar este plan en el servidor. Lo tienes igualmente en este
+              navegador y te lo puedes bajar en un fichero aquí abajo.{' '}
+              <button
+                type="button"
+                onClick={() => void p.guardarEnServidor()}
+                className="font-bold underline underline-offset-2"
+              >
+                Volver a intentarlo
+              </button>
+            </Note>
+          </div>
+        )}
+        {!p.falloGuardado && p.planRemoto && (
+          <p className="mt-2 text-[0.83rem] font-semibold text-success">
+            {p.guardando ? 'Guardando…' : 'Guardado. Este plan tiene enlace propio.'}
+          </p>
+        )}
         <p className="mt-1 text-[0.86rem] leading-relaxed text-content-secondary">
           Nada de esto se guarda en ningún servidor. El enlace lleva el plan dentro, así que quien
           lo abra ve exactamente esto.
@@ -1260,7 +1284,11 @@ export function StepResult() {
         onGo={(step) => p.setStep(step)}
       />
 
-      <AccountTeaserModal open={showAccountTeaser} onClose={() => setShowAccountTeaser(false)} />
+      <CuentaModal
+        open={showAccountTeaser}
+        onClose={() => setShowAccountTeaser(false)}
+        onEntrado={p.reclamarEstePlan}
+      />
     </div>
   )
 }

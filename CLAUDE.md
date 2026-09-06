@@ -879,6 +879,120 @@ necesita el DOM, está en el sitio equivocado.
 
 ---
 
+## 10. El backend: proyecto `freetools`, NO la base de produccion
+
+Decidido el 2026-09-06. Hasta aqui el planificador era solo front. El backend vive en un
+**proyecto Supabase propio llamado `freetools`**, en una organizacion aparte y en plan
+gratuito, y **no toca `brgswggayexbvrnqtlhp` en absoluto**.
+
+### Por que aparte, y no en la base de Shifty como se pidio al principio
+
+Se midio contra produccion antes de decidir, y salieron dos cosas que no tienen arreglo
+desde dentro:
+
+1. **Una cuenta del planificador seria `authenticated` en la base compartida.** Ese rol
+   puede hoy ejecutar **904 funciones** `SECURITY DEFINER`, de las cuales **37 escriben y
+   aceptan un `company_id` o un `worker_id` por parametro sin comprobar que quien llama
+   tenga derecho**. Y leer tablas con `USING (true)` como `job_days`, que trae tarifas y
+   comisiones. Ninguna politica sobre tablas `planning_` nuevas arregla eso.
+2. **`auth.users` tiene `UNIQUE (phone)` global.** Un duenno de restaurante que ya sea
+   trabajador de Shifty no podria tener una cuenta aparte con su mismo telefono: el OTP le
+   metia en la suya de siempre. La independencia que se pedia chocaba con esa restriccion.
+
+Con un proyecto aparte las dos desaparecen de raiz, y ademas **no hay ningun trigger sobre
+`auth.users`** que enganche la cuenta nueva a nada.
+
+### El agujero que se encontro de paso, y que sigue abierto en produccion
+
+`link_auth_user_to_worker_and_company_user` es un trigger AFTER INSERT sobre `auth.users`.
+Tiene cuatro ramas por tipo de usuario y **un ELSE final que se come cualquier tipo
+desconocido** e intenta enganchar la cuenta nueva a un worker, company_user, internal_user
+o partner_user que tenga ese telefono. Hoy hay **61 filas enganchables**.
+
+Eso significa que **cada tipo de usuario nuevo que alguien invente nace enganchando fichas
+ajenas en silencio**. Ya le pasa al portal ETT, que manda `ett_portal_user` y cae en ese
+ELSE. La migracion que lo arregla, con la lista explicita de tipos sacada de contar
+produccion, esta escrita en `backend/sql/01-guarda-link-auth-user.sql`. **NO se aplico**:
+al irse el planificador a otro proyecto dejo de hacer falta para esto, pero el agujero
+sigue ahi para el siguiente que llegue.
+
+⚠️ Y ojo con "arreglarlo" de la forma obvia. Ese ELSE **no es codigo muerto**: es lo que
+engancha su ficha al admin del panel, que entra con `signInWithOtp` sin mandar tipo. Quitarlo
+o exigir un tipo conocido rompe el login del Web-Panel.
+
+### Las piezas
+
+| Que | Donde |
+|---|---|
+| Tablas, permisos y funciones | `backend/sql/10-esquema.sql` y `20-funciones.sql` |
+| Comprobacion post-instalacion | `backend/sql/99-comprobar.sql` |
+| La funcion de Gemini | `backend/functions/planning-ai/` |
+| El adaptador del modelo | `backend/functions/_shared/llm.ts`, copia del de Web-Panel |
+| El cliente y las llamadas | `src/lib/supabase.ts` y `src/lib/backend.ts` |
+| Entrar con el correo | `src/components/CuentaModal.tsx` |
+
+### Las decisiones que hay detras, para no volver a discutirlas
+
+**Cero permisos de tabla.** Ni `SELECT` para `anon` ni para `authenticated`. Todo pasa por
+funciones que imponen el alcance por dentro. Y el `REVOKE` va en el mismo bloque que el
+`CREATE` **a proposito**: el esquema `public` de Supabase tiene `ALTER DEFAULT PRIVILEGES`
+que conceden los siete privilegios a `anon` en toda tabla nueva sin escribir un `GRANT`. Una
+tabla que se cree y no revoque **esta en internet desde el primer segundo**.
+
+**El plan se guarda al llegar al resultado, sin cuenta.** Es el primer instante en que la
+persona tiene algo que perder. Guardar solo despues del login perderia el trabajo de todo el
+que cierre la pestana antes, que son la mayoria. Al identificarse, ese plan que ya existe
+pasa a ser suyo con una escritura de 200 bytes, reintentable y sin duplicar nada.
+
+**Dos secretos distintos y no uno.** `share_token` se comparte y solo deja MIRAR;
+`edit_secret` no se comparte y deja escribir. Con una sola cadena para las dos cosas,
+ensenarle el plan a tu jefe le daria permiso para borrarlo. Por lo mismo,
+`planning_delete_plan` se identifica por `plan_id` y **nunca** por el token del enlace.
+
+**La curva viaja comprimida y aparte.** Son 16.016 enteros, el 86,6% del peso del plan. Como
+`jsonb` ocuparia 192.198 bytes medidos sobre Postgres; comprimida con `deflate-raw`, 8.041.
+Con 500 MB eso es la diferencia entre 2.600 planes y 60.000. Va en `bytea`, en su propia
+tabla, porque ni la lista de planes ni el grafico del ano la necesitan.
+
+**Base64 explicito en las dos direcciones.** Como PostgREST serializa un `bytea` depende de
+su version y su configuracion, y eso no se podia comprobar desde el front. Las funciones
+hacen `decode`/`encode` por dentro, asi que el formato es una decision escrita y no una
+suposicion.
+
+**El email y no el telefono.** Quita el SMS, quita el problema del telefono unico, y quita la
+necesidad de tocar nada de produccion.
+
+**Si no hay backend, la herramienta sigue entera.** Sin las variables de entorno, el cliente
+es `null` y el guardado en servidor se apaga solo: el calculo, el autoguardado del navegador
+y el enlace compartido siguen funcionando. Es un lead magnet: que se caiga el servidor no
+puede significar que la gente no pueda calcular su plantilla.
+
+### La promesa de la portada se mantiene
+
+Dice literal: *"El fichero se lee en tu navegador. No se sube a ningun servidor."* Se
+cumple. `src/lib/parseFichero.ts` parsea el CSV o el Excel **entero en el navegador**, y a
+Gemini solo se le mandan **las cabeceras y tres filas de muestra**. El PDF no tiene soporte
+por eso mismo: no hay forma de leerlo sin subirlo.
+
+### Lo que NO esta verificado
+
+- **El id `gemini-3.8-flash` no se ha llamado nunca.** Sale del encargo y de una busqueda,
+  no de una respuesta de la API, porque aqui no hay clave. Comprobarlo antes del primer
+  despliegue; el comando esta en el README de la funcion.
+- **La calidad de los dos prompts esta sin medir.** Solo se ve con un fichero real delante.
+- **Nada del SQL se ha ejecutado contra una base.** No habia acceso a `freetools` ni Postgres
+  local. Por eso existe `99-comprobar.sql`.
+
+### Dos cosas abiertas
+
+- **La libreria `xlsx` tiene dos avisos de seguridad de gravedad alta** y npm dice que no hay
+  arreglo por ahi (`GHSA-4r6h-8v6p-xvw6` y `GHSA-5pgg-2g8v-p4x9`). La version corregida, la
+  0.20, solo esta en el CDN propio de SheetJS. Pendiente de decidir.
+- **La rejilla del calculo va de 06:00 a 04:00** (`GRID_START_MIN` en `lib/time.ts`). Un
+  ticket de las 05:15 no tiene franja y se descarta, contandolo. Afecta a locales de copas.
+
+---
+
 ## Origen
 
 El modelo viene de un Excel real de planificación

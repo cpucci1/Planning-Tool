@@ -30,11 +30,11 @@ import { DayCurve } from '@/components/charts/DayCurve'
 import { HoursEditor } from '@/components/HoursEditor'
 import { SubNav, SubProgress } from '@/components/SubSteps'
 import { RoleCatalog } from '@/components/RoleCatalog'
+import { DESTINO_POR_ETIQUETA } from '@/lib/parseFichero'
 import {
   MapeoColumnas,
   mapeoSuficiente,
   type ColumnaDetectada,
-  type DestinoColumna,
 } from '@/components/MapeoColumnas'
 import {
   Badge,
@@ -66,13 +66,11 @@ const nf = new Intl.NumberFormat('es-ES')
 const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 const DAY_ABBR = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 
-/** De cómo lo nombra la lectura simulada a lo que entiende el mapeo. */
-const DESTINO_POR_ETIQUETA: Record<string, DestinoColumna> = {
-  'Día del servicio': 'fecha',
-  'Franja horaria': 'hora',
-  Comensales: 'comensales',
-  Ignorada: 'ignorada',
-}
+// La tabla de etiqueta a destino vive en `lib/parseFichero.ts`, que es quien las
+// escribe. Aqui habia una copia a mano y se habia quedado sin tickets ni
+// importe: el lector detectaba la columna de tickets, esta tabla no la conocia
+// y la dejaba en "Ignorada", con el usuario bloqueado en el caso mas comun de
+// España, que es el TPV que no exporta comensales.
 
 /** Colchón sobre la demanda. Pasado el 20% deja de ser colchón y es otra plantilla. */
 const SAFETY_OPTIONS = [0, 5, 10, 15, 20]

@@ -10,6 +10,13 @@
  * recalcular a partir de ello.
  */
 
+import {
+  base64UrlToBytes,
+  bytesToBase64Url,
+  comprimir,
+  descomprimir,
+  hayCompressionStream,
+} from './comprimir'
 import type {
   Block,
   DemandDataset,
@@ -83,63 +90,17 @@ function restaurarInfinitoAlDecodificar(plan: PlanCompartido): PlanCompartido {
  *  que hay que pasar por ahí para meter bytes arbitrarios (el resultado de
  *  comprimir) en base64. Se trocea en bloques de 0x8000 para no reventar el
  *  límite de argumentos de `String.fromCharCode(...bytes)` con un plan grande. */
-function bytesToBinaryString(bytes: Uint8Array): string {
-  const CHUNK = 0x8000
-  let result = ''
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    result += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
-  }
-  return result
-}
 
-function bytesToBase64Url(bytes: Uint8Array): string {
-  const base64 = btoa(bytesToBinaryString(bytes))
-  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-}
 
-function base64UrlToBytes(texto: string): Uint8Array {
-  const base64 = texto.replace(/-/g, '+').replace(/_/g, '/')
-  const relleno = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
-  const binary = atob(relleno)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return bytes
-}
+
+
+
 
 // ─────────────────────────────────────────────────────────────
 // Compresión con la API nativa del navegador. Si no existe (navegador viejo),
 // se cae a JSON sin comprimir: peor enlace, pero uno que funciona.
 // ─────────────────────────────────────────────────────────────
 
-function hayCompressionStream(): boolean {
-  return typeof CompressionStream !== 'undefined' && typeof DecompressionStream !== 'undefined'
-}
-
-interface StreamDeTransformacion {
-  readable: ReadableStream
-  writable: WritableStream
-}
-
-/** Escribe `bytes` en un `CompressionStream`/`DecompressionStream` y devuelve
- *  el resultado. Escribe y lee A LA VEZ (no espera a que `write` termine para
- *  empezar `new Response(...).arrayBuffer()`): si se esperara, un plan grande
- *  podría llenar el buffer interno del stream y quedarse colgado esperando a
- *  un lector que todavía no ha arrancado. */
-async function pasarPorStream(bytes: Uint8Array, stream: StreamDeTransformacion): Promise<Uint8Array> {
-  const writer = stream.writable.getWriter()
-  const escritura = writer.write(bytes).then(() => writer.close())
-  const lectura = new Response(stream.readable).arrayBuffer()
-  const [, buffer] = await Promise.all([escritura, lectura])
-  return new Uint8Array(buffer)
-}
-
-function comprimir(bytes: Uint8Array): Promise<Uint8Array> {
-  return pasarPorStream(bytes, new CompressionStream('deflate-raw'))
-}
-
-function descomprimir(bytes: Uint8Array): Promise<Uint8Array> {
-  return pasarPorStream(bytes, new DecompressionStream('deflate-raw'))
-}
 
 // ─────────────────────────────────────────────────────────────
 // Validación de forma. Mismo nivel que `isSnapshot` en `persistence.ts`: lo
