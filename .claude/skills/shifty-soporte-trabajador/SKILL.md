@@ -30,6 +30,9 @@ Verificado en `get_job_offer_details`, `apply_to_job_days` y `can_worker_see_off
 - tiene los **cinco datos de perfil**: NIF, fecha de nacimiento, nacionalidad, número de la Seguridad
   Social e IBAN,
 - tiene **al menos una categoría aprobada**, y esa categoría vale para ese anuncio,
+  (con el flag `eligibility_by_subcategory` encendido para esa empresa, la que vale es la **subposición**
+  del puesto, p. ej. Cocinero y no Cocina: lo decide `fn_job_offer_required_category_id`, que usan la
+  ficha y la puerta a la vez; ver `features/calidad-candidatos-motivos-encaje-subposiciones.md`),
 - y su **documento de identidad no caduca antes de la fecha del turno**.
 
 **Lo que no esté en esa lista no bloquea.** Un documento en `pending_review` o `rejected` no impide

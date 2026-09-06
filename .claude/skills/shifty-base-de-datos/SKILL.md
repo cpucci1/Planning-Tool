@@ -144,7 +144,8 @@ el turno el día que se crea, no después.
   Un flag tiene además `enabled_for_test`, `target_company_ids` y `target_territory_ids`: encendido
   no significa encendido para todos.
 - Flags que gobiernan comportamiento crítico: `document_expiration_notifications`,
-  `eligibility_by_family`, `own_team_enabled`, `own_team_billing_enabled`,
+  `eligibility_by_family`, `eligibility_by_subcategory` (apagado, solo por empresa piloto),
+  `ad_fit_auto_reject_low_fit` (apagado, solo por empresa piloto), `own_team_enabled`, `own_team_billing_enabled`,
   `credit_verification_gate`, `qr_checkin`, `geo_clockin_proximity_check`.
 
 ---
