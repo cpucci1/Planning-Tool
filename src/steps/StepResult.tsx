@@ -30,6 +30,7 @@ import { AvisosCuadrante } from '@/components/AvisosCuadrante'
 import { CriteriaModal, type Criterion } from '@/components/CriteriaModal'
 import { RosterGrid } from '@/components/RosterGrid'
 import { StaffTable } from '@/components/StaffTable'
+import { SubNav, SubProgress } from '@/components/SubSteps'
 import { DayCurve } from '@/components/charts/DayCurve'
 import { WeekHeatmap } from '@/components/charts/WeekHeatmap'
 import { YearChart } from '@/components/charts/YearChart'
@@ -55,6 +56,25 @@ const eur = new Intl.NumberFormat('es-ES', {
   maximumFractionDigits: 0,
   useGrouping: true,
 })
+
+/**
+ * La pantalla de resultado, partida en cinco.
+ *
+ * Antes era un scroll de 1.200 líneas con nueve secciones seguidas, y la queja
+ * de Crescente fue literal: "hay muchísima información". Es el mismo patrón que
+ * ya usa el paso de demanda y que pide el principio 6 del proyecto: un paso con
+ * varias preguntas distintas se parte en sub-pasos con su propio progreso.
+ *
+ * El orden cuenta una historia: cuánta gente → por qué esa y no otra → quién
+ * trabaja cuándo → lo que no cubre la plantilla fija → llévatelo.
+ */
+const RESULT_SUBSTEPS = [
+  { id: 'plantilla', label: 'Tu plantilla' },
+  { id: 'porque', label: 'Por qué' },
+  { id: 'cuadrante', label: 'El cuadrante' },
+  { id: 'picos', label: 'Los picos' },
+  { id: 'llevatelo', label: 'Llévatelo' },
+]
 
 /** Cobertura mínima y máxima que se deja elegir con la línea. */
 const MIN_PCT = 20
@@ -86,8 +106,8 @@ export function StepResult() {
   const [askReset, setAskReset] = useState(false)
   const [showCriteria, setShowCriteria] = useState(false)
   const [enlaceCopiado, setEnlaceCopiado] = useState(false)
+  const [sub, setSub] = useState(0)
   const [verPorArea, setVerPorArea] = useState(false)
-  const [verCuadrante, setVerCuadrante] = useState(false)
 
   /**
    * El teaser de cuenta sale UNA vez, cuando el usuario llega al cuadrante
@@ -104,9 +124,16 @@ export function StepResult() {
    * el truco habitual para detectar "el usuario ha llegado a esta sección",
    * no "esta sección entera está a la vista".
    */
-  const rosterSectionRef = useRef<HTMLButtonElement>(null)
+  const rosterSectionRef = useRef<HTMLDivElement>(null)
   const [showAccountTeaser, setShowAccountTeaser] = useState(false)
   const teaserShown = useRef(false)
+
+  // Igual que al cambiar de paso principal (ver App.tsx) y que en el paso de
+  // demanda: moverse de sub-paso no puede dejar al usuario a mitad de la
+  // pantalla anterior, que es peor que no haberla partido.
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [sub])
 
   useEffect(() => {
     const el = rosterSectionRef.current
@@ -122,7 +149,11 @@ export function StepResult() {
     )
     observer.observe(el)
     return () => observer.disconnect()
-  }, [])
+    // `sub` en las dependencias, y no vacío: el marcador solo existe cuando se
+    // está viendo el sub-paso del cuadrante. Con la lista vacía el efecto corre
+    // una vez al montar, cuando `sub` es 0 y el marcador todavía no está en la
+    // pantalla, sale por el `if (!el) return` y el modal no aparecía nunca.
+  }, [sub])
 
   const { plan, roster, needGrid, needSummary, coverage, peaks, peopleGrid, lagged } = p
 
@@ -133,8 +164,8 @@ export function StepResult() {
           Todavía no hay <span className="text-brand italic">nada que calcular.</span>
         </h2>
         <p className="mx-auto mt-2 max-w-md text-[0.9rem] leading-relaxed text-content-secondary">
-          Necesitamos tu histórico de comensales para sacar la plantilla. Sube tu fichero o carga
-          los datos de ejemplo y vuelve aquí.
+          Necesitamos tu histórico de comensales para sacar la plantilla. Sube tu fichero y vuelve
+          aquí.
         </p>
         <div className="mt-6">
           <Button onClick={() => p.setStep('import')}>Ir al primer paso</Button>
@@ -179,7 +210,12 @@ export function StepResult() {
    * plantilla: los extras no son de un puesto concreto, así que ponerles el
    * precio del jefe de cocina o el del office sería igual de arbitrario.
    */
-  const cost = summarizeCost(roster, model)
+  // Un único punto de corte para todo el dinero de la pantalla: si el usuario
+  // no ha encendido los costes, `cost` es null y a partir de ahí no hay coste
+  // semanal, ni anual, ni ratio sobre ventas, ni precio de los picos. Apagarlo
+  // en cada sitio por separado es como se acaba colando un euro suelto en una
+  // pantalla que prometía no hablar de dinero.
+  const cost = (settings.calcularCostes ?? false) ? summarizeCost(roster, model) : null
   const weeklyCostEur = cost?.weeklyEur ?? null
   const annualCostEur = cost?.annualEur ?? null
   const avgHourlyCost = cost?.avgHourlyEur ?? null
@@ -193,6 +229,10 @@ export function StepResult() {
   /** La revisión legal del cuadrante y las métricas que salen de él. */
   const avisos = revisarCuadrante(roster, model, settings)
   const comprobaciones = comprobacionesHechas(settings)
+  /** Cuántas personas del cuadrante tienen ya un nombre de verdad puesto. */
+  const conNombre = roster.people.filter(
+    (per) => (p.personNames[per.id] ?? '').trim().length > 0,
+  ).length
   const metricas = calcularMetricas(roster, needGrid, model, lagged)
 
   /** Coste de personal sobre ventas. Solo si él ha puesto las dos cifras. */
@@ -334,6 +374,11 @@ export function StepResult() {
 
   return (
     <div className="space-y-6">
+      <SubProgress steps={RESULT_SUBSTEPS} index={sub} onGo={setSub} />
+
+      {/* ══ sub-paso 0: plantilla ══ */}
+      {sub === 0 && (
+      <div className="space-y-6">
       {/* ── 1. El titular ─────────────────────────────────────── */}
       <section className="animate-slide-up pt-2">
         <span className="eyebrow eyebrow--purple">Tu plantilla</span>
@@ -388,6 +433,70 @@ export function StepResult() {
         </div>
       </section>
 
+      {/* ── 2 bis. La plantilla, puesto por jornada ───────────── */}
+      <StaffTable
+        roster={roster}
+        model={model}
+        contracts={settings.contracts}
+        conCostes={settings.calcularCostes ?? false}
+        eyebrow="Plantilla total"
+        title={
+          <>
+            Lo que tendrías que <span className="text-brand italic">contratar.</span>
+          </>
+        }
+        subtitle="Cada puesto con su desglose de jornada. Es la lista con la que se ficha."
+      />
+
+      {/* Y la misma partida por bloque: quien contrata sala no contrata
+          cocina, y mirarlo junto obliga a hacer la resta a mano. */}
+      {model.blocks.length > 1 && (
+        <div>
+          {/* Plegadas: las filas son las mismas de la tabla de arriba,
+              repartidas. Útiles para quien contrata solo un área, ruido para
+              todos los demás. */}
+          <button
+            type="button"
+            onClick={() => setVerPorArea((v) => !v)}
+            aria-expanded={verPorArea}
+            className={cn(
+              'flex w-full items-center gap-2 rounded-card border border-border-soft bg-surface-elevated px-6 py-4',
+              'text-left text-[0.9rem] font-bold text-content-primary transition-colors hover:bg-surface',
+              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand',
+            )}
+          >
+            <ChevronDown
+              size={17}
+              className={cn('shrink-0 text-content-muted transition-transform', verPorArea && 'rotate-180')}
+            />
+            {verPorArea ? 'Ocultar el desglose por área' : 'Ver la plantilla de cada área por separado'}
+          </button>
+
+          {verPorArea && (
+            <div className="mt-4 grid gap-6 lg:grid-cols-2">
+              {model.blocks.map((b) => (
+                <StaffTable
+                  key={b.id}
+                  roster={roster}
+                  model={model}
+                  contracts={settings.contracts}
+                  conCostes={settings.calcularCostes ?? false}
+                  blockId={b.id}
+                  eyebrow={`Plantilla ${b.name.toLowerCase()}`}
+                  title={<>{b.name}</>}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      </div>
+      )}
+
+      {/* ══ sub-paso 1: porque ══ */}
+      {sub === 1 && (
+      <div className="space-y-6">
       {/* ── 2. Dónde te sitúas ────────────────────────────────── */}
       <Card>
         <CardHeader
@@ -468,62 +577,6 @@ export function StepResult() {
         </div>
       </Card>
 
-      {/* ── 2 bis. La plantilla, puesto por jornada ───────────── */}
-      <StaffTable
-        roster={roster}
-        model={model}
-        contracts={settings.contracts}
-        eyebrow="Plantilla total"
-        title={
-          <>
-            Lo que tendrías que <span className="text-brand italic">contratar.</span>
-          </>
-        }
-        subtitle="Cada puesto con su desglose de jornada. Es la lista con la que se ficha."
-      />
-
-      {/* Y la misma partida por bloque: quien contrata sala no contrata
-          cocina, y mirarlo junto obliga a hacer la resta a mano. */}
-      {model.blocks.length > 1 && (
-        <div>
-          {/* Plegadas: las filas son las mismas de la tabla de arriba,
-              repartidas. Útiles para quien contrata solo un área, ruido para
-              todos los demás. */}
-          <button
-            type="button"
-            onClick={() => setVerPorArea((v) => !v)}
-            aria-expanded={verPorArea}
-            className={cn(
-              'flex w-full items-center gap-2 rounded-card border border-border-soft bg-surface-elevated px-6 py-4',
-              'text-left text-[0.9rem] font-bold text-content-primary transition-colors hover:bg-surface',
-              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand',
-            )}
-          >
-            <ChevronDown
-              size={17}
-              className={cn('shrink-0 text-content-muted transition-transform', verPorArea && 'rotate-180')}
-            />
-            {verPorArea ? 'Ocultar el desglose por área' : 'Ver la plantilla de cada área por separado'}
-          </button>
-
-          {verPorArea && (
-            <div className="mt-4 grid gap-6 lg:grid-cols-2">
-              {model.blocks.map((b) => (
-                <StaffTable
-                  key={b.id}
-                  roster={roster}
-                  model={model}
-                  contracts={settings.contracts}
-                  blockId={b.id}
-                  eyebrow={`Plantilla ${b.name.toLowerCase()}`}
-                  title={<>{b.name}</>}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* ── 3. De dónde sale el número ────────────────────────── */}
       <Card>
         <CardHeader
@@ -595,6 +648,29 @@ export function StepResult() {
             ) : null}
             . Esa gente está en nómina aunque entre todos no llenen la jornada.
           </Note>
+
+          {/* El tercer motivo, que faltaba y hacía que las últimas personas
+              parecieran holgura del cálculo. Con los datos de ejemplo el pico
+              pide 17 y salen 19: las dos que sobran son las que hacen falta
+              para cubrir todos los días de la semana, porque nadie trabaja
+              siete. Sin decirlo, un usuario que sabe sumar cree que sobran. */}
+          {plan.drivers.peopleFromDays > plan.drivers.peopleFromPeak && (
+            <Note tone="neutral">
+              <span className="font-bold text-content-primary">
+                Y el calendario pone {plan.drivers.peopleFromDays - plan.drivers.peopleFromPeak}{' '}
+                {plural(plan.drivers.peopleFromDays - plan.drivers.peopleFromPeak, 'más', 'más')}.
+              </span>{' '}
+              Por el pico bastarían {plan.drivers.peopleFromPeak}, pero nadie trabaja los siete
+              días: hay puestos con más turnos a la semana de los que cabe hacer{' '}
+              {settings.consecutiveDaysOff ? 'en cinco días' : 'en seis días'}, y por eso hace
+              falta alguien más aunque nunca coincidan todos a la vez.{' '}
+              <strong className="text-content-primary">
+                {plan.totalPeople} es el mínimo con tus reglas.
+              </strong>{' '}
+              Para bajarlo hay que tocar las reglas, no el cálculo: quitar las dos libranzas
+              seguidas o permitir jornada partida, en el paso de equipo.
+            </Note>
+          )}
 
           {/* El ratio con el que de verdad piensa un hostelero. Solo aparece si
               nos ha dicho lo que factura; si no, ni se menciona. */}
@@ -802,6 +878,12 @@ export function StepResult() {
         </div>
       </Card>
 
+      </div>
+      )}
+
+      {/* ══ sub-paso 2: cuadrante ══ */}
+      {sub === 2 && (
+      <div className="space-y-6">
       {/* ── 4 bis. ¿Cuadra? ───────────────────────────────────── */}
       {/* Antes del cuadrante a propósito: si algo incumple, que se sepa antes
           de ponerse a leer nombres y horas. */}
@@ -895,6 +977,67 @@ export function StepResult() {
         )}
       </Card>
 
+      {/* ── 6. El cuadrante ───────────────────────────────────── */}
+      {/* Ya no va plegado: tiene pantalla propia. Estaba escondido tras un
+          botón porque medía 9.000 px en un scroll que traía otras ocho
+          secciones detrás; con la pantalla partida, ese motivo desapareció y
+          esconderlo solo tapa la parte que Crescente quiere que se use. */}
+      {/* La invitación a poner nombres, arriba del cuadrante y no escondida.
+          Es lo que Crescente quiere que la gente use: con las etiquetas
+          genéricas esto es un estudio que se mira una vez, y con los nombres
+          de su gente es el cuadrante de la semana que viene, que se imprime y
+          se manda. La barra de cuántos llevas es lo que convierte "puedes
+          renombrar" en algo que se termina. */}
+      <Card className="border-brand/25 bg-brand-light">
+        <div className="flex flex-wrap items-start gap-x-6 gap-y-4 px-6 py-5">
+          <div className="min-w-0 flex-1">
+            <h3 className="text-[1.05rem] font-extrabold tracking-[-0.02em] text-brand">
+              Ponle los nombres de tu gente
+            </h3>
+            <p className="mt-1.5 max-w-2xl text-[0.9rem] leading-relaxed text-content-body">
+              Doble clic en cualquier nombre del cuadrante y escribe el de verdad. Con los
+              nombres puestos esto deja de ser un estudio y pasa a ser el cuadrante de la semana:
+              lo descargas, lo cuelgas en cocina y le mandas a cada uno su turno por WhatsApp.
+            </p>
+          </div>
+
+          <div className="shrink-0 text-right">
+            <div className="text-[0.7rem] font-bold tracking-wide text-brand uppercase">
+              Con nombre
+            </div>
+            <div className="mt-1 text-[1.6rem] leading-none font-black tracking-tight text-brand tnum">
+              {conNombre} de {roster.people.length}
+            </div>
+            <div className="mt-2 h-1.5 w-32 overflow-hidden rounded-pill bg-surface-elevated">
+              <div
+                className="h-full rounded-pill bg-brand transition-[width] duration-300 ease-out"
+                style={{ width: `${roster.people.length ? (conNombre / roster.people.length) * 100 : 0}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Marcador para el teaser de cuenta: dispara al llegar aquí, que es
+          donde el usuario empieza a poner nombres y el guardado pasa a valer
+          algo. Lleva altura de verdad porque un elemento de 0 px es un objetivo
+          dudoso para el observador. */}
+      <div ref={rosterSectionRef} className="h-px w-full" aria-hidden="true" />
+
+      <RosterGrid
+        roster={roster}
+        model={model}
+        needGrid={needGrid}
+        openBlocks={hours ?? undefined}
+        onRenamePerson={p.setPersonName}
+      />
+
+      </div>
+      )}
+
+      {/* ══ sub-paso 3: picos ══ */}
+      {sub === 3 && (
+      <div className="space-y-6">
       {/* ── 5. Los picos → Shifty ─────────────────────────────── */}
       <section className="rounded-card bg-brand px-6 py-10 shadow-lg sm:px-10 sm:py-12">
         <EyebrowInverted>Los picos</EyebrowInverted>
@@ -999,56 +1142,12 @@ export function StepResult() {
         </div>
       </section>
 
-      {/* ── 6. El cuadrante, al final y plegado ───────────────── */}
-      {/* Plegado por defecto: mide más de 2.000 px en ordenador y casi 9.000
-          en móvil, y estaba enterrando todo lo que va detrás. Quien viene a
-          ver el cuadrante lo abre; quien viene a ver el número, no tiene que
-          pasarlo por encima. */}
-      {/* El teaser de cuenta se engancha AQUÍ, y no al cuadrante entero: este
-          botón es el momento en que el usuario llega a la parte de los nombres,
-          que es donde el guardado empieza a valer algo. Antes colgaba de un div
-          vacío de 0 px de alto puesto justo encima; se cambia por el botón
-          porque un elemento con altura real es un objetivo más seguro para el
-          observador, no porque se haya comprobado que el otro fallara: el panel
-          de pruebas corre oculto y ahí el navegador no dispara ningún
-          IntersectionObserver, ni siquiera sobre el body. Sin pantalla visible
-          esto NO se ha podido verificar. */}
-      <button
-        ref={rosterSectionRef}
-        type="button"
-        onClick={() => setVerCuadrante((v) => !v)}
-        aria-expanded={verCuadrante}
-        className={cn(
-          'flex w-full items-center gap-3 rounded-card border border-border-soft bg-surface-elevated px-6 py-5',
-          'text-left transition-colors hover:bg-surface',
-          'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand',
-        )}
-      >
-        <ChevronDown
-          size={18}
-          className={cn('shrink-0 text-content-muted transition-transform', verCuadrante && 'rotate-180')}
-        />
-        <span className="min-w-0 flex-1">
-          <span className="block text-[0.98rem] font-bold text-content-primary">
-            El cuadrante, persona a persona
-          </span>
-          <span className="mt-0.5 block text-[0.83rem] text-content-secondary">
-            Quién trabaja, qué día y a qué hora. Con nombres reales si quieres, y descargable para
-            mandarlo.
-          </span>
-        </span>
-      </button>
-
-      {verCuadrante && (
-        <RosterGrid
-          roster={roster}
-          model={model}
-          needGrid={needGrid}
-          openBlocks={hours ?? undefined}
-          onRenamePerson={p.setPersonName}
-        />
+      </div>
       )}
 
+      {/* ══ sub-paso 4: llevatelo ══ */}
+      {sub === 4 && (
+      <div className="space-y-6">
       {/* ── 7. Llevárselo ─────────────────────────────────────── */}
       {/* Cinco botones iguales en fila no dejaban ver cuál era el importante.
           Arriba las dos cosas que de verdad hace la gente al terminar (bajarse
@@ -1108,6 +1207,21 @@ export function StepResult() {
           Empezar de nuevo
         </Button>
       </div>
+      </div>
+      )}
+
+
+      <SubNav
+        index={sub}
+        onBack={() => setSub((v) => Math.max(0, v - 1))}
+        onNext={() => setSub((v) => Math.min(RESULT_SUBSTEPS.length - 1, v + 1))}
+        nextLabel={
+          sub < RESULT_SUBSTEPS.length - 1
+            ? `Siguiente: ${RESULT_SUBSTEPS[sub + 1].label.toLowerCase()}`
+            : 'Ya está'
+        }
+        nextDisabled={sub === RESULT_SUBSTEPS.length - 1}
+      />
 
       <Modal
         open={askReset}

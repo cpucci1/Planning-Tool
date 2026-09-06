@@ -68,7 +68,7 @@ export const STEPS: { id: StepId; label: string; short: string }[] = [
   { id: 'import', label: 'Tu histórico', short: 'Histórico' },
   { id: 'demand', label: 'Lo que hemos leído', short: 'Demanda' },
   { id: 'team', label: 'Tu equipo por tramos', short: 'Equipo' },
-  { id: 'result', label: 'Tu plantilla', short: 'Plantilla' },
+  { id: 'result', label: 'Tu plan', short: 'Tu plan' },
 ]
 
 export function usePlannerState() {
@@ -188,6 +188,20 @@ export function usePlannerState() {
       if (entries.length === Object.keys(s.minStaffByBlock).length) return s
       return { ...s, minStaffByBlock: Object.fromEntries(entries) }
     })
+  }
+
+  /**
+   * Aplica de una vez las tres listas del modelo, que es como las devuelven
+   * las funciones de `lib/catalogo`.
+   *
+   * Va junto y no en tres llamadas sueltas porque las tres se mueven a la vez:
+   * crear una zona añade un bloque, un puesto Y una columna en cada tramo, y
+   * aplicar dos de las tres deja un instante con el modelo incoherente.
+   */
+  function setModelParts(next: { blocks: Block[]; roles: Role[]; tiers: Tier[] }) {
+    setBlocks(next.blocks)
+    setRoles(next.roles)
+    setTiers(next.tiers)
   }
 
   /** Carga el resultado del análisis y arranca con lo detectado. */
@@ -581,6 +595,7 @@ export function usePlannerState() {
     clearOverrides,
     setPersonName,
     setMinStaffForBlock,
+    setModelParts,
     savedMeta,
     enlaceRoto,
     resumeSaved,

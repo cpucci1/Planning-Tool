@@ -18,7 +18,10 @@ const MONTHS_INITIAL = ['E', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', '
 /** Referencia estable para que el memo de specials no se rehaga en cada render. */
 const NO_SPECIALS: SpecialWeek[] = []
 
-const PAD = { l: 46, r: 64, t: 14, b: 36 }
+// `r` es más ancho que el resto de los márgenes a propósito: la etiqueta del
+// tirador ya no cabe un número de comensales, cabe "69% · 36/52", y ese texto
+// necesita sitio para no salirse del gráfico.
+const PAD = { l: 46, r: 92, t: 14, b: 36 }
 
 interface Geometry {
   scaleMax: number
@@ -137,6 +140,11 @@ export function YearChart({
   // tiene que ser exactamente lo que se ve pintado de morado.
   const covered = useMemo(() => weeks.filter((w) => w.total <= threshold).length, [weeks, threshold])
   const peaks = weeks.length - covered
+  // Se calcula aquí, de `covered`, y no se lee del `coveragePct` que llega por
+  // prop: ese viene del estado del padre y va un tic por detrás mientras se
+  // arrastra la línea. La etiqueta pegada al tirador tiene que moverse en el
+  // mismo fotograma que el dedo, así que se calcula del mismo dato que las barras.
+  const coveragePctLive = weeks.length ? Math.round((covered / weeks.length) * 100) : 0
   const excessCovers = useMemo(
     () => weeks.reduce((sum, w) => sum + Math.max(0, w.total - threshold), 0),
     [weeks, threshold],
@@ -203,7 +211,7 @@ export function YearChart({
   if (weeks.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-border bg-surface px-4 py-10 text-center text-[0.85rem] font-medium text-content-secondary">
-        Todavía no hay histórico que pintar. Carga un fichero o usa los datos de ejemplo.
+        Todavía no hay histórico que pintar. Sube tu fichero de ventas.
       </div>
     )
   }
@@ -483,14 +491,19 @@ export function YearChart({
               stroke="var(--color-surface-elevated)"
               strokeWidth={dragging ? 2 : 1.5}
             />
+            {/* Antes ponía los comensales del umbral ("5864"): un número que no
+                dice nada por sí solo. La cifra de comensales sigue existiendo,
+                más abajo, en el texto que ya la explica ("Contratas hasta X
+                comensales..."); aquí lo que importa mientras arrastras es a
+                cuánto del año llegas. */}
             <text
               x={handleX + handleW / 2}
               y={lineY + 3.5}
               textAnchor="middle"
               fill="var(--color-content-inverted)"
-              style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '-0.01em' }}
+              style={{ fontSize: 10, fontWeight: 800, letterSpacing: '-0.02em' }}
             >
-              {nf.format(threshold)}
+              {coveragePctLive}% · {covered}/{weeks.length}
             </text>
             {/* Grip: dos rayitas que dicen "esto se arrastra" */}
             <g stroke="var(--color-content-inverted)" strokeWidth={1.2} strokeLinecap="round" opacity={0.55}>

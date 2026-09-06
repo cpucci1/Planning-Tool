@@ -576,6 +576,102 @@ La lección que se queda: **al quitar un botón, mirar qué validación se va co
 cuadran entre sí**. Un número que no cuadra con el de al lado se lee como un error de
 cálculo aunque los dos sean correctos por separado.
 
+### 2 septdecies. La revisión de Crescente del 2026-09-06
+
+**La pantalla de resultado se parte en cinco sub-pasos** (`RESULT_SUBSTEPS`): plantilla, por
+qué, cuadrante, picos y llévatelo. Era un scroll de 1.200 líneas con nueve secciones y la
+queja fue literal: *"hay muchísima información"*. La primera pantalla pasa de 4.700 px a
+1.100. Es el mismo patrón del paso de demanda, y por eso `SubProgress` y `SubNav` salieron
+a `components/SubSteps.tsx`: dos barras de progreso distintas en la misma herramienta es
+lo que pasa cuando se copian en vez de compartirse.
+
+**El cuadrante deja de ir plegado.** Se plegó el día anterior porque medía 9.000 px dentro
+de un scroll que traía otras ocho secciones detrás. Con pantalla propia, ese motivo
+desaparece, y esconderlo solo tapaba justo la parte que se quiere que se use.
+
+**Poner nombres deja de ser un secreto.** Encima del cuadrante va la invitación y un
+contador ("3 de 19 con nombre") con su barra. El objetivo de Crescente es que la herramienta
+se use semana a semana, y la diferencia entre un estudio que se mira una vez y un cuadrante
+que se cuelga en cocina es que ponga los nombres de su gente.
+
+**Los costes se apagan** (`Settings.calcularCostes`, apagado de partida). Con él apagado no
+se pide ni se enseña un euro en toda la herramienta: ni columna de precio en el catálogo, ni
+coste semanal o anual, ni ratio sobre ventas, ni precio de los picos. El corte es **uno
+solo**, en `StepResult`: si `cost` es null, no hay dinero en ninguna parte. Apagarlo sitio
+por sitio es como se acaba colando un euro suelto en una pantalla que prometía no hablar de
+dinero. Puede llegar `undefined` de un guardado anterior, y eso se lee como apagado.
+
+**Las zonas se crean también desde el catálogo de puestos**, no solo desde la tabla de
+tramos. Y la lógica salió a `lib/catalogo.ts`, que es lo que de verdad pedía el encargo:
+crear una zona no es añadir una fila, es dar de alta su puesto **en todos los tramos**, y
+borrarla es quitarlo de `staff`, `staffMin` y `staffMax`. Dos copias de eso dejan tramos sin
+columna y el cálculo mal sin dar ningún error.
+
+**El último paso se llama "Tu plan"**, no "Plantilla": la plantilla es una parte de lo que
+se lleva, no el entregable entero.
+
+**La etiqueta de la línea del año enseña la cobertura** ("79% · 41/52") en vez del umbral en
+comensales, que no le decía nada a nadie. La cifra de comensales sigue en el texto de abajo.
+
+**La página se ensancha**: el shell de 1.400 a 1.680 px y la portada de 768 a 1.280. El
+texto corrido NO se ensancha y sigue rondando los 65 caracteres, que es lo que se puede
+leer.
+
+**Fuera el botón de "ver el ejemplo".** Crescente: *"solo enreda"*. Consecuencia que hay que
+tener presente: **ya no hay forma de ver la herramienta sin subir un fichero**, y eso choca
+con el principio 1 del proyecto (valor antes que datos). `analyzeFile(null, …)` y el dataset
+de ejemplo siguen ahí, así que devolverlo es un botón. Para probar a mano, subir un fichero
+vacío llamado `datos-de-ejemplo.csv` reproduce exactamente la misma semilla.
+
+### 2 octodecies. Por qué 19 personas es el mínimo, y qué lo baja
+
+Crescente pidió *"optimizar al máximo la plantilla, pocos de muchas horas mejor que muchos
+de pocas"*. Se midió antes de tocar nada, y la respuesta es que **ya estaba en el mínimo**:
+
+| | |
+|---|---|
+| Suma de los picos simultáneos de cada puesto | 17 |
+| Turnos a la semana, entre 5 días por persona | 19 |
+| Plantilla que sale | **19** |
+
+Nadie puede trabajar los siete días, así que un puesto con 34 turnos necesita 7 personas
+aunque nunca coincidan más de 7 a la vez. Se probó a quitar las libranzas seguidas, a
+permitir jornada partida y a quitar el descanso de 12 h: **19 en los cuatro casos**. No es
+que el algoritmo reparta mal, es que ese es el suelo.
+
+Lo que sí se ganó fueron **10 horas de contrato a la semana** (675 → 665), con dos
+movimientos nuevos en la consolidación de `roster.ts`:
+
+- **Traslado que concentra**: pasa un turno de quien va flojo a quien va cargado. El vaciado
+  que había era todo o nada, así que a alguien con cuatro turnos que solo cabían tres en el
+  resto no se le movía ninguno y se quedaba en plantilla para siempre.
+- **Traslado en cadena**: A le pasa un turno a B y B le pasa a C el suyo que estorbaba.
+
+Los dos usan la **suma de los cuadrados de las horas** como medida: mover horas hacia arriba
+la sube y hacia abajo la baja, así que sirve para elegir el movimiento y, de paso, para
+garantizar que el bucle termina.
+
+⚠️ **Al escribir el deshacer de la cadena se duplicaron turnos**: reponer un turno inserta
+uno NUEVO, la variable seguía apuntando al viejo, y la vuelta siguiente lo reponía otra vez.
+El cuadrante pasó de 88 turnos a 23.784 **sin que nada diera error**. Se vio porque
+`npm run verificar` imprime el número de turnos. Si se toca esa función, mirar ese número.
+
+⚠️ **Y el segundo susto fue el tiempo.** Los dos movimientos nuevos recorrían a todas las
+personas como donantes y `shiftsOf` filtraba el cuadrante entero en cada llamada, desde
+dentro de tres bucles anidados. Con 70 personas de un mismo puesto el reparto pasó de 1,7 a
+**9,5 segundos**, y esto corre en un `useMemo` que se rehace **con cada tecla** de la tabla
+de tramos. Se arregló con un índice de turnos por persona y acotando la cadena a los tres
+más flojos, que es a quien de verdad hay que vaciar: el peor caso quedó en **305 ms**, cinco
+veces más rápido que antes de empezar, con el mismo resultado.
+
+**La lección: cualquier cosa que se añada a `buildRoster` hay que medirla con un puesto
+grande**, no con los datos de ejemplo. El ejemplo tiene 7 camareros y no enseña nada; el
+guion de medida está en la ficha de esta tanda y tarda un minuto en rehacerse.
+
+**Y la herramienta ahora lo dice**: `drivers.peopleFromDays` es el tercer motivo, y la
+pantalla explica que 19 es el mínimo con sus reglas y cuáles tocar para bajarlo. Sin eso,
+las dos personas de diferencia entre el pico y la plantilla parecían holgura del cálculo.
+
 ### 3. Desfase del dato
 El fichero del TPV marca la hora del **cobro**, y se cobra al terminar — unos 30 minutos
 después de que el trabajo haya ocurrido. La curva del fichero va por tanto sistemáticamente

@@ -132,6 +132,7 @@ export const DEFAULT_SETTINGS: Settings = {
   consecutiveDaysOff: true,
   minRestBetweenShifts: true,
   weeklySalesEur: null,
+  calcularCostes: false,
   prepBeforeMin: 0,
   prepAfterMin: 0,
   minStaffByBlock: {},

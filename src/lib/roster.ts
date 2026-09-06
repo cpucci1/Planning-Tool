@@ -152,6 +152,15 @@ interface Slot {
  * primero porque son los días flojos de la mayoría de restaurantes; el
  * fin de semana es el último recurso.
  */
+/**
+ * Cuánta gente de la cola se intenta vaciar con la cadena en cada vuelta.
+ *
+ * Tres es de sobra: la cadena desatasca al que menos horas tiene, y si ese no
+ * se puede mover, el cuarto por abajo tampoco. Subirlo no quitó a nadie más en
+ * las pruebas y multiplicaba el tiempo.
+ */
+const DONANTES_EN_CADENA = 3
+
 const DAY_OFF_PAIRS: DayIndex[][] = [
   [0, 1],
   [1, 2],
@@ -347,18 +356,221 @@ export function buildRoster(grid: NeedGrid, model: StaffingModel, settings: Sett
   // flojos repartiendo sus turnos entre el resto; quien se queda sin nada,
   // desaparece. Es lo que baja la plantilla de "matemáticamente correcta" a
   // "contratable".
+  /**
+   * Turnos por persona, en un índice.
+   *
+   * Antes esto filtraba el cuadrante entero en cada llamada, y se llama desde
+   * dentro de tres bucles anidados: con 70 personas de un mismo puesto el
+   * reparto tardaba 9,5 segundos, y esto se recalcula en cada tecla de la tabla
+   * de tramos. El índice lo baja a la décima parte.
+   */
+  const porPersona = new Map<string, Shift[]>()
+  for (const sh of shifts) {
+    const lista = porPersona.get(sh.personId)
+    if (lista) lista.push(sh)
+    else porPersona.set(sh.personId, [sh])
+  }
+
   function shiftsOf(slot: Slot): Shift[] {
-    return shifts.filter((sh) => sh.personId === slot.person.id)
+    return porPersona.get(slot.person.id) ?? []
   }
 
   function removeShift(sh: Shift) {
     const i = shifts.indexOf(sh)
     if (i >= 0) shifts.splice(i, 1)
+    const lista = porPersona.get(sh.personId)
+    if (lista) {
+      const j = lista.indexOf(sh)
+      if (j >= 0) lista.splice(j, 1)
+    }
+  }
+
+  /**
+   * Las dos funciones de abajo miden si un movimiento mejora con la SUMA DE LOS
+   * CUADRADOS de las horas de cada persona. Mover horas de quien tiene menos a
+   * quien tiene más siempre la sube, y al revés la baja, así que sirve para dos
+   * cosas: dice qué movimiento acerca al objetivo (poca gente con muchas horas
+   * en vez de mucha gente a media jornada) y garantiza que el bucle termina,
+   * porque solo se aplican movimientos que la suben y está acotada por arriba.
+   *
+   * Cada una la calcula sobre las personas que toca, no sobre la plantilla
+   * entera: sumar 70 cuadrados en cada intento era parte de lo que hacía que
+   * esto tardara segundos.
+   */
+  /** ¿Cabe este turno en esta persona, con todas las reglas? */
+  function admite(receptor: Slot, sh: Shift): boolean {
+    if (receptor.person.roleId !== sh.roleId) return false
+    if (receptor.person.assignedHours + sh.hours > receptor.person.contractHours) return false
+    if (receptor.days.has(sh.day)) return false
+    if (!dayRestOk(receptor, sh.day, sh.blocks)) return false
+    if (settings.consecutiveDaysOff) {
+      const would = new Set([...receptor.days, sh.day])
+      return DAY_OFF_PAIRS.some((pair) => !would.has(pair[0]) && !would.has(pair[1]))
+    }
+    return receptor.days.size < 6
+  }
+
+  /**
+   * Un solo traslado que concentre horas: coge UN turno de quien va más flojo
+   * y lo pasa a alguien que va más cargado y tiene hueco.
+   *
+   * Hace falta porque el vaciado de abajo es todo o nada: si a alguien con
+   * cuatro turnos solo le caben tres en el resto, no se mueve ninguno y esa
+   * persona se queda en plantilla para siempre. Moviendo de uno en uno se le
+   * hace sitio, y a la vuelta siguiente el vaciado completo ya sale.
+   *
+   * Solo se acepta si el receptor va igual o más cargado que el donante: así
+   * las horas siempre suben hacia arriba y nunca se reparten hacia abajo, que
+   * es justo lo contrario de lo que se busca.
+   */
+  function trasladoQueConcentra(): boolean {
+    const porCarga = [...slots].sort((a, b) => a.person.assignedHours - b.person.assignedHours)
+    for (const donante of porCarga) {
+      const suyos = shiftsOf(donante)
+      if (suyos.length === 0) continue
+      // Los turnos gordos primero: son los que de verdad mueven la aguja y los
+      // que menos oportunidades van a tener de colocarse más adelante.
+      for (const sh of [...suyos].sort((a, b) => b.hours - a.hours)) {
+        const receptor = slots
+          .filter(
+            (r) =>
+              r !== donante &&
+              r.person.assignedHours >= donante.person.assignedHours &&
+              admite(r, sh),
+          )
+          // Al más lleno de los que caben: rellenar huecos pequeños es lo que
+          // acaba dejando a alguien completo y a otro en nada.
+          .sort(
+            (a, b) =>
+              a.person.contractHours - a.person.assignedHours -
+              (b.person.contractHours - b.person.assignedHours),
+          )[0]
+        if (!receptor) continue
+
+        sacar(donante, sh)
+        colocar(receptor, sh)
+        if (shiftsOf(donante).length === 0) slots.splice(slots.indexOf(donante), 1)
+        return true
+      }
+    }
+    return false
+  }
+
+  /**
+   * Mete un turno en una persona y DEVUELVE el turno que ha quedado en el
+   * cuadrante, que es un objeto nuevo. Devolverlo no es un detalle: para
+   * deshacer un movimiento hay que quitar exactamente ese, y buscarlo después
+   * por día y horas encuentra el de otro y deja dos copias del mismo turno.
+   */
+  function colocar(receptor: Slot, sh: Shift): Shift {
+    const puesto: Shift = { ...sh, personId: receptor.person.id }
+    shifts.push(puesto)
+    const lista = porPersona.get(puesto.personId)
+    if (lista) lista.push(puesto)
+    else porPersona.set(puesto.personId, [puesto])
+    receptor.person.assignedHours += sh.hours
+    receptor.days.add(sh.day)
+    return puesto
+  }
+
+  /** Saca del cuadrante ese turno concreto, el objeto que se le pasa. */
+  function sacar(donante: Slot, sh: Shift) {
+    removeShift(sh)
+    donante.person.assignedHours -= sh.hours
+    donante.days.delete(sh.day)
+  }
+
+  /**
+   * Traslado en cadena: A le pasa un turno a B, y B le pasa a C el turno suyo
+   * que estorbaba.
+   *
+   * Es lo que hace falta para vaciar la cola de verdad. Con el traslado
+   * simple, el cocinero de 9 h no se movía a ningún sitio: los dos cocineros
+   * con hueco ya trabajaban ese día, o cogerlo les rompía las dos libranzas
+   * seguidas. Moviendo también el turno que estorba, el hueco aparece.
+   *
+   * Solo se aplica si la CUENTA COMPLETA concentra más horas de las que
+   * dispersa, calculada antes de tocar nada. Así el bucle sigue teniendo su
+   * garantía de que termina, y no se acepta una cadena que deje a tres
+   * personas a media jornada para quitar a una.
+   */
+  function cadenaQueConcentra(): boolean {
+    // Solo se intenta vaciar a los MÁS FLOJOS, no a todo el mundo. La cadena
+    // existe para la cola, y recorrer a los 70 como posibles donantes multiplica
+    // el trabajo por diez sin quitar a nadie más: quien va cargado no se vacía
+    // por definición. Es la diferencia entre medio segundo y diez.
+    const porCarga = [...slots]
+      .sort((a, b) => a.person.assignedHours - b.person.assignedHours)
+      .slice(0, DONANTES_EN_CADENA)
+
+    for (const a of porCarga) {
+      const suyos = shiftsOf(a)
+      if (suyos.length === 0) continue
+
+      for (const turnoA of [...suyos].sort((x, y) => y.hours - x.hours)) {
+        for (const b of slots) {
+          if (b === a || b.person.roleId !== turnoA.roleId) continue
+          // Solo se estorban por el día: lo demás no lo arregla mover otro turno.
+          if (!b.days.has(turnoA.day)) continue
+
+          const estorbo = shiftsOf(b).find((sh) => sh.day === turnoA.day)
+          if (!estorbo) continue
+
+          // El estorbo se quita UNA vez, antes de buscar destino, porque las
+          // comprobaciones de descanso leen el cuadrante vivo: con el estorbo
+          // puesto, ni B admite el turno de A ni se ve bien dónde cabe.
+          //
+          // Y se quita fuera del bucle de C a propósito. Quitarlo y reponerlo
+          // dentro parecía más prudente y era justo el fallo: reponer inserta
+          // un turno NUEVO, la variable seguía apuntando al viejo, y la vuelta
+          // siguiente lo reponía otra vez. El cuadrante pasó de 88 turnos a
+          // 23.784 sin que nada diera error.
+          sacar(b, estorbo)
+
+          if (!admite(b, turnoA)) {
+            colocar(b, estorbo)
+            continue
+          }
+
+          let movido = false
+          for (const c of slots) {
+            if (c === a || c === b || c.person.roleId !== turnoA.roleId) continue
+            if (!admite(c, estorbo)) continue
+
+            const dA = a.person.assignedHours
+            const dB = b.person.assignedHours
+            const dC = c.person.assignedHours
+            // B ya está sin el estorbo, así que su cuenta de ahora solo suma
+            // el turno que va a recibir.
+            const antes = dA * dA + (dB + estorbo.hours) ** 2 + dC * dC
+            const despues =
+              (dA - turnoA.hours) ** 2 +
+              (dB + turnoA.hours) ** 2 +
+              (dC + estorbo.hours) ** 2
+            if (despues <= antes) continue
+
+            colocar(c, estorbo)
+            sacar(a, turnoA)
+            colocar(b, turnoA)
+            if (shiftsOf(a).length === 0) slots.splice(slots.indexOf(a), 1)
+            movido = true
+            break
+          }
+
+          if (!movido) {
+            colocar(b, estorbo)
+            continue
+          }
+          return true
+        }
+      }
+    }
+    return false
   }
 
   let progress = true
   let guard = 0
-  while (progress && guard++ < 20) {
+  while (progress && guard++ < 400) {
     progress = false
     // De menos cargado a más: el candidato a desaparecer es el que menos aporta.
     const order = [...slots].sort((a, b) => a.person.assignedHours - b.person.assignedHours)
@@ -413,6 +625,9 @@ export function buildRoster(grid: NeedGrid, model: StaffingModel, settings: Sett
         removeShift(sh)
         const moved: Shift = { ...sh, personId: to.slot.person.id }
         shifts.push(moved)
+        const lista = porPersona.get(moved.personId)
+        if (lista) lista.push(moved)
+        else porPersona.set(moved.personId, [moved])
         to.slot.person.assignedHours += sh.hours
         to.slot.days.add(sh.day)
       }
@@ -422,6 +637,20 @@ export function buildRoster(grid: NeedGrid, model: StaffingModel, settings: Sett
       progress = true
       break
     }
+
+    // Ningún vaciado completo ha salido: se prueba a mover un turno suelto
+    // hacia arriba. No quita a nadie por sí solo, pero deja el hueco donde
+    // hace falta para que a la vuelta siguiente sí salga. Y si tampoco, la
+    // cadena, que es la que desatasca la cola.
+    //
+    // Las dos comprueban la mejora ANTES de tocar nada y solo aplican
+    // movimientos que suben la concentración, así que devolver `true` ya
+    // significa que se ha mejorado. Aquí había además un `concentracion() >
+    // antes` de más: parecía una red de seguridad y no lo era, porque el
+    // movimiento ya estaba hecho y nadie lo deshacía. Una comprobación que no
+    // puede actuar sobre lo que comprueba es peor que no tenerla.
+    if (!progress) progress = trasladoQueConcentra()
+    if (!progress) progress = cadenaQueConcentra()
   }
 
   // Cada persona baja al contrato más pequeño que cubra sus horas. Aquí es donde

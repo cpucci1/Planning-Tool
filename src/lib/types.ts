@@ -229,6 +229,22 @@ export interface Settings {
    */
   weeklySalesEur: number | null
   /**
+   * ¿Se calculan también los costes?
+   *
+   * Apagado de partida. Con él apagado no se pide ningún precio por hora ni se
+   * enseña ninguna cifra de dinero: la herramienta se queda en personas, horas
+   * y cuadrante, que es lo que casi todo el mundo viene a buscar. Media
+   * pantalla de campos de euros que nadie va a rellenar solo estorba.
+   *
+   * Al encenderlo aparece la columna de coste por hora en el catálogo de
+   * puestos y, con ella, el coste semanal y anual y el ratio sobre ventas.
+   *
+   * Puede llegar `undefined` desde un guardado anterior a que existiera: eso
+   * se lee como apagado, que es el lado seguro. Nunca se enseña un precio que
+   * el usuario no haya escrito.
+   */
+  calcularCostes?: boolean
+  /**
    * Minutos de preparación antes de abrir y de cierre después de cerrar: la
    * mise en place, el montaje, la limpieza. El horario que edita el usuario es
    * el horario AL PÚBLICO; la gente entra antes y sale después.
@@ -297,6 +313,17 @@ export interface StaffPlan {
     fteFromHours: number
     /** Personas que impone el pico simultáneo, sumando el de cada puesto. */
     peopleFromPeak: number
+    /**
+     * Personas que impone el CALENDARIO: nadie puede trabajar los siete días,
+     * así que un puesto con 34 turnos a la semana necesita al menos siete
+     * personas aunque nunca coincidan más de cinco a la vez.
+     *
+     * Es el motivo que faltaba. Con los datos de ejemplo el pico pide 17
+     * personas y salen 19: las dos que sobran no son holgura del cálculo, son
+     * el responsable de sala y el cocinero que hacen falta para cubrir todos
+     * los días. Sin decirlo, esas dos parecen un fallo.
+     */
+    peopleFromDays: number
     /** Pico simultáneo por puesto, para poder señalar al culpable. */
     peakByRole: { roleId: string; peak: number; people: number; hours: number }[]
   }

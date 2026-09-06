@@ -41,10 +41,14 @@ export function StaffTable({
   title,
   eyebrow,
   subtitle,
+  conCostes,
 }: {
   roster: Roster
   model: StaffingModel
   contracts: ContractType[]
+  /** Si es false no se enseña la columna de coste, aunque los puestos tengan
+   *  precio guardado de una sesión anterior. El interruptor de costes manda. */
+  conCostes: boolean
   /** Si viene, solo los puestos de ese bloque. */
   blockId?: string
   title: React.ReactNode
@@ -83,7 +87,7 @@ export function StaffTable({
 
   const totalPeople = rows.reduce((a, r) => a + r.people, 0)
   const totalHours = rows.reduce((a, r) => a + r.contractedHours, 0)
-  const anyCost = rows.some((r) => r.weeklyEur !== null)
+  const anyCost = conCostes && rows.some((r) => r.weeklyEur !== null)
   const totalEur = rows.reduce((a, r) => a + (r.weeklyEur ?? 0), 0)
 
   const th = 'px-3 py-2 text-[0.7rem] font-bold tracking-wide text-content-secondary uppercase'
