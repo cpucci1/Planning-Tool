@@ -7,9 +7,11 @@
  * de cada una dibujada solo con HTML y CSS — no hay assets y no queremos pesar.
  *
  * Las cifras de las miniaturas 1 y 4 (19 personas, el desglose de contratos, 11
- * de 52 semanas) son las del dataset de ejemplo real del proyecto: si el usuario
- * pulsa "ver el ejemplo" tienen que cuadrar con lo que ve después, o el efecto es
- * el contrario al buscado. La miniatura del coste es la excepción a propósito:
+ * de 52 semanas) son las del dataset de ejemplo real del proyecto, sacadas de
+ * `npm run verificar`. Se quedan aunque ya no haya botón de "ver el ejemplo":
+ * son la muestra de lo que la herramienta devuelve, y por eso tienen que ser
+ * ciertas. Una cifra inventada aquí es una promesa que el producto incumple en
+ * la pantalla siguiente. La miniatura del coste es la excepción a propósito:
  * `Role.hourlyCostEur` nace en `null` en todo el catálogo (`data/presets.ts`) —
  * el precio lo pone el usuario, nunca se inventa — así que el ejemplo de coste de
  * aquí es ilustrativo y lleva su propia nota diciéndolo. La miniatura del
@@ -18,18 +20,23 @@
  */
 
 import { Fragment, type ReactNode } from 'react'
-import { ArrowRight, BarChart3, Euro, LayoutGrid, Sparkles, Users } from 'lucide-react'
-import { Button, Card } from '@/components/ui'
+import { BarChart3, Euro, LayoutGrid, Users } from 'lucide-react'
+import { Card } from '@/components/ui'
 
 // ─────────────────────────────────────────────────────────────
 // Datos de ejemplo
 // ─────────────────────────────────────────────────────────────
 
-/** Mismas cifras que el dataset de ejemplo: 12 jornadas de 40h + 6 de 30h + 1 de 15h = 19. */
+/**
+ * Mismas cifras que el dataset de ejemplo: 12 de 40h + 5 de 30h + 1 de 20h +
+ * 1 de 15h = 19. Salen de `npm run verificar`, no de la cabeza de nadie: si el
+ * reparto de turnos cambia, esta lista hay que volver a copiarla de ahí.
+ */
 const CONTRACTS = [
   { hours: 40, count: 12, color: 'var(--color-brand-dark)' },
-  { hours: 30, count: 6, color: 'var(--color-brand)' },
-  { hours: 15, count: 1, color: 'var(--color-brand-secondary)' },
+  { hours: 30, count: 5, color: 'var(--color-brand)' },
+  { hours: 20, count: 1, color: 'var(--color-brand-secondary)' },
+  { hours: 15, count: 1, color: 'var(--color-content-muted)' },
 ] as const
 const MAX_CONTRACT_COUNT = 12
 
@@ -93,16 +100,16 @@ function MiniHeader({ icon, title, text }: { icon: ReactNode; title: string; tex
 // Componente
 // ─────────────────────────────────────────────────────────────
 
-export function QueVasAObtener({ onDemo }: { onDemo: () => void }) {
+export function QueVasAObtener() {
   return (
     <section className="mx-auto mt-14 max-w-4xl sm:mt-16">
       <div className="text-center">
         <span className="eyebrow eyebrow--purple">Antes de subir nada</span>
         <h2 className="h2 mt-3 text-[1.4rem] sm:text-[1.75rem]">Esto es lo que sale de tu histórico</h2>
         <p className="mx-auto mt-3 max-w-lg text-[0.95rem] leading-relaxed text-content-secondary">
-          Con el ejemplo de un restaurante real de menú y carta.{' '}
+          Es el resultado real de un restaurante de menú y carta.{' '}
           <span className="font-bold text-content-primary">No son tus datos</span>: son los
-          nuestros, para que veas el resultado antes de tocar nada.
+          nuestros, para que veas lo que sale antes de subir nada tuyo.
         </p>
       </div>
 
@@ -272,15 +279,6 @@ export function QueVasAObtener({ onDemo }: { onDemo: () => void }) {
         <p className="mx-auto max-w-md text-[0.98rem] font-bold text-content-primary">
           Esto no lo calculamos a ojo: sale de tu propio histórico, semana a semana.
         </p>
-        <Button
-          size="lg"
-          className="mt-5"
-          onClick={onDemo}
-          icon={<Sparkles size={17} strokeWidth={2.3} />}
-          iconRight={<ArrowRight size={16} />}
-        >
-          Ver el ejemplo funcionando
-        </Button>
       </div>
     </section>
   )

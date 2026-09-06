@@ -61,6 +61,15 @@ export function summarizePlan(
     }
   })
 
+  // Días que puede trabajar una persona a la semana. Con dos libranzas
+  // seguidas son cinco; sin esa regla, seis, porque el descanso semanal de un
+  // día no se negocia (Art. 37.1 ET).
+  const diasPorPersona = settings.consecutiveDaysOff ? 5 : 6
+  const peopleFromDays = model.roles.reduce((total, r) => {
+    const turnos = roster.shifts.filter((sh) => sh.roleId === r.id).length
+    return total + Math.ceil(turnos / diasPorPersona)
+  }, 0)
+
   return {
     allocations,
     totalPeople: roster.people.length,
@@ -71,6 +80,7 @@ export function summarizePlan(
     drivers: {
       fteFromHours: Math.round((needSummary.totalHours / fullTimeHours) * 10) / 10,
       peopleFromPeak: peakByRole.reduce((a, r) => a + r.peak, 0),
+      peopleFromDays,
       peakByRole,
     },
   }

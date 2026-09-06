@@ -4,7 +4,7 @@
  * Es la pantalla que decide si el usuario sigue o cierra la pestaña, así que
  * hace tres cosas y ninguna más: promete algo concreto, ofrece una sola acción
  * principal (soltar el fichero) y deja a mano la salida para quien no lo tenga
- * delante (los datos de ejemplo).
+ * delante (la muestra de lo que sale).
  *
  * El análisis no es decoración: recorre los pasos reales de `lib/fakeAI` y los
  * va marcando. Cuando termina llama a `loadDataset`, que ya avanza de paso.
@@ -177,7 +177,7 @@ export function StepImport() {
       setPhase('idle')
       setCurrent(-1)
       setSource(null)
-      setError('No hemos podido leer ese fichero. Prueba con otro o tira con los datos de ejemplo.')
+      setError('No hemos podido leer ese fichero. Prueba con otro.')
     }
   }
 
@@ -217,8 +217,12 @@ export function StepImport() {
   const working = phase !== 'idle'
   const pct = phase === 'done' ? 100 : current < 0 ? 4 : ((current + 0.55) / TOTAL_STEPS) * 100
 
+  // 1.280 px, no 768 ni 1.024: en una pantalla de escritorio de verdad, una
+  // columna de 768 en el centro deja la mitad de la pantalla en blanco, que es
+  // justo lo que Crescente llamó "apretado al medio". El texto corrido de dentro
+  // sigue con su propio ancho, que eso sí tiene que ser estrecho para leerse.
   return (
-    <div className="mx-auto max-w-3xl pt-6 sm:pt-12">
+    <div className="mx-auto max-w-[1280px] pt-6 sm:pt-12">
       {/* ── Hero ───────────────────────────────────────────────── */}
       <div className="animate-slide-up text-center">
         <span className="eyebrow eyebrow--purple">Planificador de plantilla</span>
@@ -357,7 +361,7 @@ export function StepImport() {
                 gente: el que duda se pone a pelearse con el export de su TPV
                 sin saber todavía si le va a servir. */}
             <div className="mt-10">
-              <QueVasAObtener onDemo={() => void run(null)} />
+              <QueVasAObtener />
             </div>
 
           </>

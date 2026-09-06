@@ -36,6 +36,16 @@ import {
   PALETTE,
   SUGGESTED_BLOCKS,
 } from '@/data/presets'
+import {
+  borrarPuesto,
+  borrarZona,
+  crearPuesto,
+  crearZona,
+  nextColor,
+  renombrarPuesto,
+  renombrarZona,
+  type ModelParts,
+} from '@/lib/catalogo'
 import type { Block, Role, StaffingModel, Tier } from '@/lib/types'
 
 /** Grupo de puestos sin bloque válido: no debería pasar, pero si pasa se ve. */
@@ -70,10 +80,6 @@ function rechain(list: Tier[]): Tier[] {
   return out
 }
 
-/** Primer color de la paleta sin usar, para que dos puestos no salgan iguales. */
-function nextColor(used: string[], fallback: string): string {
-  return PALETTE.find((c) => !used.includes(c)) ?? fallback
-}
 
 /** Tinte suave del color del bloque para la cabecera. Los hex vienen del dato. */
 function tint(hex: string): string {
@@ -464,67 +470,42 @@ export function TiersTable({
   }
 
   function addRole(block: Block) {
-    const id = newId('r')
-    const color = nextColor(
-      roles.map((r) => r.color),
-      block.color,
-    )
-    onRolesChange([
-      ...roles,
-      { id, name: 'Nuevo puesto', blockId: block.id, color, hourlyCostEur: null, fullTimeOnly: false },
-    ])
-    onTiersChange(tiers.map((t) => ({ ...t, staff: { ...t.staff, [id]: 0 } })))
-    setPendingRoleId(id)
+    const { parts, roleId } = crearPuesto(partes(), block)
+    aplicar(parts)
+    setPendingRoleId(roleId)
   }
 
   function renameRole(id: string, name: string) {
-    onRolesChange(roles.map((r) => (r.id === id ? { ...r, name } : r)))
+    aplicar(renombrarPuesto(partes(), id, name))
   }
 
   function removeRole(id: string) {
-    onRolesChange(roles.filter((r) => r.id !== id))
-    onTiersChange(
-      tiers.map((t) => {
-        const staff = { ...t.staff }
-        delete staff[id]
-        const staffMin = { ...(t.staffMin ?? {}) }
-        const staffMax = { ...(t.staffMax ?? {}) }
-        delete staffMin[id]
-        delete staffMax[id]
-        return { ...t, staff, staffMin, staffMax }
-      }),
-    )
+    aplicar(borrarPuesto(partes(), id))
+  }
+
+  /** Las tres listas juntas, que es como las mueven las funciones de `lib`. */
+  function partes() {
+    return { blocks, roles, tiers }
+  }
+
+  /** Aplica de golpe lo que devuelve `lib/catalogo`. */
+  function aplicar(p: ModelParts) {
+    if (p.blocks !== blocks) onBlocksChange(p.blocks)
+    if (p.roles !== roles) onRolesChange(p.roles)
+    if (p.tiers !== tiers) onTiersChange(p.tiers)
   }
 
   function createBlock(name: string, color: string) {
-    // Un bloque sin puestos no es una columna, así que arranca con uno
-    // homónimo: el usuario lo renombra en un doble clic si quiere.
-    const blockId = newId('b')
-    const roleId = newId('r')
-    onBlocksChange([...blocks, { id: blockId, name, color }])
-    onRolesChange([
-      ...roles,
-      { id: roleId, name, blockId, color, hourlyCostEur: null, fullTimeOnly: false },
-    ])
-    onTiersChange(tiers.map((t) => ({ ...t, staff: { ...t.staff, [roleId]: 0 } })))
+    aplicar(crearZona(partes(), name, color))
     setBlockModal(false)
   }
 
   function renameBlock(id: string, name: string) {
-    onBlocksChange(blocks.map((b) => (b.id === id ? { ...b, name } : b)))
+    aplicar(renombrarZona(partes(), id, name))
   }
 
   function removeBlock(block: Block) {
-    const doomed = roles.filter((r) => r.blockId === block.id).map((r) => r.id)
-    onBlocksChange(blocks.filter((b) => b.id !== block.id))
-    onRolesChange(roles.filter((r) => r.blockId !== block.id))
-    onTiersChange(
-      tiers.map((t) => {
-        const staff = { ...t.staff }
-        for (const id of doomed) delete staff[id]
-        return { ...t, staff }
-      }),
-    )
+    aplicar(borrarZona(partes(), block.id))
   }
 
   /**

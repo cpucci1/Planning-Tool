@@ -213,7 +213,7 @@ function LivePanelMobile() {
 
   return (
     <div className="fixed inset-x-0 bottom-15 z-30 lg:hidden">
-      <div className="mx-auto max-w-[1400px] px-4 sm:px-6">
+      <div className="mx-auto max-w-[1680px] px-4 sm:px-6">
         <div className="overflow-hidden rounded-card border border-border-soft bg-surface-elevated/95 shadow-lg backdrop-blur-md">
           <button
             type="button"

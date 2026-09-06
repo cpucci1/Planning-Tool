@@ -14,8 +14,6 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
-  ArrowLeft,
-  ArrowRight,
   Ban,
   CalendarRange,
   Check,
@@ -30,6 +28,7 @@ import { YearChart } from '@/components/charts/YearChart'
 import { WeekHeatmap } from '@/components/charts/WeekHeatmap'
 import { DayCurve } from '@/components/charts/DayCurve'
 import { HoursEditor } from '@/components/HoursEditor'
+import { SubNav, SubProgress } from '@/components/SubSteps'
 import { RoleCatalog } from '@/components/RoleCatalog'
 import {
   MapeoColumnas,
@@ -115,104 +114,6 @@ const DEMAND_SUBSTEPS: { id: string; label: string }[] = [
   { id: 'especiales', label: 'Semanas raras' },
   { id: 'semana', label: 'Semana tipo' },
 ]
-
-function SubProgress({ index, onGo }: { index: number; onGo: (i: number) => void }) {
-  const pct = ((index + 1) / DEMAND_SUBSTEPS.length) * 100
-  return (
-    <div className="mb-6 flex items-center gap-3">
-      <ol className="hidden flex-wrap items-center gap-1 sm:flex">
-        {DEMAND_SUBSTEPS.map((s, i) => {
-          const done = i < index
-          const active = i === index
-          return (
-            <li key={s.id} className="flex items-center">
-              <button
-                type="button"
-                onClick={() => onGo(i)}
-                aria-current={active ? 'step' : undefined}
-                className={cn(
-                  'rounded-pill px-2.5 py-1.5 text-[0.78rem] font-bold transition-colors',
-                  active && 'bg-brand-light text-brand',
-                  !active &&
-                    'text-content-secondary hover:bg-surface hover:text-content-primary',
-                )}
-              >
-                <span
-                  className={cn(
-                    'mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-pill text-[0.65rem]',
-                    active
-                      ? 'bg-brand text-content-inverted'
-                      : done
-                        ? 'bg-success text-content-inverted'
-                        : 'bg-surface',
-                  )}
-                >
-                  {done ? '✓' : i + 1}
-                </span>
-                {s.label}
-              </button>
-              {i < DEMAND_SUBSTEPS.length - 1 && (
-                <span className="mx-1 h-px w-3 bg-border" aria-hidden="true" />
-              )}
-            </li>
-          )
-        })}
-      </ol>
-
-      <div className="flex flex-1 items-center gap-3 sm:hidden">
-        <div className="h-1.5 flex-1 overflow-hidden rounded-pill bg-surface">
-          <div
-            className="h-full rounded-pill bg-brand transition-[width] duration-300 ease-out"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <span className="shrink-0 text-[0.75rem] font-bold text-content-secondary">
-          {index + 1}/{DEMAND_SUBSTEPS.length} · {DEMAND_SUBSTEPS[index].label}
-        </span>
-      </div>
-    </div>
-  )
-}
-
-function SubNav({
-  index,
-  onBack,
-  onNext,
-  nextLabel,
-  nextHint,
-  nextDisabled,
-}: {
-  index: number
-  onBack: () => void
-  onNext: () => void
-  nextLabel: string
-  nextHint?: string
-  /** Bloquea el avance. Se usa en la lectura del fichero: sin saber qué columna
-   *  es la fecha no hay nada que calcular, y antes se podía seguir igualmente. */
-  nextDisabled?: boolean
-}) {
-  return (
-    <div className="flex flex-col items-center gap-3 pt-2 pb-4">
-      <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-center">
-        {index > 0 ? (
-          <Button variant="secondary" size="lg" icon={<ArrowLeft size={17} />} onClick={onBack}>
-            Atrás
-          </Button>
-        ) : (
-          <span aria-hidden="true" />
-        )}
-        <Button size="lg" onClick={onNext} disabled={nextDisabled} iconRight={<ArrowRight size={18} />}>
-          {nextLabel}
-        </Button>
-      </div>
-      {nextHint && (
-        <p className="max-w-md text-center text-[0.82rem] leading-relaxed text-content-secondary">
-          {nextHint}
-        </p>
-      )}
-    </div>
-  )
-}
 
 export function StepDemand() {
   const p = usePlanner()
@@ -330,7 +231,7 @@ export function StepDemand() {
 
   return (
     <div className="stagger space-y-6">
-      <SubProgress index={sub} onGo={setSub} />
+      <SubProgress steps={DEMAND_SUBSTEPS} index={sub} onGo={setSub} />
 
       {/* ── 1. Lo que ha leído la IA ─────────────────────────────── */}
       {sub === 0 && (
@@ -377,7 +278,15 @@ export function StepDemand() {
           usa estos puestos como columnas. Se devolvió aquí por decisión de
           Crescente el 2026-09-06: manda el sitio que pidió el advisor. Si vuelve
           a moverse, que sea con esa conversación delante. */}
-      <RoleCatalog blocks={p.model.blocks} roles={p.model.roles} onRolesChange={p.setRoles} />
+      <RoleCatalog
+        blocks={p.model.blocks}
+        roles={p.model.roles}
+        tiers={p.model.tiers}
+        onPartsChange={p.setModelParts}
+        onRolesChange={p.setRoles}
+        calcularCostes={p.settings.calcularCostes ?? false}
+        onCalcularCostes={(v) => p.setSettings((st) => ({ ...st, calcularCostes: v }))}
+      />
       </div>
       )}
 
@@ -554,18 +463,18 @@ export function StepDemand() {
         {p.model.blocks.some((b) => p.model.roles.some((r) => r.blockId === b.id)) && (
         <Card>
           <CardHeader
-            eyebrow="Mínimo por local"
+            eyebrow="Mínimo y preparación"
             title={
               <>
-                El personal que hace falta <span className="text-brand italic">solo por estar abierto.</span>
+                Quién tiene que estar, <span className="text-brand italic">aunque la sala esté vacía.</span>
               </>
             }
-            subtitle="Al margen de cuántos comensales tengas: quien abre, cierra o prepara. Se garantiza en todo el horario de cada área, el suyo propio si lo tiene, como cocina, y también durante la preparación y el cierre."
+            subtitle="No lo decide la curva de comensales: pon cuántas personas no pueden faltar en cada área durante todo su horario, porque alguien tiene que abrir, atender una mesa suelta o recoger. Justo debajo alargas esa misma ventana antes de abrir y después de cerrar: es la continuación de este número, no otro aparte."
             info={
               <InfoTip title="Cómo se cubre">
-                El mínimo lo cubre el primer puesto de cada área (el responsable de abrirla), para
-                que el cuadrante se lo asigne a alguien concreto. Si la curva de comensales ya pide
-                más gente que el mínimo en una franja, este número no suma nada extra: solo actúa
+                El primer puesto de cada área (quien la abre) asume este mínimo, para que el
+                cuadrante se lo asigne a una persona en concreto. Si la curva de comensales ya pide
+                más gente que el mínimo en una franja, este número no suma nada extra: solo entra
                 donde la curva pide menos.
               </InfoTip>
             }
@@ -601,16 +510,26 @@ export function StepDemand() {
           </div>
 
           {/* 3.2 — el horario de arriba es el horario AL PÚBLICO. La gente
-              entra antes y sale después, y esas horas son plantilla igual. */}
-          <div className="grid gap-4 border-t border-border-soft px-4 py-5 sm:grid-cols-2 sm:px-6">
+              entra antes y sale después, y esas horas son plantilla igual.
+              Va sin borde propio y con su propia frase de enlace para que se
+              lea como la continuación del mínimo de arriba, no como un ajuste
+              distinto — es justo lo que Crescente no pillaba a la primera. */}
+          <div className="border-t border-border-soft px-4 pt-5 sm:px-6">
+            <h4 className="h4">Antes de abrir y después de cerrar</h4>
+            <p className="mt-1 text-[0.82rem] leading-relaxed text-content-secondary">
+              Es el mismo mínimo de arriba, solo que más ancho: cuánto antes entra esa misma
+              gente para la mise en place y cuánto se queda después para recoger y cerrar caja.
+            </p>
+          </div>
+          <div className="grid gap-4 px-4 pt-4 pb-5 sm:grid-cols-2 sm:px-6">
             <Field
               label="Preparación antes de abrir"
               info={
-                <InfoTip title="Horario al público y horario del personal">
+                <InfoTip title="Antes de abrir">
                   El horario que has puesto arriba es cuando entra el cliente. La mise en place, el
-                  montaje y la puesta a punto ocurren antes, y esas horas se pagan igual. Aquí se
-                  dice cuánto antes entra la gente: durante ese rato se mantiene el mínimo de cada
-                  área, no la plantilla de servicio.
+                  montaje y la puesta a punto ocurren antes, y esas horas se pagan igual. Aquí dices
+                  cuánto antes entra la gente: durante ese rato se mantiene el mínimo de arriba, no
+                  la plantilla de servicio.
                 </InfoTip>
               }
             >
@@ -627,9 +546,9 @@ export function StepDemand() {
             <Field
               label="Recogida al terminar"
               info={
-                <InfoTip title="El cierre">
+                <InfoTip title="Al cerrar">
                   Recoger, limpiar y cuadrar la caja. Igual que la preparación: durante ese rato se
-                  mantiene el mínimo del área, no la plantilla de servicio.
+                  mantiene el mismo mínimo de arriba, no la plantilla de servicio.
                 </InfoTip>
               }
             >
@@ -652,7 +571,7 @@ export function StepDemand() {
                   <Note tone="warning">
                     La preparación y el cierre no cambian nada mientras no pongas un mínimo arriba:
                     a esas horas no hay comensales, así que lo único que puede haber es la gente que
-                    abre y cierra, y eso sale del mínimo por local.
+                    abre y cierra, y eso sale del mínimo de arriba.
                   </Note>
                 </div>
               )}

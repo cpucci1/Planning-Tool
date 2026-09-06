@@ -112,7 +112,7 @@ function Inner() {
 
   // Cambiar de paso remonta `<main>` (ver el `key` de abajo) pero no mueve el
   // scroll: sin esto, si el usuario llegaba abajo del todo en "Equipo", el
-  // paso "Plantilla" arrancaba a mitad de pantalla en vez de por el titular.
+  // paso "Tu plan" arrancaba a mitad de pantalla en vez de por el titular.
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [p.step])
@@ -134,7 +134,7 @@ function Inner() {
     <PlannerContext.Provider value={p}>
       <div className="min-h-screen">
         <header className="sticky top-0 z-50 border-b border-border-soft bg-surface-elevated/85 backdrop-blur-md">
-          <div className="mx-auto flex h-16 max-w-[1400px] items-center gap-4 px-4 sm:px-6">
+          <div className="mx-auto flex h-16 max-w-[1680px] items-center gap-4 px-4 sm:px-6">
             <a href="https://shifty.es" className="flex shrink-0 items-center gap-2" aria-label="Shifty">
               <img src="/shifty-logo.svg" alt="" className="h-6 w-auto" />
               <span className="hidden text-[0.78rem] font-bold text-content-muted sm:inline">
@@ -157,7 +157,7 @@ function Inner() {
         </header>
 
         {p.dataset && index > 0 && (
-          <div className="mx-auto max-w-[1400px] px-4 pt-6 sm:px-6">
+          <div className="mx-auto max-w-[1680px] px-4 pt-6 sm:px-6">
             <button
               type="button"
               onClick={() => p.setStep(STEPS[index - 1].id)}
@@ -169,7 +169,7 @@ function Inner() {
           </div>
         )}
 
-        <main key={p.step} className="animate-fade-in mx-auto max-w-[1400px] px-4 pt-4 pb-24 sm:px-6">
+        <main key={p.step} className="animate-fade-in mx-auto max-w-[1680px] px-4 pt-4 pb-24 sm:px-6">
           {view}
         </main>
 
