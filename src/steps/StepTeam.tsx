@@ -31,7 +31,6 @@ import {
   Field,
   InfoTip,
   Note,
-  NumberInput,
   Segmented,
   Stat,
   Toggle,
@@ -499,37 +498,9 @@ function AdvancedSettings() {
             </Field>
           </div>
 
-          {/* ── Coste ── */}
-          <div className="border-t border-border-soft pt-6">
-            <Field
-              label="Coste medio por hora (opcional)"
-              hint="Si lo rellenas, el resultado también enseña una cifra de coste — con tu número, no con uno inventado por nosotros."
-              info={
-                <InfoTip title="Coste por hora">
-                  El coste real por hora trabajada, con Seguridad Social incluida si quieres que la
-                  cifra sea honesta. Déjalo en blanco y el resultado se queda solo en personas y
-                  horas, como hasta ahora.
-                </InfoTip>
-              }
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-[0.95rem] font-bold text-content-secondary">€</span>
-                <NumberInput
-                  value={s.hourlyCostEur ?? NaN}
-                  onChange={(v) => patch({ hourlyCostEur: v > 0 ? v : null })}
-                  min={0}
-                  max={200}
-                  step={0.5}
-                  placeholder="—"
-                  aria-label="Coste medio por hora trabajada, en euros"
-                  className="w-24"
-                />
-                <span className="text-[0.8rem] font-medium text-content-secondary">
-                  por hora trabajada
-                </span>
-              </div>
-            </Field>
-          </div>
+          {/* El coste ya no vive aquí: es por categoría, y se rellena en el
+              catálogo de puestos del primer paso. Un único "coste medio" no
+              sirve cuando un jefe de cocina y un office no cuestan igual. */}
 
           {/* ── Dimensionado ── */}
           <div className="border-t border-border-soft pt-6">
@@ -582,11 +553,6 @@ export function StepTeam() {
           Cuando entran 40 comensales,{' '}
           <span className="italic text-brand">¿con cuánta gente lo sacas?</span>
         </h1>
-        <p className="mt-3 text-[0.95rem] leading-relaxed text-content-secondary">
-          Eso es lo único que te pedimos. Tu histórico ya nos dice cuánta gente entra y a qué
-          hora; lo que no puede decirnos es cómo trabajáis vosotros. Rellena la tabla con lo que
-          ya haces de memoria cada semana y el resto lo montamos nosotros.
-        </p>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_336px] lg:items-start">

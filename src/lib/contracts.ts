@@ -149,3 +149,115 @@ export function analyzePeaks(
     weeksCovered: weeks.length - peaks.length,
   }
 }
+
+// ─────────────────────────────────────────────────────────────
+// Coste de la plantilla
+// ─────────────────────────────────────────────────────────────
+
+export interface RoleCost {
+  roleId: string
+  name: string
+  people: number
+  /** Horas contratadas a la semana entre toda la gente de este puesto. */
+  contractedHours: number
+  /** null si el puesto no tiene coste/hora puesto en el catálogo. */
+  weeklyEur: number | null
+}
+
+/**
+ * Un año de nómina son 52 semanas, siempre. NO las semanas que queden en el
+ * análisis: excluir la Navidad del cálculo de la demanda no hace que ese mes
+ * no se pague.
+ */
+export const WEEKS_PER_YEAR = 52
+
+/**
+ * Salario mínimo por hora, para avisar de que un coste se queda corto.
+ *
+ * Es la versión pequeña y segura de "meter el convenio": una cifra nacional
+ * que cambia una vez al año, en vez de cincuenta tablas provinciales que
+ * caducan a distinto ritmo y que nadie mantiene. Sale del SMI de 2026
+ * (1.221 € al mes en 14 pagas, RD 126/2026) repartido sobre la jornada de
+ * 40 h: 1.221 × 14 / 12 / (40 × 52 / 12).
+ *
+ * `SMI_DESDE` es la fecha de la cifra: sirve para avisar a quien vuelve con un
+ * plan guardado de antes de la última subida.
+ */
+export const SMI_HORA_EUR = 8.22
+export const SMI_DESDE = '2026-01-01'
+
+/** Coste por hora que se queda por debajo del mínimo legal. */
+export function porDebajoDelSmi(hourlyCostEur: number | null): boolean {
+  return hourlyCostEur !== null && hourlyCostEur > 0 && hourlyCostEur < SMI_HORA_EUR
+}
+
+export interface CostSummary {
+  byRole: RoleCost[]
+  /** Coste semanal de lo que SÍ tiene precio. */
+  weeklyEur: number
+  /** El semanal por las semanas del histórico. */
+  annualEur: number
+  /** Coste medio por hora de la plantilla con precio, para valorar los picos. */
+  avgHourlyEur: number
+  /** Puestos con gente pero sin coste: la cifra de arriba no los incluye. */
+  missing: string[]
+  /** True si TODOS los puestos con gente tienen precio. */
+  complete: boolean
+}
+
+/**
+ * Traduce la plantilla a euros con el coste por categoría del catálogo.
+ *
+ * Devuelve `null` si no hay ni un solo puesto con precio: sin dato del
+ * usuario no se enseña ninguna cifra, y **nunca se rellena con un precio de
+ * mercado ni de Shifty**. Si solo algunos puestos tienen precio, se devuelve
+ * lo que se sabe y la lista de los que faltan, para poder decirlo en pantalla
+ * en vez de presentar un total incompleto como si fuera el total.
+ */
+export function summarizeCost(
+  roster: Roster,
+  model: StaffingModel,
+  weeksPerYear = WEEKS_PER_YEAR,
+): CostSummary | null {
+  const byRole: RoleCost[] = []
+  let weeklyEur = 0
+  let pricedHours = 0
+  const missing: string[] = []
+  let anyPriced = false
+
+  for (const role of model.roles) {
+    const people = roster.people.filter((p) => p.roleId === role.id)
+    if (people.length === 0) continue
+    const contractedHours = people.reduce((a, p) => a + p.contractHours, 0)
+    const cost = role.hourlyCostEur
+
+    if (cost === null || !Number.isFinite(cost) || cost <= 0) {
+      missing.push(role.name)
+      byRole.push({ roleId: role.id, name: role.name, people: people.length, contractedHours, weeklyEur: null })
+      continue
+    }
+
+    anyPriced = true
+    const roleWeekly = contractedHours * cost
+    weeklyEur += roleWeekly
+    pricedHours += contractedHours
+    byRole.push({
+      roleId: role.id,
+      name: role.name,
+      people: people.length,
+      contractedHours,
+      weeklyEur: roleWeekly,
+    })
+  }
+
+  if (!anyPriced) return null
+
+  return {
+    byRole,
+    weeklyEur,
+    annualEur: weeklyEur * weeksPerYear,
+    avgHourlyEur: pricedHours > 0 ? weeklyEur / pricedHours : 0,
+    missing,
+    complete: missing.length === 0,
+  }
+}

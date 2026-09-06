@@ -12,31 +12,49 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
-  ArrowLeft,
   ArrowUpRight,
   Clock,
   Download,
   Gauge,
   Layers,
+  Link as LinkIcon,
+  ChevronDown,
   RotateCcw,
+  Save,
+  Table2,
   Users,
 } from 'lucide-react'
-import { Badge, Button, Card, CardHeader, InfoTip, Modal, Note, Stat, cn } from '@/components/ui'
+import { Badge, Button, Card, CardHeader, InfoTip, Modal, Note, NumberInput, Stat, cn } from '@/components/ui'
 import { AccountTeaserModal } from '@/components/AccountTeaserModal'
+import { AvisosCuadrante } from '@/components/AvisosCuadrante'
+import { CriteriaModal, type Criterion } from '@/components/CriteriaModal'
 import { RosterGrid } from '@/components/RosterGrid'
+import { StaffTable } from '@/components/StaffTable'
 import { DayCurve } from '@/components/charts/DayCurve'
 import { WeekHeatmap } from '@/components/charts/WeekHeatmap'
 import { YearChart } from '@/components/charts/YearChart'
 import { usePlanner } from '@/hooks/usePlanner'
-import { describeMix, fteFrom } from '@/lib/contracts'
+import { WEEKS_PER_YEAR, describeMix, fteFrom, summarizeCost } from '@/lib/contracts'
 import { riskRatio } from '@/lib/demand'
+import { comprobacionesHechas, revisarCuadrante } from '@/lib/avisos'
+import { calcularMetricas } from '@/lib/metricas'
+import { urlDelPlan } from '@/lib/compartir'
+import { downloadPlanCsv } from '@/lib/export'
 import { downloadReport } from '@/lib/report'
 import { DAYS, DAYS_SHORT, formatSlot } from '@/lib/time'
 import type { DayIndex } from '@/lib/types'
 
 const nf = new Intl.NumberFormat('es-ES')
 const nf1 = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 })
-const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })
+// `useGrouping`: en es-ES, sin esto, un número de cuatro cifras sale
+// sin punto de millar ("7650 €") y al lado de uno de seis que sí lo lleva
+// parece un error de la herramienta.
+const eur = new Intl.NumberFormat('es-ES', {
+  style: 'currency',
+  currency: 'EUR',
+  maximumFractionDigits: 0,
+  useGrouping: true,
+})
 
 /** Cobertura mínima y máxima que se deja elegir con la línea. */
 const MIN_PCT = 20
@@ -66,6 +84,10 @@ export function StepResult() {
   const p = usePlanner()
   const [dayOverride, setDayOverride] = useState<DayIndex | null>(null)
   const [askReset, setAskReset] = useState(false)
+  const [showCriteria, setShowCriteria] = useState(false)
+  const [enlaceCopiado, setEnlaceCopiado] = useState(false)
+  const [verPorArea, setVerPorArea] = useState(false)
+  const [verCuadrante, setVerCuadrante] = useState(false)
 
   /**
    * El teaser de cuenta sale UNA vez, cuando el usuario llega al cuadrante
@@ -82,7 +104,7 @@ export function StepResult() {
    * el truco habitual para detectar "el usuario ha llegado a esta sección",
    * no "esta sección entera está a la vista".
    */
-  const rosterSectionRef = useRef<HTMLDivElement>(null)
+  const rosterSectionRef = useRef<HTMLButtonElement>(null)
   const [showAccountTeaser, setShowAccountTeaser] = useState(false)
   const teaserShown = useRef(false)
 
@@ -148,14 +170,84 @@ export function StepResult() {
   const extraPeopleIfHired = peaks.worstWeek?.extraPeople ?? peaks.avgExtraPeople
 
   /**
-   * Coste, solo si el usuario lo ha rellenado en los ajustes avanzados: nunca
-   * se inventa un precio, ni de mercado ni de Shifty. Es la misma plantilla y
-   * los mismos picos de siempre, traducidos a euros con SU número.
+   * Coste, solo con los precios por categoría que haya rellenado el usuario
+   * en el catálogo de puestos: nunca se inventa un precio, ni de mercado ni
+   * de Shifty. Si no hay ninguno, `cost` es null y la pantalla se queda en
+   * personas y horas, como antes.
+   *
+   * Para valorar los picos se usa el coste medio por hora DE SU PROPIA
+   * plantilla: los extras no son de un puesto concreto, así que ponerles el
+   * precio del jefe de cocina o el del office sería igual de arbitrario.
    */
-  const hourlyCost = settings.hourlyCostEur
-  const weeklyCostEur = hourlyCost ? plan.contractedHours * hourlyCost : null
-  const peakHiredAnnualCostEur = hourlyCost ? extraPeopleIfHired * 40 * weeks.length * hourlyCost : null
-  const peakOnlyAnnualCostEur = hourlyCost ? peaks.peakHoursPerYear * hourlyCost : null
+  const cost = summarizeCost(roster, model)
+  const weeklyCostEur = cost?.weeklyEur ?? null
+  const annualCostEur = cost?.annualEur ?? null
+  const avgHourlyCost = cost?.avgHourlyEur ?? null
+  // 52 semanas, no las analizadas: a esa gente se le paga el año entero, que
+  // es justamente el argumento.
+  const peakHiredAnnualCostEur = avgHourlyCost
+    ? extraPeopleIfHired * 40 * WEEKS_PER_YEAR * avgHourlyCost
+    : null
+  const peakOnlyAnnualCostEur = avgHourlyCost ? peaks.peakHoursPerYear * avgHourlyCost : null
+
+  /** La revisión legal del cuadrante y las métricas que salen de él. */
+  const avisos = revisarCuadrante(roster, model, settings)
+  const comprobaciones = comprobacionesHechas(settings)
+  const metricas = calcularMetricas(roster, needGrid, model, lagged)
+
+  /** Coste de personal sobre ventas. Solo si él ha puesto las dos cifras. */
+  const ratioPersonal =
+    weeklyCostEur !== null && settings.weeklySalesEur && settings.weeklySalesEur > 0
+      ? Math.round((weeklyCostEur / settings.weeklySalesEur) * 100)
+      : null
+  const ratioTono =
+    ratioPersonal === null
+      ? ''
+      : ratioPersonal <= 32
+        ? 'text-success'
+        : ratioPersonal <= 40
+          ? 'text-warning'
+          : 'text-destructive'
+
+  /** Todo lo que ha entrado en el cálculo, para el modal de criterios (7.8). */
+  const criteria: Criterion[] = [
+    { label: 'Cobertura', value: `${settings.coveragePct}%`, step: 'result', where: 'La línea del gráfico de arriba' },
+    { label: 'Margen de seguridad', value: `${settings.safetyMarginPct}%`, step: 'demand', where: 'Demanda, pantalla de tu año' },
+    { label: 'Dimensionado', value: settings.sizingMode === 'calibrado' ? 'Calibrado' : 'Conservador', step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: 'Desgaste del dato', value: `${settings.lagMinutes} min`, step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: 'Turno más largo', value: `${settings.maxShiftMinutes / 60} h`, step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: 'Turno más corto', value: `${settings.minShiftMinutes / 60} h`, step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: 'Jornada partida', value: settings.allowSplitShifts ? 'Sí' : 'No', step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: 'Dos libranzas seguidas', value: settings.consecutiveDaysOff ? 'Sí' : 'No', step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: '12 h de descanso', value: settings.minRestBetweenShifts ? 'Sí' : 'No', step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: 'Contratos activos', value: settings.contracts.filter((c) => c.enabled).map((c) => c.label).join(', '), step: 'team', where: 'Equipo, ajustes avanzados' },
+    ...model.blocks
+      .filter((b) => (settings.minStaffByBlock[b.id] ?? 0) > 0)
+      .map((b) => ({
+        label: `Mínimo en ${b.name}`,
+        value: `${settings.minStaffByBlock[b.id]} personas`,
+        step: 'demand' as const,
+        where: 'Demanda, pantalla de horario',
+      })),
+    { label: 'Tramos de personal', value: `${model.tiers.length} tramos`, step: 'team', where: 'Equipo, la tabla principal' },
+    { label: 'Puestos', value: `${model.roles.length} puestos`, step: 'demand', where: 'Demanda, catálogo de puestos' },
+    { label: 'Semanas excluidas', value: `${specials.filter((x) => x.excluded).length}`, step: 'demand', where: 'Demanda, semanas raras' },
+  ]
+
+  const exportInput = {
+    roster,
+    model,
+    settings,
+    cost,
+    hours: hours ?? null,
+    kitchenHours: p.kitchenHours,
+    coveragePct: settings.coveragePct,
+    weeksCovered: coverage.weeksCovered,
+    totalWeeks: weeks.length,
+    neededHours: plan.neededHours,
+    contractedHours: plan.contractedHours,
+    slackHours: plan.slackHours,
+  }
 
   /**
    * La línea manda: el usuario mueve comensales, nosotros traducimos a
@@ -196,11 +288,46 @@ export function StepResult() {
     peakWeekCount,
     peakHoursPerYear: peaks.peakHoursPerYear,
     extraPeopleIfHired,
-    hourlyCostEur: hourlyCost,
+    hourlyCostEur: avgHourlyCost,
     weeklyCostEur,
+    annualCostEur,
     peakHiredAnnualCostEur,
     peakOnlyAnnualCostEur,
   }
+  /**
+   * Copia un enlace que reproduce este mismo plan. El estado va dentro del
+   * `#` de la dirección, la parte que el navegador NO envía a ningún servidor:
+   * así se puede mandar al socio o a la gestoría sin que las ventas del
+   * restaurante pasen por ningún sitio.
+   */
+  async function copiarEnlace() {
+    const url = await urlDelPlan(
+      {
+        version: 1,
+        dataset: p.dataset,
+        hours: p.hours,
+        kitchenHours: p.kitchenHours,
+        specials: p.specials,
+        blocks: model.blocks,
+        roles: model.roles,
+        tiers: model.tiers,
+        settings,
+        overrides: [...p.overrides],
+        personNames: p.personNames,
+      },
+      window.location.href,
+    )
+    try {
+      await navigator.clipboard.writeText(url)
+      setEnlaceCopiado(true)
+      setTimeout(() => setEnlaceCopiado(false), 2500)
+    } catch {
+      // Sin permiso de portapapeles (pasa en algunos navegadores si no hay
+      // gesto del usuario): al menos se le enseña para que lo copie a mano.
+      window.prompt('Copia este enlace:', url)
+    }
+  }
+
   function handleDownloadReport() {
     void downloadReport(reportInput)
   }
@@ -246,13 +373,17 @@ export function StepResult() {
           )}
         </p>
 
+        {/* El mismo botón está abajo del todo, en "Llévatelo". Se repite a
+            propósito: la página mide casi 5.000 px y quien solo quiere el PDF
+            no tiene por qué recorrerla entera. Lo que no puede pasar es que se
+            llamen distinto, que es lo que hacía dudar de si eran dos cosas. */}
         <div className="mt-5">
           <Button
             variant="secondary"
             icon={<Download size={17} strokeWidth={2.3} />}
             onClick={handleDownloadReport}
           >
-            Descargar informe (PDF)
+            Descargar el informe
           </Button>
         </div>
       </section>
@@ -260,10 +391,10 @@ export function StepResult() {
       {/* ── 2. Dónde te sitúas ────────────────────────────────── */}
       <Card>
         <CardHeader
-          eyebrow="Dónde te sitúas"
+          eyebrow="Tu semana tipo"
           title={
             <>
-              El año entero, <span className="text-brand italic">semana a semana.</span>
+              Tu semana tipo, <span className="text-brand italic">contra el año entero.</span>
             </>
           }
           subtitle="Arrastra la línea. Lo que queda por debajo lo cubre tu plantilla fija; lo que asoma por encima son picos. Todo lo demás de esta pantalla se recalcula solo."
@@ -298,12 +429,12 @@ export function StepResult() {
 
             <Note tone="neutral">
               <span className="flex items-center gap-1.5 font-bold text-content-primary">
-                Lo que estás apostando
-                <InfoTip title="Por qué se lee así">
+                Qué estás priorizando
+                <InfoTip title="De dónde sale este equilibrio">
                   Elegir un percentil es elegir un equilibrio entre dos errores: quedarte corto y
                   que te sobre gente. El percentil {settings.coveragePct} equivale a decir que el
-                  primero te duele {nf1.format(ratio)} veces más que el segundo. Es la lectura de
-                  toda la vida del problema del vendedor de periódicos.
+                  primero te duele {nf1.format(ratio)} veces más que el segundo. Es el cálculo clásico
+                  de cuánto stock pedir cuando la demanda es irregular.
                 </InfoTip>
               </span>
               <p className="mt-1.5">
@@ -337,10 +468,66 @@ export function StepResult() {
         </div>
       </Card>
 
+      {/* ── 2 bis. La plantilla, puesto por jornada ───────────── */}
+      <StaffTable
+        roster={roster}
+        model={model}
+        contracts={settings.contracts}
+        eyebrow="Plantilla total"
+        title={
+          <>
+            Lo que tendrías que <span className="text-brand italic">contratar.</span>
+          </>
+        }
+        subtitle="Cada puesto con su desglose de jornada. Es la lista con la que se ficha."
+      />
+
+      {/* Y la misma partida por bloque: quien contrata sala no contrata
+          cocina, y mirarlo junto obliga a hacer la resta a mano. */}
+      {model.blocks.length > 1 && (
+        <div>
+          {/* Plegadas: las filas son las mismas de la tabla de arriba,
+              repartidas. Útiles para quien contrata solo un área, ruido para
+              todos los demás. */}
+          <button
+            type="button"
+            onClick={() => setVerPorArea((v) => !v)}
+            aria-expanded={verPorArea}
+            className={cn(
+              'flex w-full items-center gap-2 rounded-card border border-border-soft bg-surface-elevated px-6 py-4',
+              'text-left text-[0.9rem] font-bold text-content-primary transition-colors hover:bg-surface',
+              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand',
+            )}
+          >
+            <ChevronDown
+              size={17}
+              className={cn('shrink-0 text-content-muted transition-transform', verPorArea && 'rotate-180')}
+            />
+            {verPorArea ? 'Ocultar el desglose por área' : 'Ver la plantilla de cada área por separado'}
+          </button>
+
+          {verPorArea && (
+            <div className="mt-4 grid gap-6 lg:grid-cols-2">
+              {model.blocks.map((b) => (
+                <StaffTable
+                  key={b.id}
+                  roster={roster}
+                  model={model}
+                  contracts={settings.contracts}
+                  blockId={b.id}
+                  eyebrow={`Plantilla ${b.name.toLowerCase()}`}
+                  title={<>{b.name}</>}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── 3. De dónde sale el número ────────────────────────── */}
       <Card>
         <CardHeader
-          eyebrow="Tu plantilla"
+          eyebrow="De dónde sale"
           title={
             <>
               El número, <span className="text-brand italic">y de dónde sale.</span>
@@ -365,9 +552,9 @@ export function StepResult() {
                 son de 15 horas.
               </InfoTip>
             }
-            label="Jornadas equiv."
+            label="Plantilla equivalente"
             value={nf1.format(fte)}
-            hint="Sobre jornada de 40 h"
+            hint="A jornada de 40 h: un 20 h cuenta 0,5"
           />
           <Stat
             icon={<Clock size={13} strokeWidth={2.6} />}
@@ -409,11 +596,70 @@ export function StepResult() {
             . Esa gente está en nómina aunque entre todos no llenen la jornada.
           </Note>
 
-          {hourlyCost !== null && weeklyCostEur !== null && (
+          {/* El ratio con el que de verdad piensa un hostelero. Solo aparece si
+              nos ha dicho lo que factura; si no, ni se menciona. */}
+          {weeklyCostEur !== null && (
+            <div className="mt-4 rounded-lg border border-border-soft bg-surface-alt p-4">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <span className="text-[0.85rem] font-bold text-content-primary">
+                  ¿Cuánto factura una semana normal?
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <NumberInput
+                    value={settings.weeklySalesEur ?? NaN}
+                    onChange={(v) =>
+                      p.setSettings((st) => ({ ...st, weeklySalesEur: v > 0 ? v : null }))
+                    }
+                    min={0}
+                    max={1000000}
+                    step={500}
+                    placeholder="—"
+                    aria-label="Ventas de una semana normal, en euros"
+                    className="w-28"
+                  />
+                  <span className="text-[0.85rem] font-bold text-content-secondary">€</span>
+                </span>
+                <InfoTip title="Para qué sirve">
+                  Para darte el coste de personal sobre ventas, que es el ratio con el que hablas
+                  con tu asesor. No se guarda en ningún sitio ni sale de tu navegador.
+                </InfoTip>
+              </div>
+
+              {ratioPersonal !== null && (
+                <p className="mt-3 text-[0.9rem] leading-relaxed text-content-secondary">
+                  Tu personal se lleva el{' '}
+                  <strong className={cn('text-[1.05rem]', ratioTono)}>{ratioPersonal}%</strong> de
+                  lo que facturas.{' '}
+                  {ratioPersonal <= 32
+                    ? 'Está en la banda sana del sector, entre el 25% y el 32%.'
+                    : ratioPersonal <= 40
+                      ? 'Por encima de la banda sana (25% a 32%), pero dentro de lo normal.'
+                      : 'Por encima del 40%, que es donde el sector enciende la alarma.'}
+                  {cost && !cost.complete && (
+                    <>
+                      {' '}
+                      <strong className="text-warning">
+                        Ojo: falta el coste de {cost.missing.join(', ')}, así que el porcentaje
+                        real es mayor.
+                      </strong>
+                    </>
+                  )}
+                </p>
+              )}
+            </div>
+          )}
+
+          {cost !== null && weeklyCostEur !== null && annualCostEur !== null && (
             <p className="mt-3 text-[0.85rem] leading-relaxed text-content-secondary">
-              Con tu coste de <strong className="text-content-primary">{eur.format(hourlyCost)}/h</strong>,
-              esta plantilla sale por{' '}
-              <strong className="text-content-primary">{eur.format(weeklyCostEur)} a la semana</strong>.
+              Con los costes de tu catálogo, esta plantilla sale por{' '}
+              <strong className="text-content-primary">{eur.format(weeklyCostEur)} a la semana</strong>{' '}
+              y <strong className="text-content-primary">{eur.format(annualCostEur)} al año</strong>.
+              {!cost.complete && (
+                <>
+                  {' '}
+                  Falta el coste de {cost.missing.join(', ')}, así que la cifra real es mayor.
+                </>
+              )}
             </p>
           )}
         </div>
@@ -556,20 +802,100 @@ export function StepResult() {
         </div>
       </Card>
 
-      {/* ── 5. El cuadrante ───────────────────────────────────── */}
-      {/* Marcador de 0 px: el teaser de cuenta dispara cuando ESTE punto
-          cruza el centro de la pantalla, no cuando el cuadrante entero
-          (que puede medir miles de píxeles) está a la vista. */}
-      <div ref={rosterSectionRef} aria-hidden="true" />
-      <RosterGrid
-        roster={roster}
-        model={model}
-        needGrid={needGrid}
-        openBlocks={hours ?? undefined}
-        onRenamePerson={p.setPersonName}
-      />
+      {/* ── 4 bis. ¿Cuadra? ───────────────────────────────────── */}
+      {/* Antes del cuadrante a propósito: si algo incumple, que se sepa antes
+          de ponerse a leer nombres y horas. */}
+      <Card>
+        <CardHeader
+          eyebrow="La revisión"
+          title={
+            <>
+              Lo que hay que <span className="text-brand italic">mirar antes de firmarlo.</span>
+            </>
+          }
+          subtitle="Descansos, libranzas y horas de contrato, revisados uno a uno sobre el cuadrante ya montado."
+        />
+        <div className="border-t border-border-soft px-4 py-5 sm:px-6">
+          <AvisosCuadrante avisos={avisos} comprobaciones={comprobaciones} />
+        </div>
 
-      {/* ── 6. Los picos → Shifty ─────────────────────────────── */}
+        {metricas.comensalesPorHora !== null && (
+          <div className="grid gap-5 border-t border-border-soft px-6 py-5 sm:grid-cols-3">
+            <Stat
+              icon={
+                <InfoTip title="Contra qué se compara">
+                  No hay una cifra buena universal: un menú del día y un restaurante de mantel
+                  no se parecen en nada. Sirve contra ti mismo — vuelve a calcularlo dentro de
+                  tres meses, o con la línea de cobertura en otro sitio, y mira si sube.
+                </InfoTip>
+              }
+              label="Comensales por hora"
+              value={nf1.format(metricas.comensalesPorHora)}
+              hint="Por cada hora de trabajo que pagas"
+            />
+            <Stat
+              icon={
+                <InfoTip title="Horas de más">
+                  Horas que alguien está en el local por encima de lo que pide tu curva. No
+                  sobran por error: son el precio de que los turnos tengan una duración
+                  razonable y de que la gente entre y salga a horas de persona. Las tres
+                  cifras cuadran: las horas que pide la curva más estas de más son las horas
+                  que la gente pasa en el local. Abajo tienes dónde se concentran.
+                </InfoTip>
+              }
+              label="Horas de más"
+              value={`${nf1.format(metricas.horasSobrantesTotal)} h`}
+              hint={
+                metricas.horasSobrantesTotal > 0
+                  ? `Sobre las ${nf1.format(metricas.horasEnTurnos)} h que la gente está en el local`
+                  : 'Nada que recortar'
+              }
+              tone={metricas.horasSobrantesTotal > 0 ? 'warning' : 'default'}
+            />
+            <Stat
+              icon={
+                <InfoTip title="Reparto de fines de semana">
+                  Cuántos días de finde trabaja quien más y quien menos. Es lo que hace que un
+                  cuadrante se perciba justo, y de lo que más se habla en una plantilla.
+                </InfoTip>
+              }
+              label="Findes: el que más y el que menos"
+              value={
+                metricas.findes.length > 0
+                  ? `${metricas.findes[0].findesTrabajados} y ${metricas.findes[metricas.findes.length - 1].findesTrabajados}`
+                  : '—'
+              }
+              hint={
+                metricas.desequilibrioFindes <= 1
+                  ? 'Repartido de forma pareja'
+                  : `${metricas.desequilibrioFindes} días de diferencia entre unos y otros`
+              }
+              tone={metricas.desequilibrioFindes <= 1 ? 'default' : 'warning'}
+            />
+          </div>
+        )}
+
+        {metricas.peoresHolguras.length > 1 && (
+          <div className="border-t border-border-soft px-6 py-5">
+            <h4 className="h4">Dónde sobra gente</h4>
+            <ul className="mt-3 space-y-1.5">
+              {metricas.peoresHolguras.map((h) => (
+                <li
+                  key={`${h.day}-${h.slot}`}
+                  className="flex items-baseline justify-between gap-3 text-[0.88rem]"
+                >
+                  <span className="text-content-secondary">{h.cuando}</span>
+                  <span className="shrink-0 font-bold tabular-nums text-content-primary">
+                    {nf1.format(h.horasSobrantes)} h de más
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </Card>
+
+      {/* ── 5. Los picos → Shifty ─────────────────────────────── */}
       <section className="rounded-card bg-brand px-6 py-10 shadow-lg sm:px-10 sm:py-12">
         <EyebrowInverted>Los picos</EyebrowInverted>
 
@@ -624,9 +950,10 @@ export function StepResult() {
               .
             </p>
 
-            {hourlyCost !== null && peakHiredAnnualCostEur !== null && peakOnlyAnnualCostEur !== null && (
+            {avgHourlyCost !== null && peakHiredAnnualCostEur !== null && peakOnlyAnnualCostEur !== null && (
               <p className="mt-4 max-w-2xl text-[1rem] leading-relaxed font-medium text-content-inverted/85">
-                A tu coste de {eur.format(hourlyCost)}/h, contratar esa gente fija son{' '}
+                Al coste medio de tu plantilla, {eur.format(avgHourlyCost)}/h, contratar esa gente
+                fija son{' '}
                 <strong className="text-content-inverted">{eur.format(peakHiredAnnualCostEur)} al año</strong>
                 . Cubrir solo esas horas de pico, en cambio, son{' '}
                 <strong className="text-content-inverted">{eur.format(peakOnlyAnnualCostEur)}</strong>.
@@ -672,34 +999,106 @@ export function StepResult() {
         </div>
       </section>
 
-      {/* ── 7. Acciones finales ───────────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border-soft pt-6">
-        <div className="flex flex-wrap gap-2">
+      {/* ── 6. El cuadrante, al final y plegado ───────────────── */}
+      {/* Plegado por defecto: mide más de 2.000 px en ordenador y casi 9.000
+          en móvil, y estaba enterrando todo lo que va detrás. Quien viene a
+          ver el cuadrante lo abre; quien viene a ver el número, no tiene que
+          pasarlo por encima. */}
+      {/* El teaser de cuenta se engancha AQUÍ, y no al cuadrante entero: este
+          botón es el momento en que el usuario llega a la parte de los nombres,
+          que es donde el guardado empieza a valer algo. Antes colgaba de un div
+          vacío de 0 px de alto puesto justo encima; se cambia por el botón
+          porque un elemento con altura real es un objetivo más seguro para el
+          observador, no porque se haya comprobado que el otro fallara: el panel
+          de pruebas corre oculto y ahí el navegador no dispara ningún
+          IntersectionObserver, ni siquiera sobre el body. Sin pantalla visible
+          esto NO se ha podido verificar. */}
+      <button
+        ref={rosterSectionRef}
+        type="button"
+        onClick={() => setVerCuadrante((v) => !v)}
+        aria-expanded={verCuadrante}
+        className={cn(
+          'flex w-full items-center gap-3 rounded-card border border-border-soft bg-surface-elevated px-6 py-5',
+          'text-left transition-colors hover:bg-surface',
+          'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand',
+        )}
+      >
+        <ChevronDown
+          size={18}
+          className={cn('shrink-0 text-content-muted transition-transform', verCuadrante && 'rotate-180')}
+        />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[0.98rem] font-bold text-content-primary">
+            El cuadrante, persona a persona
+          </span>
+          <span className="mt-0.5 block text-[0.83rem] text-content-secondary">
+            Quién trabaja, qué día y a qué hora. Con nombres reales si quieres, y descargable para
+            mandarlo.
+          </span>
+        </span>
+      </button>
+
+      {verCuadrante && (
+        <RosterGrid
+          roster={roster}
+          model={model}
+          needGrid={needGrid}
+          openBlocks={hours ?? undefined}
+          onRenamePerson={p.setPersonName}
+        />
+      )}
+
+      {/* ── 7. Llevárselo ─────────────────────────────────────── */}
+      {/* Cinco botones iguales en fila no dejaban ver cuál era el importante.
+          Arriba las dos cosas que de verdad hace la gente al terminar (bajarse
+          el informe y mandárselo a alguien); debajo, y en pequeño, lo demás. */}
+      <Card className="p-6">
+        <h3 className="text-[1.05rem] font-extrabold tracking-[-0.02em] text-content-primary">
+          Llévatelo
+        </h3>
+        <p className="mt-1 text-[0.86rem] leading-relaxed text-content-secondary">
+          Nada de esto se guarda en ningún servidor. El enlace lleva el plan dentro, así que quien
+          lo abra ve exactamente esto.
+        </p>
+
+        <div className="mt-5 flex flex-wrap gap-2.5">
+          <Button icon={<Download size={16} />} onClick={handleDownloadReport}>
+            Descargar el informe
+          </Button>
           <Button
             variant="secondary"
-            size="sm"
-            icon={<Download size={15} />}
-            onClick={handleDownloadReport}
+            icon={<LinkIcon size={16} />}
+            onClick={() => void copiarEnlace()}
           >
-            Descargar informe
+            {enlaceCopiado ? 'Enlace copiado' : 'Copiar enlace'}
           </Button>
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-center gap-x-1 gap-y-1 border-t border-border-soft pt-4">
           <Button
             variant="ghost"
             size="sm"
-            icon={<ArrowLeft size={15} />}
-            onClick={() => p.setStep('team')}
+            icon={<Table2 size={15} />}
+            onClick={() => downloadPlanCsv(exportInput)}
           >
-            Cambiar los tramos
+            Exportar todo (CSV)
+          </Button>
+          <Button variant="ghost" size="sm" icon={<Save size={15} />} onClick={p.exportSnapshot}>
+            Guardar en un fichero
           </Button>
           <Button
             variant="ghost"
             size="sm"
             icon={<Gauge size={15} />}
-            onClick={() => p.setStep('demand')}
+            onClick={() => setShowCriteria(true)}
           >
-            Revisar la demanda
+            Revisar algún criterio
           </Button>
         </div>
+      </Card>
+
+      <div className="flex justify-end border-t border-border-soft pt-6">
         <Button
           variant="ghost"
           size="sm"
@@ -734,10 +1133,18 @@ export function StepResult() {
       >
         <p className="text-[0.9rem] leading-relaxed text-content-secondary">
           Vuelves a la primera pantalla: se descarta el histórico cargado y los tramos, los puestos
-          y los ajustes vuelven a los valores de partida. No hay deshacer, y esta herramienta no
-          guarda nada en ningún sitio.
+          y los ajustes vuelven a los valores de partida. Se borra también lo que hay guardado en
+          este navegador, y no hay deshacer. Si quieres conservarlo, guárdatelo antes en un
+          fichero.
         </p>
       </Modal>
+
+      <CriteriaModal
+        open={showCriteria}
+        onClose={() => setShowCriteria(false)}
+        criteria={criteria}
+        onGo={(step) => p.setStep(step)}
+      />
 
       <AccountTeaserModal open={showAccountTeaser} onClose={() => setShowAccountTeaser(false)} />
     </div>

@@ -43,12 +43,28 @@ export const SUGGESTED_BLOCKS: { name: string; color: string }[] = [
   { name: 'Recepción', color: '#F97316' },
 ]
 
+/**
+ * El catálogo de puestos de partida.
+ *
+ * Están las nueve categorías estándar de hostelería para que el usuario
+ * reconozca las suyas y no tenga que escribirlas, pero **las de mando arrancan
+ * a cero en todos los tramos**: un bar de menú no tiene encargado ni jefe de
+ * partida, y meterlos con gente por defecto inflaría la plantilla de alguien
+ * que ni los tiene. Se rellenan si el local los tiene.
+ *
+ * `hourlyCostEur` arranca en `null` a propósito: el coste lo pone el usuario
+ * en el catálogo, nunca se inventa un precio (ver `shifty-dinero`).
+ */
 export const DEFAULT_ROLES: Role[] = [
-  { id: 'responsable', name: 'Responsable de sala', blockId: 'sala', color: '#6C0FD8' },
-  { id: 'camarero', name: 'Camarero', blockId: 'sala', color: '#8244C7' },
-  { id: 'ayudante', name: 'Ayudante', blockId: 'sala', color: '#0EA5E9' },
-  { id: 'cocinero', name: 'Cocinero', blockId: 'cocina', color: '#F59E0B' },
-  { id: 'office', name: 'Office', blockId: 'cocina', color: '#F97316' },
+  { id: 'encargado', name: 'Encargado', blockId: 'sala', color: '#4C1D95', hourlyCostEur: null, fullTimeOnly: true },
+  { id: 'resp-turno', name: 'Responsable de turno', blockId: 'sala', color: '#7C3AED', hourlyCostEur: null, fullTimeOnly: true },
+  { id: 'responsable', name: 'Responsable de sala', blockId: 'sala', color: '#6C0FD8', hourlyCostEur: null, fullTimeOnly: false },
+  { id: 'camarero', name: 'Camarero', blockId: 'sala', color: '#8244C7', hourlyCostEur: null, fullTimeOnly: false },
+  { id: 'ayudante', name: 'Ayudante', blockId: 'sala', color: '#0EA5E9', hourlyCostEur: null, fullTimeOnly: false },
+  { id: 'jefe-cocina', name: 'Jefe de cocina', blockId: 'cocina', color: '#B45309', hourlyCostEur: null, fullTimeOnly: true },
+  { id: 'jefe-partida', name: 'Jefe de partida', blockId: 'cocina', color: '#D97706', hourlyCostEur: null, fullTimeOnly: false },
+  { id: 'cocinero', name: 'Cocinero', blockId: 'cocina', color: '#F59E0B', hourlyCostEur: null, fullTimeOnly: false },
+  { id: 'office', name: 'Office', blockId: 'cocina', color: '#F97316', hourlyCostEur: null, fullTimeOnly: false },
 ]
 
 /**
@@ -59,61 +75,93 @@ export const DEFAULT_ROLES: Role[] = [
  * partidas. El usuario los va a cambiar — el objetivo es que arranque desde algo
  * que reconoce, no desde una tabla vacía.
  */
+/** Los puestos de mando arrancan a cero: ver el comentario de `DEFAULT_ROLES`. */
+const NO_MANDO = { encargado: 0, 'resp-turno': 0, 'jefe-cocina': 0, 'jefe-partida': 0 }
+
 export const DEFAULT_TIERS: Tier[] = [
   {
     id: 't1',
     from: 1,
     to: 10,
-    staff: { responsable: 1, camarero: 1, ayudante: 0, cocinero: 1, office: 0 },
+    staff: { ...NO_MANDO, responsable: 1, camarero: 1, ayudante: 0, cocinero: 1, office: 0 },
   },
   {
     id: 't2',
     from: 11,
     to: 25,
-    staff: { responsable: 1, camarero: 2, ayudante: 0, cocinero: 1, office: 1 },
+    staff: { ...NO_MANDO, responsable: 1, camarero: 2, ayudante: 0, cocinero: 1, office: 1 },
   },
   {
     id: 't3',
     from: 26,
     to: 40,
-    staff: { responsable: 1, camarero: 2, ayudante: 1, cocinero: 2, office: 1 },
+    staff: { ...NO_MANDO, responsable: 1, camarero: 2, ayudante: 1, cocinero: 2, office: 1 },
   },
   {
     id: 't4',
     from: 41,
     to: 60,
-    staff: { responsable: 1, camarero: 3, ayudante: 1, cocinero: 2, office: 1 },
+    staff: { ...NO_MANDO, responsable: 1, camarero: 3, ayudante: 1, cocinero: 2, office: 1 },
   },
   {
     id: 't5',
     from: 61,
     to: 90,
-    staff: { responsable: 1, camarero: 4, ayudante: 2, cocinero: 3, office: 1 },
+    staff: { ...NO_MANDO, responsable: 1, camarero: 4, ayudante: 2, cocinero: 3, office: 1 },
   },
   {
     id: 't6',
     from: 91,
     to: 120,
-    staff: { responsable: 1, camarero: 5, ayudante: 2, cocinero: 4, office: 1 },
+    staff: { ...NO_MANDO, responsable: 1, camarero: 5, ayudante: 2, cocinero: 4, office: 1 },
   },
   {
     id: 't7',
     from: 121,
     to: Number.POSITIVE_INFINITY,
-    staff: { responsable: 1, camarero: 7, ayudante: 3, cocinero: 4, office: 2 },
+    staff: { ...NO_MANDO, responsable: 1, camarero: 7, ayudante: 3, cocinero: 4, office: 2 },
   },
 ]
 
 export const DEFAULT_SETTINGS: Settings = {
   lagMinutes: 30,
   coveragePct: 80,
+  safetyMarginPct: 0,
   sizingMode: 'calibrado',
   allowSplitShifts: true,
   consecutiveDaysOff: true,
   minRestBetweenShifts: true,
-  hourlyCostEur: null,
+  weeklySalesEur: null,
+  prepBeforeMin: 0,
+  prepAfterMin: 0,
   minStaffByBlock: {},
   maxShiftMinutes: 9 * 60,
   minShiftMinutes: 3 * 60,
   contracts: DEFAULT_CONTRACTS as ContractType[],
 }
+
+/**
+ * Costes por hora de MUESTRA, solo para los datos de ejemplo.
+ *
+ * Con el catálogo en blanco, el ejemplo esconde media pantalla de resultado
+ * (el coste, el ratio sobre ventas) y el usuario no llega a ver lo que la
+ * herramienta hace. Aquí se puede rellenar porque todo el dataset es de
+ * mentira y está etiquetado como tal; en el fichero de una persona **jamás**
+ * se rellena un precio (ver `Role.hourlyCostEur`).
+ *
+ * Son cifras de andar por casa, por encima del SMI, de un menú y carta.
+ */
+export const DEMO_COSTES_HORA: Record<string, number> = {
+  encargado: 16,
+  'resp-turno': 14,
+  responsable: 13,
+  camarero: 11.5,
+  ayudante: 10,
+  'jefe-cocina': 17,
+  'jefe-partida': 13,
+  cocinero: 12,
+  office: 9.5,
+}
+
+/** Ventas de una semana normal del restaurante de ejemplo. */
+export const DEMO_VENTAS_SEMANA = 26000

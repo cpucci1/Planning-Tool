@@ -30,13 +30,13 @@ import {
   Loader2,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   TriangleAlert,
   Upload,
   Users,
 } from 'lucide-react'
 import { ANALYSIS_STEPS, analyzeFile } from '@/lib/fakeAI'
 import { usePlanner } from '@/hooks/usePlanner'
+import { QueVasAObtener } from '@/components/QueVasAObtener'
 import { Button, Card, Modal, Note, cn } from '@/components/ui'
 
 const TOTAL_STEPS = ANALYSIS_STEPS.length
@@ -93,6 +93,18 @@ function formatSize(bytes: number): string {
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
+}
+
+/** "hace 5 minutos" en vez de una fecha ISO: nadie lee una fecha para saber
+ *  si eso que hay guardado es de hoy o de la semana pasada. */
+function haceCuanto(iso: string): string {
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000))
+  if (min < 1) return 'hace un momento'
+  if (min < 60) return `hace ${min} ${min === 1 ? 'minuto' : 'minutos'}`
+  const h = Math.round(min / 60)
+  if (h < 24) return `hace ${h} ${h === 1 ? 'hora' : 'horas'}`
+  const d = Math.round(h / 24)
+  return `hace ${d} ${d === 1 ? 'día' : 'días'}`
 }
 
 export function StepImport() {
@@ -243,6 +255,45 @@ export function StepImport() {
         ))}
       </div>
 
+      {/* Lo guardado se OFRECE, no se restaura solo: esta es la pantalla que
+          vende el producto, y a un visitante nuevo no le puede saltar encima
+          el plan de otro día antes de haberla visto. */}
+      {p.enlaceRoto && (
+        <div className="mt-8">
+          <Note tone="warning" icon={<TriangleAlert size={15} />}>
+            El enlace que has abierto no se puede leer. Suele pasar cuando se corta al copiarlo o
+            al pasarlo por un correo. Pídele a quien te lo mandó que lo copie entero, o que te
+            mande el fichero guardado.
+          </Note>
+        </div>
+      )}
+
+      {p.savedMeta && (
+        <div className="mt-8">
+          <Card className="animate-pop-in border-brand/30 bg-brand-light px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[0.95rem] font-bold text-content-primary">
+                  Sigues con {p.savedMeta.fileName}
+                </p>
+                <p className="mt-0.5 text-[0.82rem] text-content-secondary">
+                  {p.savedMeta.weeks} semanas de {p.savedMeta.year}, guardado {haceCuanto(p.savedMeta.savedAt)}.
+                  Se guarda solo en este navegador.
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <Button size="sm" onClick={p.resumeSaved} iconRight={<ArrowRight size={15} />}>
+                  Seguir donde lo dejé
+                </Button>
+                <Button size="sm" variant="ghost" onClick={p.discardSaved}>
+                  Empezar de cero
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
       {/* ── Subida / análisis ──────────────────────────────────── */}
       <div className="mt-10">
         {!working ? (
@@ -302,32 +353,13 @@ export function StepImport() {
               </div>
             )}
 
-            {/* ── Salida para quien no tenga el fichero a mano ──── */}
-            <div className="mt-7 flex flex-col items-center">
-              <div className="flex w-full items-center gap-4">
-                <span className="h-px flex-1 bg-border" />
-                <span className="text-[0.72rem] font-bold tracking-widest text-content-muted uppercase">
-                  o
-                </span>
-                <span className="h-px flex-1 bg-border" />
-              </div>
-
-              <Button
-                variant="secondary"
-                size="lg"
-                className="mt-6"
-                onClick={() => void run(null)}
-                icon={<Sparkles size={17} strokeWidth={2.3} />}
-                iconRight={<ArrowRight size={16} />}
-              >
-                Probar con datos de ejemplo
-              </Button>
-
-              <p className="mt-3 max-w-md text-center text-[0.8rem] leading-relaxed text-content-secondary">
-                52 semanas de un restaurante de menú y carta de verdad, con su agosto flojo y sus
-                comidas de empresa de diciembre. Míralo funcionando y luego sube lo tuyo.
-              </p>
+            {/* Lo que se lleva, antes de pedirle nada. Aquí es donde se cae la
+                gente: el que duda se pone a pelearse con el export de su TPV
+                sin saber todavía si le va a servir. */}
+            <div className="mt-10">
+              <QueVasAObtener onDemo={() => void run(null)} />
             </div>
+
           </>
         ) : (
           <Card className="animate-pop-in overflow-hidden px-5 py-6 sm:px-7 sm:py-7">

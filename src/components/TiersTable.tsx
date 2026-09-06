@@ -15,7 +15,7 @@
  */
 
 import { Fragment, useId, useMemo, useState, type FocusEvent, type KeyboardEvent } from 'react'
-import { AlertTriangle, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowUpDown, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -179,6 +179,45 @@ function TierCellInput({
   )
 }
 
+/**
+ * Suelo y techo de una celda. Van más pequeños y apagados que el objetivo a
+ * propósito: la cifra que manda sigue siendo la de arriba, estos son los
+ * topes entre los que se le deja mover. Un 0 significa "sin límite".
+ */
+function LimitInput({
+  value,
+  onChange,
+  tone,
+  ariaLabel,
+}: {
+  value: number
+  onChange: (v: number) => void
+  tone: 'min' | 'max'
+  ariaLabel: string
+}) {
+  return (
+    <input
+      type="number"
+      inputMode="numeric"
+      min={0}
+      max={99}
+      value={value === 0 ? '' : value}
+      placeholder={tone === 'min' ? 'mín' : 'máx'}
+      onChange={(e) => {
+        const n = Number(e.target.value)
+        onChange(Number.isFinite(n) ? Math.min(99, Math.max(0, Math.round(n))) : 0)
+      }}
+      aria-label={ariaLabel}
+      className={cn(
+        'h-6 w-[26px] rounded border border-border-soft bg-surface text-center',
+        'text-[0.68rem] font-bold tabular-nums text-content-secondary',
+        'placeholder:font-medium placeholder:text-content-muted',
+        'transition-colors focus:border-border-focus focus:outline-none',
+      )}
+    />
+  )
+}
+
 // ─────────────────────────────────────────────────────────────
 // Modal de bloque nuevo
 // ─────────────────────────────────────────────────────────────
@@ -318,6 +357,9 @@ export function TiersTable({
   const [confirm, setConfirm] = useState<Confirm | null>(null)
   const [blockModal, setBlockModal] = useState(false)
   const [pendingRoleId, setPendingRoleId] = useState<string | null>(null)
+  /** Los límites por celda van escondidos: son la segunda pregunta, y con
+   *  ellos siempre visibles la tabla triplica de tamaño y cuesta seguirla. */
+  const [showLimits, setShowLimits] = useState(false)
 
   const { tiers, roles, blocks } = model
 
@@ -330,7 +372,7 @@ export function TiersTable({
     const orphans = roles.filter((r) => !blocks.some((b) => b.id === r.blockId))
     if (orphans.length) {
       gs.push({
-        block: { id: ORPHAN_BLOCK_ID, name: 'Sin bloque', color: '#A1A1AA' },
+        block: { id: ORPHAN_BLOCK_ID, name: 'Sin bloque', color: 'var(--color-content-muted)' },
         roles: orphans,
       })
     }
@@ -350,6 +392,23 @@ export function TiersTable({
   function setCell(tierId: string, roleId: string, v: number) {
     onTiersChange(
       tiers.map((t) => (t.id === tierId ? { ...t, staff: { ...t.staff, [roleId]: v } } : t)),
+    )
+  }
+
+  /**
+   * Suelo y techo de una celda. Un 0 en el suelo o un valor por encima del
+   * techo posible no se guardan como límite: se borra la entrada, para no
+   * dejar el objeto lleno de ceros que luego parecen un límite de verdad.
+   */
+  function setLimit(tierId: string, roleId: string, which: 'staffMin' | 'staffMax', v: number) {
+    onTiersChange(
+      tiers.map((t) => {
+        if (t.id !== tierId) return t
+        const next = { ...(t[which] ?? {}) }
+        if (v > 0) next[roleId] = v
+        else delete next[roleId]
+        return { ...t, [which]: next }
+      }),
     )
   }
 
@@ -376,14 +435,26 @@ export function TiersTable({
     // Se prerrellena copiando el tramo de arriba: es lo que el usuario iba a
     // hacer de todas formas, y así solo corrige lo que cambia.
     const staff = { ...base.staff }
+    // Los límites se copian igual que el objetivo: duplicar un tramo y perder
+    // por el camino su suelo y su techo sorprende y no se ve.
+    const limits = {
+      staffMin: { ...(base.staffMin ?? {}) },
+      staffMax: { ...(base.staffMax ?? {}) },
+    }
 
     if (index === list.length - 1) {
       // El último tramo es el abierto: pasa a tener techo y el nuevo hereda el "o más".
       const to = Number.isFinite(base.to) ? base.to : base.from + width - 1
       list[index] = { ...base, to }
-      list.push({ id: newId('t'), from: to + 1, to: Number.POSITIVE_INFINITY, staff })
+      list.push({ id: newId('t'), from: to + 1, to: Number.POSITIVE_INFINITY, staff, ...limits })
     } else {
-      list.splice(index + 1, 0, { id: newId('t'), from: base.to + 1, to: base.to + width, staff })
+      list.splice(index + 1, 0, {
+        id: newId('t'),
+        from: base.to + 1,
+        to: base.to + width,
+        staff,
+        ...limits,
+      })
     }
     commitChain(list)
   }
@@ -398,7 +469,10 @@ export function TiersTable({
       roles.map((r) => r.color),
       block.color,
     )
-    onRolesChange([...roles, { id, name: 'Nuevo puesto', blockId: block.id, color }])
+    onRolesChange([
+      ...roles,
+      { id, name: 'Nuevo puesto', blockId: block.id, color, hourlyCostEur: null, fullTimeOnly: false },
+    ])
     onTiersChange(tiers.map((t) => ({ ...t, staff: { ...t.staff, [id]: 0 } })))
     setPendingRoleId(id)
   }
@@ -413,7 +487,11 @@ export function TiersTable({
       tiers.map((t) => {
         const staff = { ...t.staff }
         delete staff[id]
-        return { ...t, staff }
+        const staffMin = { ...(t.staffMin ?? {}) }
+        const staffMax = { ...(t.staffMax ?? {}) }
+        delete staffMin[id]
+        delete staffMax[id]
+        return { ...t, staff, staffMin, staffMax }
       }),
     )
   }
@@ -424,7 +502,10 @@ export function TiersTable({
     const blockId = newId('b')
     const roleId = newId('r')
     onBlocksChange([...blocks, { id: blockId, name, color }])
-    onRolesChange([...roles, { id: roleId, name, blockId, color }])
+    onRolesChange([
+      ...roles,
+      { id: roleId, name, blockId, color, hourlyCostEur: null, fullTimeOnly: false },
+    ])
     onTiersChange(tiers.map((t) => ({ ...t, staff: { ...t.staff, [roleId]: 0 } })))
     setBlockModal(false)
   }
@@ -446,9 +527,23 @@ export function TiersTable({
     )
   }
 
+  /**
+   * Los precios y el "solo jornada completa" se rellenan en el catálogo, en
+   * otro paso, y no tienen nada que ver con los números de esta tabla. Al
+   * restaurar los valores de ejemplo se conservan para los puestos que
+   * sobreviven: perderlos sin avisar deja la pantalla de coste en blanco y
+   * nadie relaciona una cosa con la otra.
+   */
+  function keepPrices(next: Role[]): Role[] {
+    return next.map((r) => {
+      const prev = roles.find((x) => x.id === r.id)
+      return prev ? { ...r, hourlyCostEur: prev.hourlyCostEur, fullTimeOnly: prev.fullTimeOnly } : r
+    })
+  }
+
   function restoreDefaults() {
     onBlocksChange(DEFAULT_BLOCKS)
-    onRolesChange(DEFAULT_ROLES)
+    onRolesChange(keepPrices(DEFAULT_ROLES))
     onTiersChange(DEFAULT_TIERS)
   }
 
@@ -789,6 +884,22 @@ export function TiersTable({
                                   onFocus={(e) => e.currentTarget.select()}
                                   ariaLabel={`${role.name} de ${g.block.name} en el tramo de ${rangeLabel(t)} comensales`}
                                 />
+                                {showLimits && (
+                                  <div className="mt-1 flex items-center justify-center gap-1">
+                                    <LimitInput
+                                      value={t.staffMin?.[role.id] ?? 0}
+                                      onChange={(v) => setLimit(t.id, role.id, 'staffMin', v)}
+                                      tone="min"
+                                      ariaLabel={`Mínimo de ${role.name} en el tramo de ${rangeLabel(t)} comensales`}
+                                    />
+                                    <LimitInput
+                                      value={t.staffMax?.[role.id] ?? 0}
+                                      onChange={(v) => setLimit(t.id, role.id, 'staffMax', v)}
+                                      tone="max"
+                                      ariaLabel={`Máximo de ${role.name} en el tramo de ${rangeLabel(t)} comensales`}
+                                    />
+                                  </div>
+                                )}
                               </td>
                             )
                           })
@@ -825,18 +936,26 @@ export function TiersTable({
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<Plus size={16} />}
-            onClick={() => addTierAfter(tiers.length - 1)}
-          >
-            Añadir tramo
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Plus size={16} />}
+              onClick={() => addTierAfter(tiers.length - 1)}
+            >
+              Añadir tramo
+            </Button>
+            <Button
+              variant={showLimits ? 'primary' : 'ghost'}
+              size="sm"
+              icon={<ArrowUpDown size={15} />}
+              onClick={() => setShowLimits((v) => !v)}
+            >
+              {showLimits ? 'Ocultar mínimos y máximos' : 'Mínimos y máximos'}
+            </Button>
+          </div>
           <p className="text-[0.78rem] font-medium text-content-muted">
-            Tab avanza por la fila, Enter baja al tramo siguiente y las flechas suben y bajan el
-            número. El <Plus size={11} className="inline -translate-y-px" strokeWidth={3} /> de la
-            cabecera añade una categoría, como Terraza.
+            Tab pasa a la siguiente celda y Enter baja al tramo de abajo.
           </p>
         </div>
       </Card>

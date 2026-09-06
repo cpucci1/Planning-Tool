@@ -11,7 +11,7 @@
  * mezclarlo aquí infla la plantilla en las horas muertas.
  */
 
-import { SLOTS_PER_DAY, SLOT_MINUTES, slotStartMin } from './time'
+import { GRID_END_MIN, GRID_START_MIN, SLOTS_PER_DAY, SLOT_MINUTES, slotStartMin } from './time'
 import type { DayIndex, NeedGrid, NeedSummary, StaffingModel, Tier, OpeningHours } from './types'
 
 /** Tramo al que corresponde un número de comensales. */
@@ -41,7 +41,11 @@ export function buildNeedGrid(week: number[][], model: StaffingModel): NeedGrid 
       const tier = tierFor(model.tiers, week[d][s])
       if (!tier) continue
       for (const role of model.roles) {
-        grid[role.id][d][s] = tier.staff[role.id] ?? 0
+        // El suelo del tramo solo actúa DENTRO del tramo: con cero comensales
+        // no hay tramo, y ahí sigue mandando "local abierto sin servicio no
+        // pide gente" (eso lo cubre el mínimo por local, si lo hay).
+        const target = tier.staff[role.id] ?? 0
+        grid[role.id][d][s] = Math.max(target, tier.staffMin?.[role.id] ?? 0)
       }
     }
   }
@@ -56,9 +60,8 @@ export function buildNeedGrid(week: number[][], model: StaffingModel): NeedGrid 
  *
  * Ojo: esto solo puede RECORTAR, nunca añadir. Si el horario propio se
  * adelanta a que abra sala (para el personal que prepara antes del servicio),
- * ahí no hay comensales en la curva y por tanto tampoco tramo — ese hueco no
- * lo cubre esta función, lo cubriría un mínimo de apertura por bloque
- * (`applyOpeningMinimums`), que es la extensión natural si hace falta.
+ * ahí no hay comensales en la curva y por tanto tampoco tramo — ese hueco lo
+ * cubre `applyOpeningMinimums`, el mínimo por local, que corre justo después.
  */
 export function clampNeedToBlockHours(
   grid: NeedGrid,
@@ -103,9 +106,13 @@ export function applyOpeningMinimums(
   for (const block of model.blocks) {
     const min = minimumsByBlock[block.id] ?? 0
     if (min <= 0) continue
-    // El mínimo lo cubre el primer puesto declarado del bloque: es el
-    // responsable de abrir, y así el cuadrante le asigna a alguien concreto.
-    const role = model.roles.find((r) => r.blockId === block.id)
+    // El mínimo lo cubre el primer puesto del bloque que NO sea de solo
+    // jornada completa. Si cayera en uno de mando, abrir y cerrar (unas 20 h)
+    // obligaría a un contrato de 40 h y el resto serían horas pagadas sin
+    // trabajo. Si todos los puestos del bloque son de mando, se usa el
+    // primero: alguien tiene que abrir.
+    const own = model.roles.filter((r) => r.blockId === block.id)
+    const role = own.find((r) => !r.fullTimeOnly) ?? own[0]
     if (!role) continue
     const hours = hoursForBlock(block.id)
 
@@ -119,6 +126,50 @@ export function applyOpeningMinimums(
             .reduce((acc, r) => acc + out[r.id][d][s], 0)
           if (totalHere < min) out[role.id][d][s] += min - totalHere
         }
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * Estira el horario con los minutos de preparación y de cierre.
+ *
+ * Solo se usa para la ventana del mínimo por local: la curva de comensales
+ * sigue recortada al horario al público, porque antes de abrir no hay
+ * comensales por definición.
+ */
+export function expandHours(hours: OpeningHours, beforeMin: number, afterMin: number): OpeningHours {
+  if (beforeMin <= 0 && afterMin <= 0) return hours
+  return hours.map((day) =>
+    day.map((b) => ({
+      startMin: Math.max(GRID_START_MIN, b.startMin - beforeMin),
+      endMin: Math.min(GRID_END_MIN, b.endMin + afterMin),
+    })),
+  )
+}
+
+/**
+ * Aplica el techo por tramo y puesto. Va el ÚLTIMO de la cadena, después del
+ * mínimo por local: un tope que se pudiera saltar por otra vía no es un tope.
+ *
+ * Necesita la curva de comensales para saber en qué tramo cae cada franja, la
+ * misma con la que se construyó la rejilla.
+ */
+export function clampToTierMax(grid: NeedGrid, week: number[][], model: StaffingModel): NeedGrid {
+  const hasMax = model.tiers.some((t) => Object.values(t.staffMax ?? {}).some((v) => v > 0))
+  if (!hasMax) return grid
+
+  const out: NeedGrid = {}
+  for (const k of Object.keys(grid)) out[k] = grid[k].map((r) => [...r])
+
+  for (let d = 0; d < 7; d++) {
+    for (let s = 0; s < SLOTS_PER_DAY; s++) {
+      const tier = tierFor(model.tiers, week[d][s])
+      if (!tier?.staffMax) continue
+      for (const role of model.roles) {
+        const max = tier.staffMax[role.id] ?? 0
+        if (max > 0 && out[role.id][d][s] > max) out[role.id][d][s] = max
       }
     }
   }
@@ -183,6 +234,26 @@ export function validateTiers(tiers: Tier[]): { tierId: string; message: string 
     const t = sorted[i]
     if (t.to < t.from) {
       issues.push({ tierId: t.id, message: 'El final del tramo es menor que el inicio.' })
+    }
+
+    // Un techo por debajo del objetivo (o del suelo) se aplica igualmente,
+    // pero la celda sigue enseñando el número grande: el usuario ve 7 y el
+    // plan monta 5 sin que nada lo explique.
+    for (const [roleId, max] of Object.entries(t.staffMax ?? {})) {
+      if (max <= 0) continue
+      const target = t.staff[roleId] ?? 0
+      const min = t.staffMin?.[roleId] ?? 0
+      if (min > max) {
+        issues.push({
+          tierId: t.id,
+          message: `Hay un puesto con el mínimo (${min}) por encima del máximo (${max}).`,
+        })
+      } else if (target > max) {
+        issues.push({
+          tierId: t.id,
+          message: `Hay un puesto con ${target} de objetivo pero un máximo de ${max}: manda el máximo.`,
+        })
+      }
     }
     const prev = sorted[i - 1]
     if (prev) {

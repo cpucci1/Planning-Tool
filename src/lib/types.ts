@@ -68,6 +68,14 @@ export interface SpecialWeek {
   excluded: boolean
   /** True si es un festivo que cambia de semana según el año. */
   moveable: boolean
+  /**
+   * Por qué se salió esa semana, en palabras del usuario ("cerramos por obras",
+   * "congreso en el recinto ferial"). El desplegable solo tiene las diez
+   * etiquetas habituales, y la mitad de las anomalías de un local no están
+   * ahí. Se guarda con el plan para que el año que viene siga explicando por
+   * qué esa semana se trató distinto.
+   */
+  note?: string
 }
 
 export interface DemandDataset {
@@ -78,9 +86,15 @@ export interface DemandDataset {
   /** Metadatos de lo que "leyó la IA", para enseñarlos en la pantalla de importación. */
   source: {
     fileName: string
+    /** True solo en los datos de ejemplo. Sirve para rellenar el catálogo con
+     *  costes de muestra: en el ejemplo se puede, en el fichero de alguien
+     *  jamás (nunca se inventa un precio de nadie). */
+    isDemo?: boolean
     rowsDetected: number
     dateRange: string
-    columnsDetected: { label: string; mappedTo: string; confidence: number }[]
+    /** `samples` son valores tal y como vienen en el fichero: es lo que de
+     *  verdad permite a alguien no técnico saber si la columna es la suya. */
+    columnsDetected: { label: string; mappedTo: string; confidence: number; samples: string[] }[]
     /** Horario detectado a partir de las franjas con comensales. */
     detectedHours: OpeningHours
   }
@@ -109,6 +123,19 @@ export interface Role {
   blockId: string
   /** Color del puesto en gráficos y cuadrante. Hex. */
   color: string
+  /**
+   * Coste por hora trabajada de esta categoría, en euros. `null` = sin
+   * rellenar, y entonces no se enseña ninguna cifra de coste de este puesto.
+   * Lo pone el usuario en el catálogo de puestos: **nunca se inventa un
+   * precio**, ni de mercado ni de Shifty.
+   */
+  hourlyCostEur: number | null
+  /**
+   * Puestos de mando que solo se contratan a jornada completa (jefe de
+   * cocina, encargado, responsable de turno). El cuadrante no les baja a
+   * parcial aunque sus horas asignadas quepan en uno.
+   */
+  fullTimeOnly: boolean
 }
 
 /** Un área del local: Sala, Cocina, y las que el usuario añada. */
@@ -132,6 +159,14 @@ export interface Tier {
   from: number
   to: number
   staff: Record<string, number>
+  /**
+   * Suelo y techo por puesto en este tramo, `roleId → personas`. La cifra de
+   * `staff` es el objetivo; estos dos son los límites operativos entre los que
+   * puede moverse cuando algo empuja el número (hoy, el mínimo por local).
+   * Sin entrada = sin límite por ese lado.
+   */
+  staffMin?: Record<string, number>
+  staffMax?: Record<string, number>
 }
 
 export interface StaffingModel {
@@ -163,6 +198,13 @@ export interface Settings {
   /** Porcentaje de semanas que se quieren cubrir con plantilla fija (0-100). */
   coveragePct: number
   /**
+   * Colchón deliberado sobre la demanda, en tanto por ciento. Es una decisión
+   * de negocio distinta de la cobertura: la cobertura elige QUÉ semanas se
+   * cubren, y esto añade holgura DENTRO de la semana elegida, para no ir al
+   * límite si un día entra más gente de la prevista. 0 = sin colchón.
+   */
+  safetyMarginPct: number
+  /**
    * Cómo se construye la semana tipo. 'calibrado' hace que el total coincida
    * con el percentil pedido; 'conservador' aplica el percentil a cada franja
    * por separado y sale una plantilla mayor. Ver lib/demand.ts.
@@ -179,10 +221,24 @@ export interface Settings {
    * así que por defecto va activado.
    */
   minRestBetweenShifts: boolean
-  /** Coste medio por hora trabajada, en euros. Opcional: si no se rellena,
-   *  el resultado no enseña ninguna cifra de coste. Lo pone el usuario, no
-   *  se inventa ningún precio de Shifty ni de mercado. */
-  hourlyCostEur: number | null
+  /**
+   * Ventas de una semana normal, en euros. Es el ÚNICO dato que la herramienta
+   * pide y no puede sacar del histórico, y sirve para el ratio con el que de
+   * verdad piensa un hostelero: cuánto se lleva el personal de lo que entra.
+   * `null` = no lo ha puesto, y entonces no se enseña ningún porcentaje.
+   */
+  weeklySalesEur: number | null
+  /**
+   * Minutos de preparación antes de abrir y de cierre después de cerrar: la
+   * mise en place, el montaje, la limpieza. El horario que edita el usuario es
+   * el horario AL PÚBLICO; la gente entra antes y sale después.
+   *
+   * No añade personal de servicio (a esas horas no hay comensales y no hay
+   * tramo): lo que hace es estirar la ventana en la que se garantiza el mínimo
+   * por local, que es exactamente la gente que abre y cierra.
+   */
+  prepBeforeMin: number
+  prepAfterMin: number
   /**
    * Mínimo de personas que tiene que haber en cada bloque (Sala, Cocina...)
    * durante TODO su horario de apertura, aunque la curva de comensales pida

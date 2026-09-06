@@ -367,6 +367,217 @@ abrirlo), para que el cuadrante se lo asigne a alguien concreto en vez de repart
 puestos. No hay forma de elegir otro puesto todavía; si hace falta, es la extensión
 natural del día que se pida.
 
+### 2 quater. Catálogo de puestos, coste y límites
+
+Mejoras pedidas por Fernando el 2026-09-04 (ficha `shifty_planificador_mejoras_1`).
+
+**Catálogo de puestos** (`components/RoleCatalog.tsx`, en la pantalla de lectura del
+fichero): cada puesto lleva su **coste por hora** y si es de **solo jornada completa**.
+Vienen nueve categorías de partida — encargado, responsable de turno, responsable de
+sala, camarero, ayudante, jefe de cocina, jefe de partida, cocinero y office — pero
+**las de mando arrancan a cero en todos los tramos**: un local de menú no tiene jefe de
+partida, y meterlos con gente por defecto inflaría la plantilla de quien ni los tiene.
+Por eso los datos de ejemplo siguen dando las mismas 19 personas de siempre.
+
+El coste ya **no** es un campo global en ajustes avanzados: era un único "coste medio"
+para un jefe de cocina y un office, que no cuestan igual. `summarizeCost`
+(`lib/contracts.ts`) lo suma por categoría y **devuelve `null` si no hay ni un precio**;
+si solo faltan algunos, da lo que sabe y la lista de los que faltan, para poder decirlo
+en pantalla en vez de presentar un total incompleto como si fuera el total.
+
+**Solo jornada completa** (`Role.fullTimeOnly`): `buildRoster` no baja a esas personas al
+contrato parcial que les cabría por horas. Se quedan con el contrato más grande activo.
+
+**Mínimos y máximos por tramo y puesto** (`Tier.staffMin` / `Tier.staffMax`): el suelo se
+aplica dentro de `buildNeedGrid` (solo DENTRO del tramo: con cero comensales no hay
+tramo) y el techo en `clampToTierMax`, que corre **el último de la cadena** — un tope que
+se pudiera saltar por el mínimo por local no sería un tope. En la tabla van escondidos
+tras un botón: con ellos siempre visibles la tabla triplica y cuesta seguirla.
+
+### 2 quinquies. Horario al público y horario de preparación
+
+El horario que edita el usuario es el horario **al público**. `Settings.prepBeforeMin` y
+`prepAfterMin` son los minutos de mise en place y de cierre, y `expandHours` estira con
+ellos **solo la ventana del mínimo por local**: durante la preparación no hay comensales,
+así que no hay tramo ni plantilla de servicio, pero sí está la gente que abre y cierra.
+
+### 2 sexies. Margen de seguridad y sobrecobertura
+
+`Settings.safetyMarginPct` es un colchón deliberado **sobre la curva de comensales**,
+antes de traducirla a personas. Es una decisión distinta de la cobertura: la cobertura
+elige QUÉ semanas se cubren, y esto añade holgura DENTRO de la semana elegida.
+
+`overcoverage` (`lib/demand.ts`) es su contrapeso honesto: cuánto queda la plantilla por
+encima de lo que pide cada semana que sí cubre. Se mide contra cada semana concreta, no
+contra la media del año, porque promediar primero escondería justo lo que se enseña.
+
+### 2 septies. Lo que se lleva puesto y lo que se guarda
+
+**Guardado sin cuenta, ya enchufado.** `lib/persistence.ts` volvió a conectarse en
+`usePlanner`: autoguardado en IndexedDB con 600 ms de respiro (sin él se escribiría en
+cada tecla de la tabla de tramos) y un fichero `.json` descargable, que es el guardado de
+verdad, el que cruza de ordenador. Lo guardado **se ofrece, no se restaura solo**: la
+pantalla de import pregunta "¿sigues con...?", porque esa pantalla es la que vende el
+producto y a un visitante nuevo no le puede saltar encima el plan de otro día.
+
+La foto va por la **versión 2**: la 1 es de antes del catálogo de puestos con coste, del
+horario de cocina y de los ajustes de margen y preparación, y sin esos campos el cálculo
+sale mal en silencio. Se rechaza en vez de adivinar.
+
+**Compartir por enlace** (`lib/compartir.ts`): el plan entero comprimido dentro del `#` de
+la dirección, que el navegador **no manda a ningún servidor**. Así el socio o la gestoría
+ven el mismo plan sin cuentas y sin que las ventas del restaurante pasen por ningún sitio.
+Dos detalles que costaron: el infinito del último tramo no lo sabe serializar JSON (viaja
+como centinela y se restaura al leer), y al abrir un enlace la dirección se limpia después,
+para que un refresco no vuelva a imponer el plan por encima de lo que se haya tocado. Un
+plan típico son unos 14.000 caracteres: se puede pegar y mandar, pero no es un enlace corto.
+
+**Los dos entregables nuevos** (`lib/cuadrante-imagen.ts`): una imagen vertical de 1080x1920
+con el turno de UNA persona, que es como de verdad viaja un cuadrante en España (por
+WhatsApp, no por una app), y un PDF A4 del cuadrante entero **sin una sola cifra de coste**,
+para colgarlo en cocina donde lo ve todo el turno.
+
+### 2 octies. La revisión del cuadrante y las tres métricas
+
+`lib/avisos.ts` recorre el cuadrante ya montado y saca lo que incumple: descanso de 12 h
+entre turnos (Art. 34.3 ET, con el cruce domingo→lunes porque la semana se repite),
+libranzas sueltas cuando se pidieron seguidas, horas por encima del contrato y franjas sin
+cubrir. Hasta ahora esas reglas eran parámetros con los que se dimensionaba; no había nadie
+mirando el resultado final. Es el error caro y silencioso de quien hace el cuadrante a mano.
+
+`lib/metricas.ts` añade tres cosas que ya se podían calcular y no se daban, sin pedir un
+dato nuevo: **comensales por hora trabajada** (como mide la industria si un cuadrante
+rinde), **la holgura desglosada por franja** (un total semanal no se puede accionar; "el
+lunes de 12:00 a 14:30 sobran 9 h" sí) y **el reparto de fines de semana**, que es lo que
+hace que un cuadrante se perciba justo.
+
+### 2 nonies. Lo que hoy está simulado, y por qué así
+
+Dos pantallas son el front de una llamada futura a un modelo barato. No hay backend: cuando
+se conecten, harán falta una función suelta en el mismo Vercel (la clave del modelo no puede
+ir en la web, cualquiera la vería) sin base de datos ni nada que guardar.
+
+- **Mapeo de columnas** (`components/MapeoColumnas.tsx`): el usuario ve qué se ha entendido
+  de cada columna de su fichero, con valores de ejemplo de verdad, y lo corrige en dos clics.
+  Nunca se adivina en silencio. Y si su TPV no trae comensales, que es lo normal en España,
+  se estima desde los tickets **diciéndolo**, no colando una estimación con cara de dato.
+- **Nombre de las semanas raras** (`lib/territorio.ts`): el reparto de papeles es lo que hace
+  la idea segura. **El pico lo detectamos nosotros** con su histórico; el modelo solo pone el
+  nombre ("esta semana se dispara un 59% en Sevilla" → "Feria de Abril"). Al revés, creerle
+  qué festivos tiene una provincia, sería meter datos inventados en el cálculo sin que nadie
+  los mire. Y solo se propone para semanas que SUBEN: una fiesta llena el local, no lo vacía,
+  y colgarle una fiesta a un valle sería una explicación falsa con cara de dato.
+
+### 2 decies. Coste sobre ventas, SMI y los datos de ejemplo
+
+`Settings.weeklySalesEur` es el **único dato que la herramienta pide y no puede sacar del
+histórico**, y desbloquea el ratio con el que de verdad piensa un hostelero: cuánto se lleva
+el personal de lo que entra (sano entre 25% y 32%, alarma por encima del 40%).
+
+Del convenio solo entra el **SMI** (`SMI_HORA_EUR` en `lib/contracts.ts`): una cifra
+nacional que cambia una vez al año, en vez de cincuenta tablas provinciales que caducan a
+distinto ritmo y que no mantiene nadie. Sirve para avisar de que un coste se queda corto.
+
+Y una excepción acotada a "nunca se inventa un precio": **los datos de ejemplo sí arrancan
+con costes y ventas de muestra** (`DEMO_COSTES_HORA`, `DEMO_VENTAS_SEMANA`). Con el catálogo
+en blanco, el ejemplo escondía media pantalla de resultado y el usuario no llegaba a ver lo
+que la herramienta hace. Se puede porque todo ese dataset es de mentira y está etiquetado
+como tal; en el fichero de una persona **jamás** se rellena un precio, y por eso el relleno
+va detrás de `dataset.source.isDemo`.
+
+### 2 undecies. El orden de la pantalla de resultado, y por qué
+
+Revisión de usabilidad del 2026-09-05. El resultado se leía mal por **dónde estaba cada
+cosa**, no por lo que decía:
+
+- **El cuadrante baja al final y va plegado.** Mide más de 2.000 px en ordenador y unos
+  9.000 en móvil: dejaba enterrado todo lo que iba detrás, incluido el argumento de
+  Shifty. Plegado, la pantalla de móvil pasa de 15.900 px a 7.200. Quien viene a ver el
+  cuadrante lo abre; quien viene a ver el número no tiene que pasarlo por encima.
+- **Los picos suben** por delante del cuadrante.
+- **"Cobertura" significaba dos cosas**: el porcentaje de la línea y "está todo cubierto".
+  En el cuadrante pasa a ser "Sin cubrir · 0 h".
+- **Un botón por acción.** El mapeo de columnas tenía su propio "Confirmar y calcular"
+  compitiendo con el "Siguiente" del pie del paso; se queda solo el aviso de lo que falta.
+  Y los cinco botones iguales del final son ahora dos importantes y tres pequeños. El PDF
+  aparece dos veces a propósito (arriba y abajo), pero **con el mismo nombre**: repetir una
+  acción en una página larga está bien, llamarla de dos maneras no.
+- **El catálogo de puestos se movió al paso de Equipo, y se devolvió.** El 2026-09-05 se
+  llevó al lado de la tabla de tramos, que es la que usa esos puestos como columnas. El
+  2026-09-06 Crescente lo devolvió a la lectura del fichero: **es donde lo pidió Fernando**
+  (punto 1.1 de su revisión) y manda eso. Queda anotado para que nadie lo vuelva a mover
+  por el mismo razonamiento sin esta conversación delante.
+
+### 2 duodecies. Lo que la revisión dice que SÍ cumple
+
+`comprobacionesHechas` (`lib/avisos.ts`) devuelve qué comprobaciones se han llegado a
+hacer, para que la pantalla pueda decir "lo demás está en regla" y no solo lo que falla.
+Una lista con dos avisos sueltos deja sin saber si el resto se ha mirado, y esa duda es la
+que hace que nadie se fíe del resultado.
+
+No entra en la lista lo que el usuario ha apagado: si no ha pedido libranzas seguidas,
+decirle que las cumple sería apuntarse un tanto que no existe.
+
+Las tres métricas también dejaron de repetirse entre ellas: "la franja con más sobra"
+decía lo mismo que la lista de justo debajo, así que ahora es **el total de horas de más
+sobre las horas contratadas**, que es una cifra distinta y comparable. Y a comensales por
+hora **no se le pone un baremo de industria**, porque no lo hay: un menú del día y un
+restaurante de mantel no se parecen. Se dice contra qué sí se puede comparar, que es
+contra uno mismo dentro de tres meses.
+
+### 2 terdecies. La sugerencia de festivo solo donde no hay nombre
+
+`sugerirNombreSemana` recibe ahora `sinNombre` y solo propone para los picos que el
+calendario **no ha sabido nombrar** (`kind === 'fiesta-local'` y sin confirmar por el
+usuario). Antes se ofrecía encima de una semana ya etiquetada como Semana Santa la
+propuesta de llamarla Feria de Abril. **Una sugerencia que discute con un dato correcto
+enseña a ignorar todas las sugerencias, incluida la buena.**
+
+### 2 quaterdecies. El gráfico del día se recortaba a sí mismo
+
+`DayCurve` mide su propio contenedor para saber cuánto medir. Sin `overflow-hidden` en ese
+contenedor, un SVG que se queda ancho ensancha a su padre y la medida siguiente vuelve a
+salir ancha. Se notaba **al girar el móvil estando ya en la pantalla**: la página se
+quedaba con scroll lateral (1.215 px de ancho en una pantalla de 375) y el gráfico no
+volvía a encoger. Recargando no pasaba, y por eso no se había visto.
+
+### 2 quindecies. Lo que NO se ha podido verificar
+
+El **teaser de cuenta** (`AccountTeaserModal`) se engancha ahora al botón del cuadrante en
+vez de a un div vacío de 0 px de alto. El cambio es por robustez, **no porque se haya
+comprobado que el anterior fallara**: el panel de pruebas del agente corre con la pestaña
+oculta, y ahí el navegador no dispara ningún `IntersectionObserver`, ni siquiera sobre el
+`body`. Sin una pantalla visible de verdad, ese modal no se puede dar por probado. Es el
+primer sitio que hay que mirar a mano.
+
+### 2 sexdecies. Lo que sacó la revisión del 2026-09-05
+
+Tres de los ocho hallazgos eran de verdad, y los tres del mismo sitio: **el enlace
+compartido**.
+
+1. **Quien abría un enlace y trabajaba encima no guardaba nada.** Había un `adoptarPlan()`
+   escrito para bajar la bandera de "esto viene de un enlace"… que no llamaba nadie. Así que
+   el autoguardado quedaba apagado toda la sesión y al cerrar la pestaña se perdía el
+   trabajo. Ahora son **dos banderas y ninguna función**: `vieneDeEnlace` tapa el aviso de
+   "sigues con…" toda la sesión, y `enlaceSinTocar` se baja sola en el primer disparo del
+   efecto, que es el de la propia carga. Una bandera que hay que acordarse de bajar a mano
+   acaba sin bajarse.
+2. **`reset()` no bajaba esa bandera**, así que el fichero que subieras después tampoco se
+   guardaba. Y el aviso de "el enlace no se puede leer" se quedaba en pantalla para siempre.
+3. **Quitar el botón del mapeo se llevó por delante la única validación que había.** El
+   aviso de "marca qué columna es la fecha" pasó a ser un cartel que no impedía nada. El
+   bloqueo vive ahora en el "Siguiente" del pie (`mapeoSuficiente` + `nextDisabled`).
+
+Y uno de cifras: **"76 h de más sobre las 675 h que contratas" no cuadraba**, porque
+675 − 501 son 174, no 76. Eran dos cosas distintas: las horas contratadas incluyen contrato
+que no llega a ponerse en ningún turno. Se compara contra las **horas en turnos** (577), y
+entonces las tres cifras suman: 501 que pide la curva + 76 de más = 577 en el local.
+
+La lección que se queda: **al quitar un botón, mirar qué validación se va con él**, y
+**al enseñar un porcentaje o una resta, comprobar que los números de la misma pantalla
+cuadran entre sí**. Un número que no cuadra con el de al lado se lee como un error de
+cálculo aunque los dos sean correctos por separado.
+
 ### 3. Desfase del dato
 El fichero del TPV marca la hora del **cobro**, y se cobra al terminar — unos 30 minutos
 después de que el trabajo haya ocurrido. La curva del fichero va por tanto sistemáticamente
@@ -466,11 +677,14 @@ Las franjas por encima de la línea de cobertura se marcan en el gráfico y se c
 más"*. Ese es el único momento de venta, y sale del propio cálculo.
 
 ### 8 bis. Coste (opcional)
-`Settings.hourlyCostEur` es un campo suelto en ajustes avanzados: coste medio por hora,
-en euros. **Lo pone el usuario o se queda en blanco — nunca se inventa un precio**, ni de
-mercado ni de Shifty. Si está relleno, el resultado y el PDF añaden un par de frases con
-la cifra en euros (coste semanal de la plantilla, coste de contratar el pico fijo frente a
-cubrir solo esas horas). Si no, todo se queda como antes: solo personas y horas.
+El coste vive **por categoría** en el catálogo de puestos (`Role.hourlyCostEur`), no como
+un campo global. **Lo pone el usuario o se queda en blanco — nunca se inventa un precio**,
+ni de mercado ni de Shifty. Si hay precios, el resultado y el PDF dan el coste semanal y
+anual de la plantilla; si no, todo se queda en personas y horas.
+
+Para valorar los picos se usa el **coste medio por hora de su propia plantilla**: un extra
+no es de un puesto concreto, así que ponerle el precio del jefe de cocina o el del office
+sería igual de arbitrario.
 
 ### 9. Guardado sin cuenta — construido, desconectado por ahora
 `src/lib/persistence.ts` implementa dos mecanismos, ninguno de los dos activo hoy:

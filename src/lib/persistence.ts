@@ -28,7 +28,14 @@ import type {
 } from './types'
 
 export const SNAPSHOT_SOURCE = 'shifty-planning'
-export const SNAPSHOT_VERSION = 1
+/**
+ * Versión 2: la 1 es de antes del catálogo de puestos con coste, del horario
+ * de cocina y de los ajustes de margen y preparación. Una foto de la 1 no
+ * trae esos campos, y sin ellos el cálculo sale mal en silencio (una curva
+ * con NaN cae al último tramo y pide plantilla máxima en todas las franjas).
+ * Se rechaza en vez de intentar adivinarlos.
+ */
+export const SNAPSHOT_VERSION = 2
 const STORE_KEY = 'shifty-planning:autosave'
 
 export interface PlannerSnapshot {
@@ -38,6 +45,8 @@ export interface PlannerSnapshot {
   step: StepId
   dataset: DemandDataset
   hours: OpeningHours | null
+  /** Horario propio de cocina, si el usuario lo activó. */
+  kitchenHours: OpeningHours | null
   specials: SpecialWeek[]
   blocks: Block[]
   roles: Role[]
@@ -45,6 +54,8 @@ export interface PlannerSnapshot {
   settings: Settings
   /** `overrides` es un Map en memoria; en JSON viaja como pares [clave, valor]. */
   overrides: [string, number][]
+  /** Los nombres reales que el usuario le ha puesto a la gente del cuadrante. */
+  personNames: Record<string, string>
 }
 
 export interface SnapshotMeta {
@@ -75,7 +86,14 @@ function isSnapshot(v: unknown): v is PlannerSnapshot {
     Array.isArray(s.tiers) &&
     Array.isArray(s.roles) &&
     Array.isArray(s.blocks) &&
-    !!s.settings
+    !!s.settings &&
+    // Los ajustes nuevos: si falta cualquiera, la foto es de una versión
+    // anterior aunque diga lo contrario, y más vale rechazarla aquí que
+    // calcular con un hueco.
+    typeof (s.settings as Settings).safetyMarginPct === 'number' &&
+    typeof (s.settings as Settings).prepBeforeMin === 'number' &&
+    typeof (s.settings as Settings).prepAfterMin === 'number' &&
+    !!(s.settings as Settings).minStaffByBlock
   )
 }
 

@@ -143,9 +143,10 @@ export async function analyzeFile(
   for (let i = 0; i < ANALYSIS_STEPS.length; i++) {
     onProgress?.({ step: i, label: ANALYSIS_STEPS[i].label, detail: ANALYSIS_STEPS[i].detail })
     // Los pasos no duran lo mismo: leer es rápido, "entender" tarda. Que el
-    // ritmo sea irregular es lo que hace que parezca trabajo de verdad.
-    const base = i === 0 ? 320 : i === 2 ? 780 : 520
-    await new Promise((r) => setTimeout(r, (base + (seed % 200)) / speed))
+    // ritmo sea irregular es lo que hace que parezca trabajo de verdad. Con
+    // datos de ejemplo nadie quiere esperar: el total ronda los 3 segundos.
+    const base = i === 0 ? 250 : i === 2 ? 600 : 400
+    await new Promise((r) => setTimeout(r, (base + (seed % 150)) / speed))
   }
 
   // El año del histórico es el anterior completo.
@@ -175,14 +176,15 @@ export async function analyzeFile(
     specials: [],
     source: {
       fileName: name,
+      isDemo: file === null,
       rowsDetected: weeks.length * 7 * 14,
       dateRange: `${firstWeek.startDate} → ${lastWeek.startDate}`,
       columnsDetected: [
-        { label: 'Fecha', mappedTo: 'Día del servicio', confidence: 0.99 },
-        { label: 'Hora', mappedTo: 'Franja horaria', confidence: 0.97 },
-        { label: 'Comensales', mappedTo: 'Comensales', confidence: 0.94 },
-        { label: 'Nº ticket', mappedTo: 'Ignorada', confidence: 0.88 },
-        { label: 'Importe', mappedTo: 'Ignorada', confidence: 0.91 },
+        { label: 'Fecha', mappedTo: 'Día del servicio', confidence: 0.99, samples: ['14/06/2025', '14/06/2025', '15/06/2025'] },
+        { label: 'Hora', mappedTo: 'Franja horaria', confidence: 0.97, samples: ['14:32:11', '15:07:45', '21:58:03'] },
+        { label: 'Comensales', mappedTo: 'Comensales', confidence: 0.94, samples: ['2', '4', '2'] },
+        { label: 'Nº ticket', mappedTo: 'Ignorada', confidence: 0.88, samples: ['A-10428', 'A-10429', 'A-10430'] },
+        { label: 'Importe', mappedTo: 'Ignorada', confidence: 0.91, samples: ['48,50', '112,00', '31,75'] },
       ],
       detectedHours: inferHours(workingCurve, 3),
     },

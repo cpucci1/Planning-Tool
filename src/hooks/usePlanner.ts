@@ -7,7 +7,7 @@
  * mientras el usuario arrastra.
  */
 
-import { createContext, useContext, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   applyLag,
   clampToHours,
@@ -23,12 +23,28 @@ import {
   applyOpeningMinimums,
   buildNeedGrid,
   clampNeedToBlockHours,
+  clampToTierMax,
+  expandHours,
   summarize,
   totalPeopleGrid,
 } from '@/lib/staffing'
 import { buildRoster } from '@/lib/roster'
 import { analyzePeaks, summarizePlan } from '@/lib/contracts'
+import { decodificarPlan } from '@/lib/compartir'
 import {
+  SNAPSHOT_SOURCE,
+  SNAPSHOT_VERSION,
+  clearAutosave,
+  downloadSnapshot,
+  loadAutosave,
+  metaOf,
+  saveAutosave,
+  type PlannerSnapshot,
+  type SnapshotMeta,
+} from '@/lib/persistence'
+import {
+  DEMO_COSTES_HORA,
+  DEMO_VENTAS_SEMANA,
   DEFAULT_BLOCKS,
   DEFAULT_ROLES,
   DEFAULT_SETTINGS,
@@ -72,6 +88,37 @@ export function usePlannerState() {
   const [tiers, setTiers] = useState<Tier[]>(DEFAULT_TIERS)
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   const [seenTips, setSeenTips] = useState<Set<string>>(new Set())
+
+  /**
+   * Guardado sin cuenta. `savedMeta` es la foto que había al abrir: si hay
+   * algo, la pantalla de import PREGUNTA si quiere seguir con ello en vez de
+   * restaurarlo solo. Esta es la pantalla de venta del producto, y un visitante
+   * nuevo tiene que poder verla entera antes de que nada le salte encima.
+   */
+  const [savedMeta, setSavedMeta] = useState<SnapshotMeta | null>(null)
+  const savedSnap = useRef<PlannerSnapshot | null>(null)
+  /**
+   * Este arranque vino de un enlace compartido. Mientras siga en pie:
+   * - NO se autoguarda, porque el plan es de otro y machacaría el del dueño
+   *   del navegador, que igual lo tenía a medias.
+   * - NO se ofrece lo guardado, porque ha venido a ver ESTE plan.
+   * Se levanta en cuanto toca cualquier cosa: a partir de ahí el plan ya es
+   * suyo y se guarda como cualquier otro.
+   */
+  const vieneDeEnlace = useRef(false)
+  /**
+   * Y esto es lo otro, que NO es lo mismo: el plan del enlace tal cual llegó,
+   * sin que nadie lo haya tocado. Se baja solo en el primer disparo del
+   * autoguardado, que es el de la propia carga. A partir del siguiente cambio
+   * el plan ya es suyo y se guarda como cualquier otro.
+   *
+   * Iban juntos en un solo ref con una función `adoptarPlan()` que no llamaba
+   * nadie: el resultado era que quien abría un enlace y se ponía a trabajar
+   * encima no guardaba NUNCA, y al cerrar la pestaña lo perdía todo.
+   */
+  const enlaceSinTocar = useRef(false)
+  /** Un enlace que no se puede leer: hay que decirlo, no callar. */
+  const [enlaceRoto, setEnlaceRoto] = useState(false)
 
   /**
    * Correcciones a mano de la semana tipo: `'dia:franja' → comensales`.
@@ -148,10 +195,36 @@ export function usePlannerState() {
     setDataset(d)
     setHours(d.source.detectedHours)
     setSpecials(detectSpecialWeeks(d.weeks, d.year))
+    // El ejemplo arranca con costes y ventas de muestra para que se vea el
+    // producto entero. Un fichero de verdad NO: ahí el precio lo pone su dueño.
+    //
+    // El `else` no es simetría bonita, es obligatorio: quien prueba el ejemplo
+    // y luego sube SU fichero por la barra de arriba se llevaría los 16 €/h de
+    // encargado y las ventas de 26.000 € que nunca escribió, y el resultado le
+    // daría un coste inventado con cara de dato suyo.
+    if (d.source.isDemo) {
+      setRoles((prev) => prev.map((r) => ({ ...r, hourlyCostEur: DEMO_COSTES_HORA[r.id] ?? null })))
+      setSettings((st) => ({ ...st, weeklySalesEur: DEMO_VENTAS_SEMANA }))
+    } else {
+      setRoles((prev) => prev.map((r) => ({ ...r, hourlyCostEur: null })))
+      setSettings((st) => ({ ...st, weeklySalesEur: null }))
+    }
     setStep('demand')
   }
 
   function reset() {
+    // Y se borra lo guardado, que es lo que espera quien pulsa "empezar de
+    // nuevo": si no, al refrescar le saldría otra vez el aviso ofreciéndole
+    // justo el plan que acaba de tirar.
+    savedSnap.current = null
+    setSavedMeta(null)
+    void clearAutosave()
+    // Quien empieza de cero ya no viene de ningún enlace: si esto no se baja,
+    // el fichero que suba a continuación tampoco se autoguardaría, y el aviso
+    // del enlace roto seguiría en pantalla hablando de algo de hace media hora.
+    vieneDeEnlace.current = false
+    enlaceSinTocar.current = false
+    setEnlaceRoto(false)
     setDataset(null)
     setHours(null)
     setKitchenHours(null)
@@ -167,6 +240,149 @@ export function usePlannerState() {
 
   function markTipSeen(id: string) {
     setSeenTips((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+  }
+
+  // ── Guardado sin cuenta ───────────────────────────────────
+
+  /** La foto de lo que el usuario ha DECIDIDO. Lo derivado no se guarda: se
+   *  recalcula solo al cargarla, y guardarlo sería arriesgarse a que la foto
+   *  y el cálculo se contradigan. */
+  function buildSnapshot(): PlannerSnapshot | null {
+    if (!dataset) return null
+    return {
+      source: SNAPSHOT_SOURCE,
+      version: SNAPSHOT_VERSION,
+      savedAt: new Date().toISOString(),
+      step,
+      dataset,
+      hours,
+      kitchenHours,
+      specials,
+      blocks,
+      roles,
+      tiers,
+      settings,
+      overrides: [...overrides],
+      personNames,
+    }
+  }
+
+  /**
+   * Un plan compartido llega en el `#` de la dirección. Ese SÍ se carga solo:
+   * quien abre un enlace lo abre para ver ese plan, no para empezar de cero.
+   * Se limpia la dirección después para que un refresco no lo vuelva a
+   * imponer por encima de lo que el usuario haya tocado desde entonces.
+   */
+  useEffect(() => {
+    const hash = window.location.hash.slice(1)
+    if (!hash || hash.length < 20) return
+    let vivo = true
+    decodificarPlan(hash).then((plan) => {
+      if (!vivo) return
+      if (!plan || !plan.dataset) {
+        // Le han mandado un plan y no se puede abrir (enlace partido por el
+        // cliente de correo, navegador antiguo). Callarse es peor: creería
+        // que el plan no existía.
+        setEnlaceRoto(true)
+        window.history.replaceState(null, '', window.location.pathname + window.location.search)
+        return
+      }
+      vieneDeEnlace.current = true
+      enlaceSinTocar.current = true
+      setDataset(plan.dataset)
+      setHours(plan.hours)
+      setKitchenHours(plan.kitchenHours)
+      setSpecials(plan.specials)
+      setBlocksRaw(plan.blocks)
+      setRoles(plan.roles)
+      setTiers(plan.tiers)
+      setSettings(plan.settings)
+      setOverrides(new Map(plan.overrides))
+      setPersonNames(plan.personNames ?? {})
+      setStep('result')
+      setSavedMeta(null)
+      window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    })
+    return () => {
+      vivo = false
+    }
+  }, [])
+
+  /** Al abrir, mira si hay algo guardado. No lo restaura: solo lo ofrece. */
+  useEffect(() => {
+    let vivo = true
+    loadAutosave().then((snap) => {
+      // `vieneDeEnlace` se comprueba AQUÍ, no antes: IndexedDB tarda más que
+      // descomprimir el hash, así que sin esto el aviso reaparecería encima
+      // del plan compartido en cuanto el usuario volviera al primer paso.
+      if (!vivo || !snap || vieneDeEnlace.current) return
+      savedSnap.current = snap
+      setSavedMeta(metaOf(snap))
+    })
+    return () => {
+      vivo = false
+    }
+  }, [])
+
+  /**
+   * Autoguardado con un respiro de 600 ms: sin él se escribiría en cada tecla
+   * de la tabla de tramos y en cada fotograma de un arrastre.
+   */
+  useEffect(() => {
+    if (!dataset) return
+    if (enlaceSinTocar.current) {
+      // Este disparo es el del propio enlace al cargarse: ese no se guarda,
+      // porque machacaría el plan a medias del dueño del navegador. El
+      // siguiente ya viene de que él ha cambiado algo.
+      enlaceSinTocar.current = false
+      return
+    }
+    const t = setTimeout(() => {
+      const snap = buildSnapshot()
+      if (snap) void saveAutosave(snap)
+    }, 600)
+    return () => clearTimeout(t)
+    // `buildSnapshot` lee todo el estado, así que las dependencias son los
+    // trozos que de verdad cambian el plan.
+  }, [dataset, hours, kitchenHours, specials, blocks, roles, tiers, settings, overrides, personNames, step])
+
+  /** Aplica una foto guardada al estado actual. */
+  function applySnapshot(snap: PlannerSnapshot) {
+    setDataset(snap.dataset)
+    setHours(snap.hours)
+    setKitchenHours(snap.kitchenHours ?? null)
+    setSpecials(snap.specials)
+    setBlocksRaw(snap.blocks)
+    setRoles(snap.roles)
+    setTiers(snap.tiers)
+    setSettings(snap.settings)
+    setOverrides(new Map(snap.overrides))
+    setPersonNames(snap.personNames ?? {})
+    setStep(snap.step)
+    setSavedMeta(null)
+  }
+
+  /** "Sigue donde lo dejaste". */
+  function resumeSaved() {
+    if (savedSnap.current) applySnapshot(savedSnap.current)
+  }
+
+  /** "Empiezo de cero": se olvida la foto para que no vuelva a ofrecerse. */
+  function discardSaved() {
+    savedSnap.current = null
+    setSavedMeta(null)
+    void clearAutosave()
+  }
+
+  /** El guardado de verdad: un fichero que cruza de ordenador. */
+  function exportSnapshot() {
+    const snap = buildSnapshot()
+    if (snap) downloadSnapshot(snap)
+  }
+
+  /** Carga un fichero guardado. Devuelve false si no es de esta herramienta. */
+  function importSnapshot(snap: PlannerSnapshot) {
+    applySnapshot(snap)
   }
 
   const model: StaffingModel = useMemo(() => ({ blocks, roles, tiers }), [blocks, roles, tiers])
@@ -221,6 +437,20 @@ export function usePlannerState() {
     return hours ? clampToHours(corrected, hours) : corrected
   }, [typical, settings.lagMinutes, hours])
 
+  /**
+   * La misma curva con el colchón de seguridad aplicado. Va SEPARADA de
+   * `lagged` a propósito: `lagged` es lo que se pinta en los gráficos con la
+   * etiqueta "comensales", y enseñar ahí un número inflado por una decisión de
+   * plantilla sería mentir sobre el dato. El colchón es política de personal,
+   * así que solo entra donde se traduce a personas.
+   */
+  const laggedStaffing = useMemo(() => {
+    if (!lagged) return null
+    const margin = 1 + Math.max(0, settings.safetyMarginPct || 0) / 100  // `|| 0`: ver CLAUDE.md, foto antigua sin el campo
+    if (margin === 1) return lagged
+    return lagged.map((day) => day.map((v) => Math.round(v * margin)))
+  }, [lagged, settings.safetyMarginPct])
+
   const inflation = useMemo(
     () => (weeks.length ? typicalWeekInflation(weeks, settings.coveragePct, sorted) : null),
     [weeks, settings.coveragePct, sorted],
@@ -236,13 +466,16 @@ export function usePlannerState() {
    * sigue en `needGrid` de abajo.
    */
   const needGridDemand = useMemo(() => {
-    if (!lagged) return null
-    let grid = buildNeedGrid(lagged, model)
+    if (!laggedStaffing) return null
+    let grid = buildNeedGrid(laggedStaffing, model)
     // El horario propio de cocina solo RECORTA su necesidad, nunca la amplía
     // más allá de lo que ya marca el horario general — ver `clampNeedToBlockHours`.
     if (kitchenHours) grid = clampNeedToBlockHours(grid, model, KITCHEN_BLOCK_ID, kitchenHours)
-    return grid
-  }, [lagged, model, kitchenHours])
+    // El techo del tramo entra YA aquí, no solo al final: si el suelo está en
+    // esta rejilla y el techo no, los picos se estiman con una plantilla que
+    // el plan se niega a montar.
+    return clampToTierMax(grid, laggedStaffing, model)
+  }, [laggedStaffing, model, kitchenHours])
 
   const needGrid = useMemo(() => {
     if (!needGridDemand) return null
@@ -252,13 +485,29 @@ export function usePlannerState() {
     // El mínimo por bloque va DESPUÉS: añade el personal de apertura/cierre
     // aunque la curva esté a cero, respetando el horario propio de cada
     // bloque si lo tiene (cocina) — ver `applyOpeningMinimums`.
+    let grid = needGridDemand
     if (hours && Object.values(minStaffByBlock).some((v) => v > 0)) {
-      return applyOpeningMinimums(needGridDemand, model, minStaffByBlock, (blockId) =>
-        blockId === KITCHEN_BLOCK_ID && kitchenHours ? kitchenHours : hours,
+      // La ventana del mínimo incluye la preparación y el cierre: es
+      // justamente la gente que entra antes y sale después (ver `expandHours`).
+      const withPrep = (h: OpeningHours) =>
+        expandHours(h, settings.prepBeforeMin || 0, settings.prepAfterMin || 0)
+      grid = applyOpeningMinimums(needGridDemand, model, minStaffByBlock, (blockId) =>
+        withPrep(blockId === KITCHEN_BLOCK_ID && kitchenHours ? kitchenHours : hours),
       )
     }
-    return needGridDemand
-  }, [needGridDemand, model, kitchenHours, hours, settings.minStaffByBlock])
+    // Y se vuelve a aplicar al final: si el mínimo por local se lo pudiera
+    // saltar, no sería un techo.
+    return laggedStaffing ? clampToTierMax(grid, laggedStaffing, model) : grid
+  }, [
+    needGridDemand,
+    model,
+    kitchenHours,
+    hours,
+    settings.minStaffByBlock,
+    settings.prepBeforeMin,
+    settings.prepAfterMin,
+    laggedStaffing,
+  ])
 
   const needSummary = useMemo(
     () => (needGrid ? summarize(needGrid, model) : null),
@@ -327,10 +576,17 @@ export function usePlannerState() {
     seenTips,
     markTipSeen,
     overrides,
+    personNames,
     setTypicalOverride,
     clearOverrides,
     setPersonName,
     setMinStaffForBlock,
+    savedMeta,
+    enlaceRoto,
+    resumeSaved,
+    discardSaved,
+    exportSnapshot,
+    importSnapshot,
     model,
     weeks,
     coverage,

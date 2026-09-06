@@ -37,9 +37,10 @@ export interface ReportInput {
   peakWeekCount: number
   peakHoursPerYear: number
   extraPeopleIfHired: number
-  /** Solo si el usuario ha rellenado un coste por hora en los ajustes avanzados. */
+  /** Coste medio por hora de la plantilla, solo si el catálogo de puestos tiene precios. */
   hourlyCostEur: number | null
   weeklyCostEur: number | null
+  annualCostEur: number | null
   peakHiredAnnualCostEur: number | null
   peakOnlyAnnualCostEur: number | null
 }
@@ -51,7 +52,15 @@ function hexToRgb(hex: string): [number, number, number] {
 
 const nf = new Intl.NumberFormat('es-ES')
 const nf1 = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 })
-const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })
+// `useGrouping`: en es-ES, sin esto, un número de cuatro cifras sale
+// sin punto de millar ("7650 €") y al lado de uno de seis que sí lo lleva
+// parece un error de la herramienta.
+const eur = new Intl.NumberFormat('es-ES', {
+  style: 'currency',
+  currency: 'EUR',
+  maximumFractionDigits: 0,
+  useGrouping: true,
+})
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
 
 export async function downloadReport(input: ReportInput): Promise<void> {
@@ -141,8 +150,8 @@ export async function downloadReport(input: ReportInput): Promise<void> {
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(11)
   const costLine =
-    input.hourlyCostEur !== null && input.weeklyCostEur !== null
-      ? ` A ${eur.format(input.hourlyCostEur)}/h, esta plantilla sale por ${eur.format(input.weeklyCostEur)} a la semana.`
+    input.weeklyCostEur !== null && input.annualCostEur !== null
+      ? ` Con los costes de tu catálogo, esta plantilla sale por ${eur.format(input.weeklyCostEur)} a la semana y ${eur.format(input.annualCostEur)} al año.`
       : ''
   const insightLines: string[] = doc.splitTextToSize(
     `Por horas bastarían ${nf1.format(input.fteFromHours)} ${plural(input.fteFromHours, 'jornada completa', 'jornadas completas')}. Son ${input.totalPeople} ${plural(input.totalPeople, 'persona', 'personas')} porque manda el pico: el ${input.peakDayLabel} a las ${input.peakSlotLabel} necesitas ${input.peakPeople} a la vez${input.topPeakRoleName ? `, ${input.topPeakCount} de ${input.topPeakRoleName}` : ''}. Esa gente está en nómina aunque entre todos no llenen la jornada.${costLine}`,

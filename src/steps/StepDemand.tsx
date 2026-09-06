@@ -30,6 +30,13 @@ import { YearChart } from '@/components/charts/YearChart'
 import { WeekHeatmap } from '@/components/charts/WeekHeatmap'
 import { DayCurve } from '@/components/charts/DayCurve'
 import { HoursEditor } from '@/components/HoursEditor'
+import { RoleCatalog } from '@/components/RoleCatalog'
+import {
+  MapeoColumnas,
+  mapeoSuficiente,
+  type ColumnaDetectada,
+  type DestinoColumna,
+} from '@/components/MapeoColumnas'
 import {
   Badge,
   Button,
@@ -37,13 +44,18 @@ import {
   CardHeader,
   Field,
   InfoTip,
+  InlineName,
   Note,
   NumberInput,
+  Segmented,
   Stat,
+  TextInput,
   Toggle,
   cn,
 } from '@/components/ui'
 import { KITCHEN_BLOCK_ID } from '@/data/presets'
+import { TERRITORIOS, sugerirNombreSemana } from '@/lib/territorio'
+import { overcoverage } from '@/lib/demand'
 import { SPECIAL_LABELS, describeMapping, isoWeekStart } from '@/lib/holidays'
 import { DAYS } from '@/lib/time'
 import type { SpecialWeek } from '@/lib/types'
@@ -54,6 +66,20 @@ const nf = new Intl.NumberFormat('es-ES')
 // desencaja con las etiquetas del gráfico anual, que ya usan estos mismos.
 const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 const DAY_ABBR = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+
+/** De cómo lo nombra la lectura simulada a lo que entiende el mapeo. */
+const DESTINO_POR_ETIQUETA: Record<string, DestinoColumna> = {
+  'Día del servicio': 'fecha',
+  'Franja horaria': 'hora',
+  Comensales: 'comensales',
+  Ignorada: 'ignorada',
+}
+
+/** Colchón sobre la demanda. Pasado el 20% deja de ser colchón y es otra plantilla. */
+const SAFETY_OPTIONS = [0, 5, 10, 15, 20]
+
+/** Preparación y cierre, en minutos. Media hora y una hora son lo habitual. */
+const PREP_OPTIONS = [0, 30, 60, 90]
 
 /** "13 – 19 abr" a partir de una semana ISO. */
 function weekDates(year: number, week: number): string {
@@ -68,12 +94,6 @@ function weekDates(year: number, week: number): string {
 
 function deviationText(d: number): string {
   return `${d > 0 ? '+' : '−'}${Math.round(Math.abs(d) * 100)}%`
-}
-
-function confidenceTone(c: number): 'success' | 'warning' | 'danger' {
-  if (c >= 0.95) return 'success'
-  if (c >= 0.85) return 'warning'
-  return 'danger'
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -160,12 +180,16 @@ function SubNav({
   onNext,
   nextLabel,
   nextHint,
+  nextDisabled,
 }: {
   index: number
   onBack: () => void
   onNext: () => void
   nextLabel: string
   nextHint?: string
+  /** Bloquea el avance. Se usa en la lectura del fichero: sin saber qué columna
+   *  es la fecha no hay nada que calcular, y antes se podía seguir igualmente. */
+  nextDisabled?: boolean
 }) {
   return (
     <div className="flex flex-col items-center gap-3 pt-2 pb-4">
@@ -177,7 +201,7 @@ function SubNav({
         ) : (
           <span aria-hidden="true" />
         )}
-        <Button size="lg" onClick={onNext} iconRight={<ArrowRight size={18} />}>
+        <Button size="lg" onClick={onNext} disabled={nextDisabled} iconRight={<ArrowRight size={18} />}>
           {nextLabel}
         </Button>
       </div>
@@ -193,10 +217,6 @@ function SubNav({
 export function StepDemand() {
   const p = usePlanner()
 
-  // Columnas que el usuario marca como mal leídas. De momento solo se apunta:
-  // remapear a mano necesita backend, y prometerlo sin tenerlo sería peor.
-  const [wrongCols, setWrongCols] = useState<string[]>([])
-
   // `null` = "el que mande el dato". Así el día grande sigue siendo el más
   // fuerte mientras el usuario no elija uno a mano.
   const [pickedDay, setPickedDay] = useState<number | null>(null)
@@ -207,6 +227,31 @@ export function StepDemand() {
 
   // Qué sección de las cinco se ve ahora mismo. Ver `DEMAND_SUBSTEPS`.
   const [sub, setSub] = useState(0)
+
+  /** Provincia del local. Solo sirve para proponer nombres de fiestas locales. */
+  const [territorio, setTerritorio] = useState<string | null>(null)
+
+  /**
+   * El mapa de columnas del fichero. Arranca con lo que ha entendido la
+   * lectura y el usuario lo confirma o lo corrige. Vive aquí, en la pantalla,
+   * porque hoy no cambia el cálculo: la lectura sigue siendo simulada y esto
+   * es el front de lo que hará el día que se conecte de verdad.
+   */
+  const [mapeo, setMapeo] = useState<ColumnaDetectada[]>([])
+  const [comensalesPorTicket, setComensalesPorTicket] = useState(2)
+
+  useEffect(() => {
+    const cols = p.dataset?.source.columnsDetected
+    if (!cols) return
+    setMapeo(
+      cols.map((c) => ({
+        nombre: c.label,
+        destino: DESTINO_POR_ETIQUETA[c.mappedTo] ?? 'ignorada',
+        confianza: c.confidence,
+        ejemplos: c.samples ?? [],
+      })),
+    )
+  }, [p.dataset])
 
   // Igual que al cambiar de paso principal (ver App.tsx): moverse de sub-paso
   // no debe dejar al usuario a mitad de la pantalla anterior.
@@ -243,6 +288,24 @@ export function StepDemand() {
     return bestIndex
   }, [typical])
 
+  /**
+   * 2.1 — cuánto sobra la plantilla en las semanas que sí cubre.
+   *
+   * Sobre `p.weeks` (las utilizables), NO sobre el histórico entero: la línea
+   * de cobertura se calcula con esas mismas, y las semanas excluidas son
+   * justo los cierres de agosto, que con 30 comensales darían un "sobra un
+   * 4000%" que no significa nada.
+   */
+  const over = useMemo(() => {
+    if (!p.coverage) return null
+    // Contra la capacidad de verdad: si hay colchón, la plantilla está
+    // dimensionada por encima de la línea y la sobrecobertura es mayor.
+    // Medirla contra la línea pelada dejaría el contrapeso corto justo cuando
+    // más gente sobra.
+    const conColchon = p.coverage.threshold * (1 + Math.max(0, p.settings.safetyMarginPct) / 100)
+    return overcoverage(p.weeks, conColchon)
+  }, [p.weeks, p.coverage, p.settings.safetyMarginPct])
+
   const mappingLines = useMemo(
     () => (dataset ? describeMapping(dataset.year, dataset.year + 1) : []),
     [dataset],
@@ -265,29 +328,15 @@ export function StepDemand() {
   const visibleSpecials =
     collapsible && !showAllSpecials ? p.specials.slice(0, COLLAPSED) : p.specials
 
-  const toggleWrongCol = (label: string) => {
-    setWrongCols((prev) =>
-      prev.includes(label) ? prev.filter((x) => x !== label) : [...prev, label],
-    )
-  }
-
   return (
     <div className="stagger space-y-6">
       <SubProgress index={sub} onGo={setSub} />
 
       {/* ── 1. Lo que ha leído la IA ─────────────────────────────── */}
       {sub === 0 && (
+      <div className="space-y-6">
       <Card className="p-5 sm:p-7">
-        <span className="eyebrow eyebrow--purple">Lectura del fichero</span>
-        <h1 className="h1 mt-3">
-          Esto es lo que <span className="text-brand italic">he entendido.</span>
-        </h1>
-        <p className="mt-2 max-w-2xl text-[0.95rem] leading-relaxed text-content-secondary">
-          Mira si te cuadra antes de seguir. Si me he colado en algo, corrígeme aquí mismo: todo lo
-          de esta pantalla es editable y el cálculo se rehace solo.
-        </p>
-
-        <div className="mt-5 grid gap-2 sm:grid-cols-3">
+        <div className="grid gap-2 sm:grid-cols-3">
           {[
             { icon: <FileSpreadsheet size={15} />, label: 'Fichero', value: src.fileName },
             { icon: <CalendarRange size={15} />, label: 'Rango de fechas', value: src.dateRange },
@@ -309,85 +358,27 @@ export function StepDemand() {
           ))}
         </div>
 
-        <h4 className="h4 mt-6 flex items-center gap-2">
-          Las columnas, una a una
-          <InfoTip title="Qué es la confianza">
-            Cuánto de seguro estoy de haber entendido esa columna. Por debajo del 85% conviene que
-            le eches un ojo: suele pasar cuando la cabecera del fichero es rara o hay dos columnas
-            que se parecen.
-          </InfoTip>
-        </h4>
-        <p className="mt-1 text-[0.85rem] text-content-secondary">
-          A la izquierda, como se llama en tu fichero. A la derecha, para qué la he usado.
-        </p>
-
-        <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-          {src.columnsDetected.map((c) => {
-            const wrong = wrongCols.includes(c.label)
-            const ignored = c.mappedTo === 'Ignorada'
-            return (
-              <li
-                key={c.label}
-                className={cn(
-                  'flex items-center gap-3 rounded-lg border px-3.5 py-2.5 transition-colors',
-                  wrong ? 'border-warning/40 bg-warning-light' : 'border-border-soft bg-surface',
-                )}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 text-[0.88rem] font-bold">
-                    <span className="truncate text-content-primary">{c.label}</span>
-                    <ArrowRight size={13} className="shrink-0 text-content-muted" />
-                    <span className={cn('truncate', ignored ? 'text-content-muted' : 'text-brand')}>
-                      {c.mappedTo}
-                    </span>
-                  </div>
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <span className="h-1 w-14 shrink-0 overflow-hidden rounded-pill bg-border">
-                      <span
-                        className="block h-full rounded-pill bg-brand"
-                        style={{ width: `${Math.round(c.confidence * 100)}%` }}
-                      />
-                    </span>
-                    <Badge tone={confidenceTone(c.confidence)}>
-                      {Math.round(c.confidence * 100)}%
-                    </Badge>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  aria-pressed={wrong}
-                  aria-label={
-                    wrong
-                      ? `Deshacer: la columna ${c.label} sí está bien interpretada`
-                      : `Marcar la columna ${c.label} como mal interpretada`
-                  }
-                  onClick={() => toggleWrongCol(c.label)}
-                  className={cn(
-                    'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-pill px-3 text-[0.75rem] font-bold transition-colors',
-                    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand',
-                    wrong
-                      ? 'bg-warning text-content-inverted'
-                      : 'border border-border text-content-secondary hover:border-content-muted hover:text-content-primary',
-                  )}
-                >
-                  {wrong ? <Undo2 size={13} /> : null}
-                  {wrong ? 'Deshacer' : 'No es eso'}
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-
-        {wrongCols.length > 0 && (
-          <div className="mt-3">
-            <Note tone="warning" icon={<TriangleAlert size={15} />}>
-              Apuntado: {wrongCols.join(', ')}. En esta versión todavía no puedo reasignar una
-              columna a mano. Si el dato ha salido mal del todo, vuelve atrás y sube el fichero con
-              las cabeceras más claras — con "Fecha", "Hora" y "Comensales" no falla.
-            </Note>
-          </div>
-        )}
+        <div className="mt-5">
+          <MapeoColumnas
+            columnas={mapeo}
+            onChange={setMapeo}
+            comensalesPorTicket={comensalesPorTicket}
+            onComensalesPorTicket={setComensalesPorTicket}
+          />
+        </div>
       </Card>
+
+      {/* El catálogo de puestos vive aquí, en la lectura del fichero, porque así
+          lo pidió Fernando (punto 1.1 de su revisión): primero qué categorías
+          hay y qué cuesta cada hora, y en el paso de equipo cuánta gente de cada
+          una hace falta según los comensales.
+
+          Estuvo un rato en el paso de equipo, pegado a la tabla de tramos que
+          usa estos puestos como columnas. Se devolvió aquí por decisión de
+          Crescente el 2026-09-06: manda el sitio que pidió el advisor. Si vuelve
+          a moverse, que sea con esa conversación delante. */}
+      <RoleCatalog blocks={p.model.blocks} roles={p.model.roles} onRolesChange={p.setRoles} />
+      </div>
       )}
 
       {/* ── 2. El año de un vistazo ──────────────────────────────── */}
@@ -426,6 +417,63 @@ export function StepDemand() {
             La línea marca hasta dónde llegaría tu plantilla fija. Aquí solo te sitúa: dónde la
             dejas se decide al final, cuando ya se vea lo que cuesta cada centímetro.
           </p>
+
+          {over && (
+            <div className="mt-4 rounded-lg border border-border-soft bg-surface-alt p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-[0.75rem] font-bold tracking-wide text-content-secondary uppercase">
+                    Sobrecobertura
+                    <InfoTip title="Qué es la sobrecobertura">
+                      La plantilla se dimensiona para la línea, así que en una semana floja sobra
+                      gente. Esto mide cuánto: de media, cuánto queda tu plantilla por encima de lo
+                      que pide cada semana que sí cubre. Subir la línea cubre más semanas y sube
+                      esto; bajarla, al revés.
+                    </InfoTip>
+                  </div>
+                  <p className="mt-1.5 text-[0.85rem] leading-relaxed text-content-secondary">
+                    En las semanas que cubres, tu plantilla queda de media un{' '}
+                    <strong className="text-content-primary">
+                      {Math.round(over.avgPct)}% por encima
+                    </strong>{' '}
+                    de lo que pide esa semana
+                    {over.worstWeek !== null && (
+                      <>
+                        {' '}
+                        (la semana {over.worstWeek} es la que más sobra, un{' '}
+                        {Math.round(over.worstPct)}%)
+                      </>
+                    )}
+                    .
+                  </p>
+                </div>
+
+                <div className="w-full sm:w-auto">
+                  <div className="flex items-center gap-1.5 text-[0.75rem] font-bold tracking-wide text-content-secondary uppercase">
+                    Margen de seguridad
+                    <InfoTip title="Margen de seguridad">
+                      Un colchón deliberado sobre la demanda, por si entra más gente de la
+                      prevista. No es lo mismo que la cobertura: la cobertura elige qué semanas
+                      cubres, y esto añade holgura dentro de la semana que ya has elegido. Cada
+                      punto que subes aquí es plantilla de más las 52 semanas.
+                    </InfoTip>
+                  </div>
+                  <div className="scroll-thin -mx-1 mt-2 overflow-x-auto px-1 pb-1">
+                    <Segmented
+                      value={String(p.settings.safetyMarginPct)}
+                      onChange={(v) =>
+                        p.setSettings((st) => ({ ...st, safetyMarginPct: Number(v) }))
+                      }
+                      options={SAFETY_OPTIONS.map((v) => ({
+                        value: String(v),
+                        label: v === 0 ? 'Sin colchón' : `+${v}%`,
+                      }))}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {yearStats && (
             <div className="mt-5 grid grid-cols-2 gap-5 border-t border-border-soft pt-5 sm:grid-cols-3">
@@ -512,7 +560,7 @@ export function StepDemand() {
                 El personal que hace falta <span className="text-brand italic">solo por estar abierto.</span>
               </>
             }
-            subtitle="Al margen de cuántos comensales tengas: quien abre, cierra o prepara. Se garantiza en todo el horario de cada área, el suyo propio si lo tiene, como cocina."
+            subtitle="Al margen de cuántos comensales tengas: quien abre, cierra o prepara. Se garantiza en todo el horario de cada área, el suyo propio si lo tiene, como cocina, y también durante la preparación y el cierre."
             info={
               <InfoTip title="Cómo se cubre">
                 El mínimo lo cubre el primer puesto de cada área (el responsable de abrirla), para
@@ -550,6 +598,64 @@ export function StepDemand() {
                   </div>
                 </Field>
               ))}
+          </div>
+
+          {/* 3.2 — el horario de arriba es el horario AL PÚBLICO. La gente
+              entra antes y sale después, y esas horas son plantilla igual. */}
+          <div className="grid gap-4 border-t border-border-soft px-4 py-5 sm:grid-cols-2 sm:px-6">
+            <Field
+              label="Preparación antes de abrir"
+              info={
+                <InfoTip title="Horario al público y horario del personal">
+                  El horario que has puesto arriba es cuando entra el cliente. La mise en place, el
+                  montaje y la puesta a punto ocurren antes, y esas horas se pagan igual. Aquí se
+                  dice cuánto antes entra la gente: durante ese rato se mantiene el mínimo de cada
+                  área, no la plantilla de servicio.
+                </InfoTip>
+              }
+            >
+              <Segmented
+                value={String(p.settings.prepBeforeMin)}
+                onChange={(v) => p.setSettings((st) => ({ ...st, prepBeforeMin: Number(v) }))}
+                options={PREP_OPTIONS.map((v) => ({
+                  value: String(v),
+                  label: v === 0 ? 'Nada' : `${v} min`,
+                }))}
+              />
+            </Field>
+
+            <Field
+              label="Recogida al terminar"
+              info={
+                <InfoTip title="El cierre">
+                  Recoger, limpiar y cuadrar la caja. Igual que la preparación: durante ese rato se
+                  mantiene el mínimo del área, no la plantilla de servicio.
+                </InfoTip>
+              }
+            >
+              <Segmented
+                value={String(p.settings.prepAfterMin)}
+                onChange={(v) => p.setSettings((st) => ({ ...st, prepAfterMin: Number(v) }))}
+                options={PREP_OPTIONS.map((v) => ({
+                  value: String(v),
+                  label: v === 0 ? 'Nada' : `${v} min`,
+                }))}
+              />
+            </Field>
+
+            {/* Sin ningún mínimo puesto, la preparación no cambia nada: no hay
+                comensales a esa hora, así que no hay a quién estirar. Decirlo,
+                en vez de dejar al usuario tocando un control muerto. */}
+            {(p.settings.prepBeforeMin > 0 || p.settings.prepAfterMin > 0) &&
+              !Object.values(p.settings.minStaffByBlock).some((v) => v > 0) && (
+                <div className="sm:col-span-2">
+                  <Note tone="warning">
+                    La preparación y el cierre no cambian nada mientras no pongas un mínimo arriba:
+                    a esas horas no hay comensales, así que lo único que puede haber es la gente que
+                    abre y cierra, y eso sale del mínimo por local.
+                  </Note>
+                </div>
+              )}
           </div>
         </Card>
         )}
@@ -596,6 +702,34 @@ export function StepDemand() {
               {/* La acción en bloque va aquí y no en la cabecera de la Card:
                   en móvil le robaba el ancho al título y lo partía en cuatro
                   líneas. */}
+              {/* Dónde está el local. Con esto podemos proponer el nombre de las
+                  fiestas que le pegan a cada semana rara: el pico lo hemos
+                  medido nosotros y el nombre es una propuesta que él confirma.
+                  Ver `lib/territorio.ts`. */}
+              <div className="mb-4 rounded-lg border border-border-soft bg-surface-alt p-3">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <span className="text-[0.8rem] font-bold text-content-primary">
+                    ¿Dónde está el local?
+                  </span>
+                  <select
+                    value={territorio ?? ''}
+                    onChange={(e) => setTerritorio(e.target.value || null)}
+                    aria-label="Provincia del local, para reconocer las fiestas locales"
+                    className="h-9 rounded-md border border-border bg-surface-elevated px-2.5 text-[0.82rem] font-semibold text-content-primary transition-colors focus:border-border-focus focus:outline-none"
+                  >
+                    <option value="">Elige provincia</option>
+                    {TERRITORIOS.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.nombre}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[0.8rem] text-content-secondary">
+                    y te digo qué fiesta cae en cada semana rara.
+                  </span>
+                </div>
+              </div>
+
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-[0.78rem] font-bold text-content-secondary">
                   {pendingSpecials === 0
@@ -642,11 +776,15 @@ export function StepDemand() {
                             <span className="rounded-pill bg-surface px-2 py-0.5 text-[0.7rem] font-black text-content-secondary">
                               S{s.isoWeek}
                             </span>
-                            <span
-                              className={cn('h4', s.excluded && 'text-content-muted line-through')}
-                            >
-                              {s.label}
-                            </span>
+                            <InlineName
+                              value={s.label}
+                              onCommit={(v) => patchSpecial(s.isoWeek, { label: v, confirmed: true })}
+                              ariaLabel={`Cambiar el nombre de la semana ${s.isoWeek}`}
+                              className={cn(
+                                'h4',
+                                s.excluded && 'text-content-muted line-through',
+                              )}
+                            />
                             <Badge tone={s.deviation > 0 ? 'success' : 'warning'}>
                               {deviationText(s.deviation)}
                             </Badge>
@@ -722,6 +860,51 @@ export function StepDemand() {
                         </div>
                       </div>
 
+                      {/* 4.2 — el motivo en palabras del usuario. El desplegable
+                          no cubre "cerramos por obras" ni "congreso en la
+                          feria", y eso es justo lo que hay que recordar el año
+                          que viene. */}
+                      <div className="mt-2">
+                        <TextInput
+                          value={s.note ?? ''}
+                          onChange={(e) => patchSpecial(s.isoWeek, { note: e.target.value })}
+                          placeholder="¿Por qué se salió esta semana? (opcional)"
+                          aria-label={`Motivo de la semana ${s.isoWeek}`}
+                          className="h-9 text-[0.82rem]"
+                        />
+                      </div>
+
+                      {(() => {
+                        // Solo para los picos que el calendario no ha sabido
+                        // nombrar, y solo mientras el usuario no lo haya
+                        // confirmado él: encima de una semana ya identificada
+                        // la sugerencia sobra y estorba.
+                        const sinNombre = s.kind === 'fiesta-local' && !s.confirmed
+                        const sug = sugerirNombreSemana(territorio, s.isoWeek, s.deviation, sinNombre)
+                        if (!sug || s.label === sug.nombre) return null
+                        return (
+                          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-brand-light px-2.5 py-2">
+                            <Sparkles size={14} className="shrink-0 text-brand" />
+                            <span className="min-w-0 flex-1 text-[0.8rem] leading-snug text-brand">
+                              {sug.motivo}
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() =>
+                                patchSpecial(s.isoWeek, {
+                                  label: sug.nombre,
+                                  note: s.note || sug.motivo,
+                                  confirmed: true,
+                                })
+                              }
+                            >
+                              Ponerle ese nombre
+                            </Button>
+                          </div>
+                        )
+                      })()}
+
                       {moveLine && (
                         <p className="mt-2 flex items-start gap-1.5 rounded-md bg-brand-light px-2.5 py-1.5 text-[0.78rem] leading-snug font-semibold text-brand">
                           <Sparkles size={13} className="mt-px shrink-0" />
@@ -788,6 +971,18 @@ export function StepDemand() {
         <Card className="p-4 sm:p-6">
           <span className="eyebrow eyebrow--purple mb-3">La semana tipo</span>
 
+          {/* La definición va ARRIBA y en grande a propósito: es la frase que
+              explica qué es esta pantalla y, de paso, para qué existe Shifty.
+              Sin ella el usuario ve una rejilla de números sin saber qué
+              decisión está tomando. */}
+          <Note tone="brand" icon={<Sparkles size={15} strokeWidth={2.3} />}>
+            La semana tipo recoge la actividad del{' '}
+            <strong>{p.settings.coveragePct}% de las semanas del año</strong>: es con la que se
+            planifica tu <strong>plantilla estable</strong>. Las{' '}
+            {Math.max(0, p.weeks.length - (p.coverage?.weeksCovered ?? 0))} semanas que se salen
+            piden gente puntual, y eso se cubre con extras en vez de contratando de más.
+          </Note>
+
           {/* Las celdas que el usuario corrige entran en la cadena completa
               (desfase → necesidad → cuadrante) a través de `overrides` en
               usePlanner, así que tocar una celda mueve de verdad el contador de
@@ -817,14 +1012,10 @@ export function StepDemand() {
           )}
 
           <p className="mt-3 max-w-3xl text-[0.85rem] leading-relaxed text-content-secondary">
-            No es una semana concreta del fichero: es la semana que deja cubiertas{' '}
-            <span className="font-bold text-content-primary">
-              {p.coverage?.weeksCovered ?? 0} de {p.weeks.length}
-            </span>{' '}
-            semanas del año. Toca cualquier celda si sabes algo que el histórico no sabe. Y si lo
-            que no te cuadra es una franja entera, casi siempre es una semana especial mal
-            etiquetada o un horario mal detectado: arréglalo arriba y esta rejilla se recalcula
-            sola.
+            No es una semana concreta del fichero. Toca cualquier celda si sabes algo que el
+            histórico no sabe; si lo que no cuadra es una franja entera, casi siempre es una semana
+            especial mal etiquetada o un horario mal detectado: arréglalo atrás y esta rejilla se
+            recalcula sola.
           </p>
 
           <h4 className="h4 mt-6 flex items-center gap-2">
@@ -881,6 +1072,7 @@ export function StepDemand() {
       {/* ── 6. Siguiente ─────────────────────────────────────────── */}
       <SubNav
         index={sub}
+        nextDisabled={sub === 0 && !mapeoSuficiente(mapeo)}
         onBack={() => setSub((s) => Math.max(0, s - 1))}
         onNext={() => {
           if (sub < DEMAND_SUBSTEPS.length - 1) setSub((s) => s + 1)

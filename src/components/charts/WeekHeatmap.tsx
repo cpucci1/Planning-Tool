@@ -825,11 +825,7 @@ export function WeekHeatmap({
 
       {editable && (
         <p className="mt-2 text-[0.75rem] leading-relaxed text-content-muted">
-          Clic en una celda para escribir. Arrastra o usa shift+clic para coger varias franjas de
-          golpe. Dentro de una celda: <strong className="font-bold">Enter</strong> baja al día
-          siguiente, <strong className="font-bold">Tab</strong> avanza a la franja siguiente,{' '}
-          <strong className="font-bold">Esc</strong> cancela. Pincha en una hora para seleccionar
-          esa franja en los siete días.
+          Arrastra o usa mayús + clic para corregir varias franjas de golpe.
         </p>
       )}
 
