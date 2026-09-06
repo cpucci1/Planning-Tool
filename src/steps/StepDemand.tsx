@@ -12,7 +12,7 @@
  * cadena a través de `overrides` en usePlanner.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Ban,
   CalendarRange,
@@ -54,6 +54,8 @@ import {
 } from '@/components/ui'
 import { KITCHEN_BLOCK_ID } from '@/data/presets'
 import { TERRITORIOS, sugerirNombreSemana } from '@/lib/territorio'
+import { sugerirNombreSemanaConIA } from '@/lib/territorioIA'
+import type { Sugerencia } from '@/lib/territorio'
 import { overcoverage } from '@/lib/demand'
 import { SPECIAL_LABELS, describeMapping, isoWeekStart } from '@/lib/holidays'
 import { DAYS } from '@/lib/time'
@@ -131,15 +133,55 @@ export function StepDemand() {
   const [territorio, setTerritorio] = useState<string | null>(null)
 
   /**
-   * El mapa de columnas del fichero. Arranca con lo que ha entendido la
-   * lectura y el usuario lo confirma o lo corrige. Vive aquí, en la pantalla,
-   * porque hoy no cambia el cálculo: la lectura sigue siendo simulada y esto
-   * es el front de lo que hará el día que se conecte de verdad.
+   * Los nombres que ha propuesto el modelo, por provincia y semana.
+   *
+   * Vive en estado y no se calcula en el JSX A PROPÓSITO. La sugerencia se
+   * pintaba dentro del map de tarjetas, así que se evaluaba en cada render: con
+   * una llamada de red ahí dentro, cada tecla del campo "por qué se salió esta
+   * semana" dispararía una petición por cada semana rara en pantalla.
+   *
+   * La clave lleva la provincia porque la respuesta depende de ella, y así
+   * cambiar de provincia y volver no vuelve a preguntar. `null` guardado
+   * significa "ya se preguntó y no hay nada que proponer", que no es lo mismo
+   * que no haber preguntado.
+   */
+  const [sugerencias, setSugerencias] = useState<Map<string, Sugerencia | null>>(new Map())
+  /**
+   * Las que ya se han pedido y todavía no han contestado.
+   *
+   * Hace falta un ref y no vale el estado de arriba: entre que sale la petición
+   * y llega la respuesta pasan uno o dos segundos, y en ese rato cualquier tecla
+   * en el campo "por qué se salió esta semana" cambia `p.specials`, vuelve a
+   * disparar el efecto y las semanas en vuelo se vuelven a pedir, porque todavía
+   * no están en `sugerencias`. Escribir una frase de veinte letras se comía el
+   * límite de la hora en llamadas repetidas que devuelven lo mismo.
+   */
+  const enVuelo = useRef<Set<string>>(new Set())
+
+  /**
+   * El mapa de columnas del fichero. Arranca con lo que ha entendido la lectura
+   * (y la segunda opinión del modelo) y el usuario lo confirma o lo corrige.
+   *
+   * CORREGIRLO CAMBIA EL CÁLCULO DE VERDAD desde el 2026-09-06. Antes no: el
+   * desplegable se movía y el resultado seguía saliendo de la columna
+   * equivocada, que es de las cosas que más engañan, porque la pantalla dice que
+   * te ha hecho caso.
+   *
+   * Con los datos de ejemplo no hay fichero que rehacer (`p.lectura` es null) y
+   * entonces sí es solo una demostración de cómo se verá con el fichero de uno.
    */
   const [mapeo, setMapeo] = useState<ColumnaDetectada[]>([])
   const [comensalesPorTicket, setComensalesPorTicket] = useState(2)
 
   useEffect(() => {
+    // Si el fichero se leyó de verdad, el mapeo bueno es el que guardó el hook:
+    // reconstruirlo desde las etiquetas de `source` lo hace pasar por una tabla
+    // de ida y vuelta que no hace falta y que pierde matices.
+    if (p.lectura) {
+      setMapeo(p.lectura.mapeo)
+      setComensalesPorTicket(p.lectura.comensalesPorTicket)
+      return
+    }
     const cols = p.dataset?.source.columnsDetected
     if (!cols) return
     setMapeo(
@@ -150,7 +192,27 @@ export function StepDemand() {
         ejemplos: c.samples ?? [],
       })),
     )
-  }, [p.dataset])
+  }, [p.dataset, p.lectura])
+
+  /**
+   * Rehacer el cálculo cuesta recorrer el fichero entero, así que se espera a
+   * que el usuario deje de tocar. Sin este respiro, cambiar tres desplegables
+   * seguidos recorre las 30.000 filas tres veces y la pantalla se congela.
+   */
+  const recalcular = p.recalcularConMapeo
+  const pendiente = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const aplicarMapeo = useCallback(
+    (columnas: ColumnaDetectada[], porTicket: number) => {
+      setMapeo(columnas)
+      setComensalesPorTicket(porTicket)
+      if (pendiente.current) clearTimeout(pendiente.current)
+      pendiente.current = setTimeout(() => recalcular(columnas, porTicket), 350)
+    },
+    [recalcular],
+  )
+  useEffect(() => () => {
+    if (pendiente.current) clearTimeout(pendiente.current)
+  }, [])
 
   // Igual que al cambiar de paso principal (ver App.tsx): moverse de sub-paso
   // no debe dejar al usuario a mitad de la pantalla anterior.
@@ -214,6 +276,63 @@ export function StepDemand() {
 
   const src = dataset.source
   const day = pickedDay ?? busiestDay
+  /**
+   * Pide al modelo el nombre de las semanas raras que el calendario no ha sabido
+   * nombrar, en cuanto el usuario elige provincia.
+   *
+   * TOPE DE OCHO, y no es por prudencia abstracta: la función de IA permite 30
+   * llamadas por hora y huella, la huella es el hash de la IP, y dos personas
+   * del mismo restaurante detrás del mismo router comparten cupo. Ocho por
+   * provincia deja sitio para cambiar de provincia varias veces y para leer un
+   * fichero. Las que no entran se quedan con la tabla de fiestas de siempre.
+   */
+  useEffect(() => {
+    if (!territorio) return
+    const nombreTerritorio = TERRITORIOS.find((t) => t.id === territorio)?.nombre ?? null
+    const pendientes = p.specials
+      .filter((s) => s.kind === 'fiesta-local' && !s.confirmed && s.deviation > 0)
+      .filter((s) => {
+        const clave = `${territorio}:${s.isoWeek}`
+        return !sugerencias.has(clave) && !enVuelo.current.has(clave)
+      })
+      .slice(0, 8)
+    if (pendientes.length === 0) return
+
+    // Se marcan como pedidas AHORA, no al contestar. Si se esperase a la
+    // respuesta, cualquier cosa que vuelva a disparar el efecto mientras tanto
+    // las volvería a pedir.
+    for (const s of pendientes) enVuelo.current.add(`${territorio}:${s.isoWeek}`)
+
+    void (async () => {
+      for (const s of pendientes) {
+        const clave = `${territorio}:${s.isoWeek}`
+        try {
+          const sug = await sugerirNombreSemanaConIA(
+            nombreTerritorio,
+            territorio,
+            s.isoWeek,
+            s.deviation,
+            true,
+          )
+          // Una a una y no todas a la vez: son llamadas que cuestan dinero y el
+          // usuario ve aparecer las etiquetas según llegan, que se lee mejor que
+          // un salto de todas de golpe cinco segundos después.
+          //
+          // Y NO se corta al desmontar: la respuesta ya está pagada, así que
+          // guardarla es gratis y evita volver a pedirla. Si el componente ya no
+          // está, React ignora el setState y no pasa nada.
+          setSugerencias((prev) => new Map(prev).set(clave, sug))
+        } finally {
+          enVuelo.current.delete(clave)
+        }
+      }
+    })()
+    // `sugerencias` NO va en las dependencias: cambia dentro del propio efecto y
+    // lo volvería a disparar en bucle. Lo que decide qué pedir es la provincia y
+    // la lista de semanas raras.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [territorio, p.specials])
+
   const excludedCount = p.specials.filter((s) => s.excluded).length
   const remainingWeeks = dataset.weeks.length - excludedCount
 
@@ -257,12 +376,61 @@ export function StepDemand() {
           ))}
         </div>
 
+        {/* LO QUE SE HA CAÍDO DEL FICHERO, Y POR QUÉ.
+            Un lector que descarta filas en silencio es peor que uno que falla:
+            el usuario ve un total menor del que sabe que tiene y no puede saber
+            si es un error suyo, del fichero o de la herramienta. Se dice cuántas,
+            por qué, y con qué números de fila mirarlo en su Excel. */}
+        {p.lectura && (p.lectura.descartes.length > 0 || p.lectura.advertencias.length > 0) && (
+          <div className="mt-5 space-y-2">
+            {p.lectura.filasUsadas === 0 && (
+              <Note tone="danger" icon={<TriangleAlert size={16} strokeWidth={2.4} />}>
+                <div>
+                  <strong>Con este mapeo no entra ni una fila en el cálculo.</strong> Lo que ves
+                  abajo sigue siendo el resultado del mapeo anterior. Mira los ejemplos de cada
+                  columna: la de comensales o la de tickets tiene que traer NÚMEROS, no un código
+                  de ticket.
+                </div>
+              </Note>
+            )}
+            {p.lectura.descartes.length > 0 && p.lectura.filasUsadas > 0 && (
+              <Note tone="warning" icon={<TriangleAlert size={16} strokeWidth={2.4} />}>
+                <div>
+                  <strong>
+                    Hemos usado {p.lectura.filasUsadas.toLocaleString('es-ES')} de las{' '}
+                    {p.lectura.filasLeidas.toLocaleString('es-ES')} filas de tu fichero.
+                  </strong>{' '}
+                  Se han quedado fuera {(p.lectura.filasLeidas - p.lectura.filasUsadas).toLocaleString('es-ES')}:
+                  <ul className="mt-1.5 space-y-0.5">
+                    {p.lectura.descartes.map((d) => (
+                      <li key={d.motivo}>
+                        · {d.filas.toLocaleString('es-ES')} {d.filas === 1 ? 'fila' : 'filas'} — {d.mensaje}
+                        {d.ejemplos.length > 0 && (
+                          <span className="text-content-secondary">
+                            {' '}(por ejemplo, {d.ejemplos.length === 1 ? 'la fila' : 'las filas'}{' '}
+                            {d.ejemplos.join(', ')})
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </Note>
+            )}
+            {p.lectura.advertencias.map((a) => (
+              <Note key={a.codigo} tone="info">
+                {a.mensaje}
+              </Note>
+            ))}
+          </div>
+        )}
+
         <div className="mt-5">
           <MapeoColumnas
             columnas={mapeo}
-            onChange={setMapeo}
+            onChange={(cols) => aplicarMapeo(cols, comensalesPorTicket)}
             comensalesPorTicket={comensalesPorTicket}
-            onComensalesPorTicket={setComensalesPorTicket}
+            onComensalesPorTicket={(n) => aplicarMapeo(mapeo, n)}
           />
         </div>
       </Card>
@@ -797,7 +965,14 @@ export function StepDemand() {
                         // confirmado él: encima de una semana ya identificada
                         // la sugerencia sobra y estorba.
                         const sinNombre = s.kind === 'fiesta-local' && !s.confirmed
-                        const sug = sugerirNombreSemana(territorio, s.isoWeek, s.deviation, sinNombre)
+                        // Lo que haya dicho el modelo manda; mientras no conteste
+                        // (o si no hay backend) se enseña lo de la tabla, que es
+                        // aproximada pero instantánea.
+                        const clave = `${territorio}:${s.isoWeek}`
+                        const sug = sugerencias.has(clave)
+                          ? sugerencias.get(clave) ?? null
+                          : sugerirNombreSemana(territorio, s.isoWeek, s.deviation, sinNombre)
+                        if (!sinNombre) return null
                         if (!sug || s.label === sug.nombre) return null
                         return (
                           <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-brand-light px-2.5 py-2">

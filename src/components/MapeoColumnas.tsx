@@ -15,23 +15,16 @@
  */
 
 import { TriangleAlert } from 'lucide-react'
+import { CONFIANZA_MINIMA, mapeoSuficiente } from '@/lib/mapeo'
+import type { ColumnaDetectada, DestinoColumna } from '@/lib/mapeo'
 import { Badge, Card, CardHeader, Field, InfoTip, Note, NumberInput, cn } from './ui'
 
-export type DestinoColumna = 'fecha' | 'hora' | 'comensales' | 'tickets' | 'importe' | 'ignorada'
-
-export interface ColumnaDetectada {
-  /** Cómo se llama en el fichero del usuario. */
-  nombre: string
-  /** Qué creemos que es. */
-  destino: DestinoColumna
-  /** 0 a 1. Por debajo de 0.85 hay que llamar la atención sobre ella. */
-  confianza: number
-  /** Dos o tres valores de ejemplo de esa columna, tal cual vienen. */
-  ejemplos: string[]
-}
-
-/** Por debajo de esto, la fila se marca y se explica por qué mirarla. */
-const CONFIANZA_MINIMA = 0.85
+// El tipo, el umbral y la condición de "se puede seguir" viven en `lib/mapeo.ts`:
+// de ellos dependen ahora el lector del fichero y la segunda opinión del modelo,
+// y `src/lib/` no puede importar React. Se vuelven a exportar desde aquí para
+// que nadie que ya importara de este fichero tenga que cambiar nada.
+export { CONFIANZA_MINIMA, mapeoSuficiente }
+export type { ColumnaDetectada, DestinoColumna }
 
 const DESTINO_OPTIONS: { value: DestinoColumna; label: string }[] = [
   { value: 'fecha', label: 'Día del servicio' },
@@ -41,20 +34,6 @@ const DESTINO_OPTIONS: { value: DestinoColumna; label: string }[] = [
   { value: 'importe', label: 'Importe' },
   { value: 'ignorada', label: 'No la uses' },
 ]
-
-/**
- * ¿Se puede seguir con este mapeo? Vive fuera del componente porque quien
- * bloquea el paso es el "Siguiente" del pie, no un botón de aquí dentro: la
- * pantalla tenía dos botones grandes compitiendo y se quitó el de la tarjeta.
- * Sin exportar esta condición, el aviso de "marca qué columna es la fecha"
- * quedaba en un cartel que no impedía nada.
- */
-export function mapeoSuficiente(columnas: ColumnaDetectada[]): boolean {
-  const tieneFecha = columnas.some((c) => c.destino === 'fecha')
-  const tieneComensales = columnas.some((c) => c.destino === 'comensales')
-  const tieneTickets = columnas.some((c) => c.destino === 'tickets')
-  return tieneFecha && (tieneComensales || tieneTickets)
-}
 
 export function MapeoColumnas({
   columnas,

@@ -29,15 +29,46 @@
 // rastro de lo que costo. Ver el README de al lado.
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
-import { createClient } from 'jsr:@supabase/supabase-js@2'
+// Version fijada, no '@2' a secas. El propio adaptador del modelo explica por que
+// no se usan alias flotantes con Gemini; con una libreria es lo mismo: un deploy
+// de dentro de tres meses se trae otra version sin que nadie lo haya pedido, y el
+// unico sitio donde se ve es este endpoint en produccion.
+import { createClient } from 'jsr:@supabase/supabase-js@2.58.0'
 import { callLlm, FLASH } from '../_shared/llm.ts'
 
 const MODELO = FLASH
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+/**
+ * Origenes permitidos, separados por comas, en el secreto PLANNING_AI_ORIGENES.
+ *
+ * SE HONESTO CON LO QUE ESTO ES: CORS lo respeta el navegador, no un curl. No
+ * impide que nadie llame a esto desde una terminal; lo que impide es que OTRA web
+ * gaste nuestra cuota de Gemini desde el navegador de sus visitantes. El freno de
+ * verdad son los limites de mas abajo.
+ *
+ * Sin el secreto puesto se permite cualquier origen, que es como estaba. Es
+ * deliberado y no un descuido: poner aqui a fuego un dominio que todavia no esta
+ * decidido romperia la herramienta el dia que se despliegue en otro sitio, y una
+ * herramienta caida es peor que una cuota compartida.
+ */
+const ORIGENES = (Deno.env.get('PLANNING_AI_ORIGENES') ?? '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean)
+
+function cors(req: Request): Record<string, string> {
+  const origen = req.headers.get('origin') ?? ''
+  const permitido = ORIGENES.length === 0
+    ? '*'
+    : (ORIGENES.includes(origen) ? origen : ORIGENES[0])
+  return {
+    'Access-Control-Allow-Origin': permitido,
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    // Sin esto, un proxy o un CDN puede servirle a un origen la respuesta que
+    // cacheo para otro, con la cabecera del primero dentro.
+    'Vary': 'Origin',
+  }
 }
 
 // ─── Limites ──────────────────────────────────────────────────────────────
@@ -77,10 +108,10 @@ type Destino = (typeof DESTINOS)[number]
 
 // ─── Respuestas ───────────────────────────────────────────────────────────
 
-function json(body: unknown, status = 200): Response {
+function json(cabeceras: Record<string, string>, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS, 'Content-Type': 'application/json' },
+    headers: { ...cabeceras, 'Content-Type': 'application/json' },
   })
 }
 
@@ -90,20 +121,61 @@ function json(body: unknown, status = 200): Response {
  * decir si escribe. Asi se puede encontrar su caso sin ensenarle a nadie por
  * que fallo por dentro.
  */
-function fallo(codigo: string, mensaje: string, status: number, traza: string): Response {
-  return json({ ok: false, codigo, mensaje, traza }, status)
+function fallo(
+  cabeceras: Record<string, string>,
+  codigo: string,
+  mensaje: string,
+  status: number,
+  traza: string,
+): Response {
+  return json(cabeceras, { ok: false, codigo, mensaje, traza }, status)
 }
 
 // ─── Huella del cliente ───────────────────────────────────────────────────
 
 /**
- * La IP la pone el proxy de Supabase en x-forwarded-for, que es la cabecera que
- * usa esta casa (team-signup-submit hace lo mismo). No se usa cf-connecting-ip:
- * la pone Cloudflare y aqui delante no hay Cloudflare, asi que llegaria vacia y
- * el limite quedaria apagado sin dar ningun error.
+ * La IP real de quien llama.
+ *
+ * ⚠️ ESTO NO SE DEDUCE, SE MIDIO. El 2026-09-06 se desplego una funcion suelta en
+ * este mismo proyecto que devolvia las cabeceras de red tal cual llegan, y salio
+ * esto:
+ *
+ *   x-forwarded-for  "47.59.195.26,47.59.195.26, 99.82.162.144"
+ *   cf-connecting-ip "47.59.195.26"
+ *   x-real-ip        (no llega)
+ *   true-client-ip   (no llega, PERO si la manda el cliente si llega)
+ *
+ * Tres cosas que cambian como hay que escribir esta funcion:
+ *
+ * 1. SI HAY CLOUDFLARE DELANTE. El comentario que habia aqui decia lo contrario y
+ *    era falso. Por eso cf-connecting-ip es la buena: la pone Cloudflare y un
+ *    cliente no la puede falsificar. Se probo: mandando una cf-connecting-ip a
+ *    mano, Cloudflare RECHAZA la peticion entera con su error 1000, ni siquiera
+ *    llega aqui.
+ * 2. EL ULTIMO ELEMENTO DE x-forwarded-for NO ES EL CLIENTE, es el ultimo salto
+ *    de la infraestructura, y CAMBIA en cada peticion (99.82.162.144, .168,
+ *    .169...). Coger el ultimo, que es lo que se hace bien en un proxy normal,
+ *    aqui hace que cada llamada de la misma persona parezca de otra y el limite
+ *    por cliente deje de existir. Se vio con dos llamadas seguidas cayendo en
+ *    huellas distintas.
+ * 3. Se probo tambien a mandar un x-forwarded-for falso: Cloudflare lo descarta y
+ *    la cabecera sigue empezando por la IP de verdad. Por eso el respaldo es el
+ *    PRIMER elemento y no el ultimo.
+ *
+ * NUNCA true-client-ip: se probo mandarla a mano y llega tal cual. Es una
+ * cabecera que escribe quien llama, o sea que no es un dato, es una peticion.
  */
 function ipCliente(req: Request): string {
-  return (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || 'desconocida'
+  const cloudflare = (req.headers.get('cf-connecting-ip') ?? '').trim()
+  if (cloudflare) return cloudflare
+
+  // Respaldo por si algun dia esto deja de estar detras de Cloudflare. El primer
+  // elemento, no el ultimo, por el motivo 2 de arriba.
+  const cadena = (req.headers.get('x-forwarded-for') ?? '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+  return cadena[0] ?? 'desconocida'
 }
 
 /**
@@ -129,7 +201,12 @@ class EntradaInvalida extends Error {}
 
 function texto(valor: unknown, campo: string, maxLargo: number): string {
   if (typeof valor !== 'string') throw new EntradaInvalida(`${campo} tiene que ser texto.`)
-  const limpio = valor.trim()
+  // Los saltos de linea y los retornos se aplastan a un espacio. Una cabecera es
+  // una linea; si trae saltos, dentro del prompt parece que empieza otra
+  // instruccion. No es la defensa principal (esa es el esquema de respuesta, que
+  // acota lo peor que puede pasar a una columna mal clasificada), pero quitar la
+  // forma de una instruccion cuesta una linea.
+  const limpio = valor.replace(/[\r\n\t]+/g, ' ').trim()
   if (limpio.length > maxLargo) {
     throw new EntradaInvalida(`${campo} pasa de ${maxLargo} caracteres.`)
   }
@@ -284,7 +361,12 @@ async function mapearColumnas(entrada: EntradaMapeo, traza: string) {
     model: MODELO,
     system: SYS_MAPEO,
     messages: [{ role: 'user', content: prompt }],
-    maxTokens: 4096,
+    // Escala con las columnas del usuario en vez de ir a fuego. Cada columna de
+    // la respuesta son unos 40 tokens, y con 60 columnas (el tope que aceptamos)
+    // un techo de 4096 se queda corto: el modelo trunca, el adaptador lanza
+    // MAX_TOKENS y la lectura falla justo con los ficheros mas gordos, que son
+    // los que mas falta hace leer bien.
+    maxTokens: Math.min(16384, 1024 + entrada.columnas.length * 96),
     temperature: 0,
     // Con esquema y no con json: true a secas. Sin esquema el modelo se deja
     // campos o devuelve menos columnas de las que le has dado, y eso llega a la
@@ -322,11 +404,21 @@ async function mapearColumnas(entrada: EntradaMapeo, traza: string) {
   // columnas y una inventada, "CAMARERO" salia marcada como importe con un 0,5
   // de confianza. Un dato equivocado con cara de dato es justo lo que esta
   // herramienta no puede hacer.
+  // Se guarda una COLA por nombre, no una sola entrada. Un TPV puede traer dos
+  // columnas que se llaman igual (dos "TOTAL", o dos vacias), y con un mapa de
+  // uno por nombre las dos se llevaban la misma respuesta del modelo: la segunda
+  // heredaba la clasificacion de la primera con su misma confianza alta, que es
+  // justo un dato equivocado con cara de dato. Con cola, la primera se lleva la
+  // primera respuesta, la segunda la siguiente si la hay, y si no la hay sale
+  // como ignorada con confianza 0, que en pantalla se lee como "miratela tu".
   const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
-  const porNombre = new Map<string, Record<string, unknown>>()
+  const porNombre = new Map<string, Array<Record<string, unknown>>>()
   for (const c of devueltas) {
     const nombre = typeof c?.nombre === 'string' ? norm(c.nombre) : ''
-    if (nombre && !porNombre.has(nombre)) porNombre.set(nombre, c)
+    if (!nombre) continue
+    const cola = porNombre.get(nombre)
+    if (cola) cola.push(c)
+    else porNombre.set(nombre, [c])
   }
 
   const emparejadas = entrada.columnas.filter((n) => porNombre.has(norm(n))).length
@@ -341,7 +433,7 @@ async function mapearColumnas(entrada: EntradaMapeo, traza: string) {
 
   let sinRespuesta = 0
   const columnas: ColumnaMapeada[] = entrada.columnas.map((nombre, i) => {
-    const dicho = porPosicion ? devueltas[i] : porNombre.get(norm(nombre))
+    const dicho = porPosicion ? devueltas[i] : porNombre.get(norm(nombre))?.shift()
     if (!dicho) sinRespuesta++
     const destino = dicho?.destino
     const valido = typeof destino === 'string' && (DESTINOS as readonly string[]).includes(destino)
@@ -414,12 +506,31 @@ async function nombrarSemana(entrada: EntradaSemana) {
 // ─── Servidor ─────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request): Promise<Response> => {
-  if (req.method === 'OPTIONS') return new Response(null, { headers: CORS })
-
+  const CORS = cors(req)
   const traza = crypto.randomUUID().slice(0, 8)
 
+  // Un try/catch alrededor de TODO. Sin el, cualquier fallo que no estuviera
+  // previsto sale del runtime como un 500 pelado, sin cabeceras CORS y sin
+  // cuerpo: el navegador ni siquiera lee el codigo de estado, ve un error de
+  // CORS, y el front que espera { ok: false, codigo } se encuentra otra cosa.
+  // El contrato de esta funcion es que SIEMPRE contesta en su formato.
+  try {
+    return await manejar(req, CORS, traza)
+  } catch (e) {
+    console.error(`[${traza}] planning-ai: fallo no previsto`, (e as Error)?.stack ?? String(e))
+    return fallo(CORS, 'no_disponible', 'La lectura con IA no esta disponible ahora mismo.', 503, traza)
+  }
+})
+
+async function manejar(
+  req: Request,
+  CORS: Record<string, string>,
+  traza: string,
+): Promise<Response> {
+  if (req.method === 'OPTIONS') return new Response(null, { headers: CORS })
+
   if (req.method !== 'POST') {
-    return fallo('metodo', 'Solo POST.', 405, traza)
+    return fallo(CORS, 'metodo', 'Solo POST.', 405, traza)
   }
 
   // SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY las inyecta la plataforma sola; no
@@ -434,7 +545,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       sal: !!sal,
       gemini: !!Deno.env.get('GEMINI_API_KEY'),
     })
-    return fallo('config', 'La lectura con IA no esta disponible ahora mismo.', 500, traza)
+    return fallo(CORS, 'config', 'La lectura con IA no esta disponible ahora mismo.', 500, traza)
   }
 
   // Se lee como texto para poder mirar el tamano ANTES de parsear. Con
@@ -444,10 +555,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
   try {
     bruto = await req.text()
   } catch {
-    return fallo('entrada_invalida', 'No se ha podido leer la peticion.', 400, traza)
+    return fallo(CORS, 'entrada_invalida', 'No se ha podido leer la peticion.', 400, traza)
   }
-  if (bruto.length > MAX_BYTES_CUERPO) {
-    return fallo('entrada_invalida', 'La peticion es demasiado grande.', 413, traza)
+  // Bytes y no caracteres: la constante dice bytes y en UTF-8 una eñe ocupa dos y
+  // un emoji cuatro. Midiendo con .length, un cuerpo de 32.000 caracteres de
+  // emojis son 128 KB que pasan el filtro.
+  if (new TextEncoder().encode(bruto).length > MAX_BYTES_CUERPO) {
+    return fallo(CORS, 'entrada_invalida', 'La peticion es demasiado grande.', 413, traza)
   }
 
   let cuerpo: Record<string, unknown>
@@ -456,12 +570,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('no es objeto')
     cuerpo = parsed as Record<string, unknown>
   } catch {
-    return fallo('entrada_invalida', 'El cuerpo tiene que ser un JSON.', 400, traza)
+    return fallo(CORS, 'entrada_invalida', 'El cuerpo tiene que ser un JSON.', 400, traza)
   }
 
   const accion = typeof cuerpo.accion === 'string' ? cuerpo.accion : ''
   if (accion !== 'mapear_columnas' && accion !== 'nombrar_semana') {
-    return fallo('accion', 'La accion tiene que ser mapear_columnas o nombrar_semana.', 400, traza)
+    return fallo(CORS, 'accion', 'La accion tiene que ser mapear_columnas o nombrar_semana.', 400, traza)
   }
   const kind = accion === 'mapear_columnas' ? 'map_columns' : 'name_weeks'
 
@@ -471,48 +585,55 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (accion === 'mapear_columnas') entradaMapeo = leerEntradaMapeo(cuerpo)
     else entradaSemana = leerEntradaSemana(cuerpo)
   } catch (e) {
-    if (e instanceof EntradaInvalida) return fallo('entrada_invalida', e.message, 400, traza)
+    if (e instanceof EntradaInvalida) return fallo(CORS, 'entrada_invalida', e.message, 400, traza)
     throw e
   }
 
   const db = createClient(url, serviceKey)
   const huella = await huellaCliente(ipCliente(req), sal)
 
-  // ── Limites ──
-  // Se cuentan las filas ya escritas en planning_ai_calls: una por llamada al
-  // modelo, que es justo lo que cuesta dinero. Las peticiones que no llegan al
-  // modelo (mal formadas) no dejan fila y por tanto no gastan limite, que es lo
-  // que dice el comentario de la tabla en 10-esquema.sql.
-  const desdeCliente = new Date(Date.now() - VENTANA_CLIENTE_MIN * 60_000).toISOString()
-  const desdeGlobal = new Date(Date.now() - 24 * 3600_000).toISOString()
-
-  const [porCliente, global] = await Promise.all([
-    db.from('planning_ai_calls').select('id', { count: 'exact', head: true })
-      .eq('client_hash', huella).gte('created_at', desdeCliente),
-    db.from('planning_ai_calls').select('id', { count: 'exact', head: true })
-      .gte('created_at', desdeGlobal),
-  ])
+  // ── Limites y reserva, en una sola llamada ──
+  //
+  // Las dos cosas van juntas y dentro de la base A PROPOSITO. Contar por un lado
+  // y escribir la fila por otro no frena nada: entre el conteo y la escritura
+  // pasan los segundos que tarda Gemini, y en esa ventana todas las peticiones
+  // simultaneas leen el mismo numero y todas pasan. Con veinte a la vez, un tope
+  // de 30 dejaba entrar 50. El porque completo esta en el comentario de
+  // planning_ai_reservar, en 20-funciones.sql.
+  //
+  // Ademas, antes eran dos conteos con HEAD, y un HEAD que falla no trae cuerpo:
+  // el error llegaba como cadena vacia y no habia forma de saber que habia
+  // pasado. Se vio en la primera llamada despues de cada despliegue.
+  const { data: reserva, error: errReserva } = await db.rpc('planning_ai_reservar', {
+    p_kind: kind,
+    p_client_hash: huella,
+    p_model: MODELO,
+    p_limite_cliente: LIMITE_POR_CLIENTE,
+    p_ventana_min: VENTANA_CLIENTE_MIN,
+    p_limite_global: LIMITE_GLOBAL_DIA,
+  })
 
   // A PROPOSITO al reves que _shared/rate-limit.ts de Web-Panel, que ante un
-  // fallo deja pasar. Alli el limite protege de spam en endpoints que no cuestan
-  // dinero; aqui cada llamada que pasa es una factura de Gemini y no hay ninguna
-  // cuenta detras. Si no podemos contar, no llamamos: quedarse sin lectura
-  // automatica un rato se arregla mapeando a mano, y una noche con el contador
-  // ciego no.
-  if (porCliente.error || global.error) {
-    console.error(`[${traza}] planning-ai: no se ha podido contar el limite`, {
-      cliente: porCliente.error?.message,
-      global: global.error?.message,
-    })
-    return fallo('no_disponible', 'La lectura con IA no esta disponible ahora mismo.', 503, traza)
+  // fallo deja pasar. Alli el limite protege endpoints que no cuestan dinero;
+  // aqui cada llamada que pasa es una factura de Gemini y no hay ninguna cuenta
+  // detras. Si no podemos contar, no llamamos: quedarse sin lectura automatica un
+  // rato se arregla mapeando a mano, y una noche con el contador ciego no.
+  if (errReserva || !reserva) {
+    console.error(`[${traza}] planning-ai: no se ha podido reservar`, errReserva?.message ?? 'sin respuesta')
+    return fallo(CORS, 'no_disponible', 'La lectura con IA no esta disponible ahora mismo.', 503, traza)
   }
-  if ((global.count ?? 0) >= LIMITE_GLOBAL_DIA) {
-    console.error(`[${traza}] planning-ai: tope global del dia alcanzado (${global.count})`)
-    return fallo('limite', 'La lectura con IA ha llegado a su tope de hoy. Puedes seguir a mano.', 429, traza)
+
+  const hueco = reserva as { ok: boolean; motivo?: string; cuantas?: number; call_id?: string }
+
+  if (!hueco.ok) {
+    if (hueco.motivo === 'global') {
+      console.error(`[${traza}] planning-ai: tope global del dia alcanzado (${hueco.cuantas})`)
+      return fallo(CORS, 'limite', 'La lectura con IA ha llegado a su tope de hoy. Puedes seguir a mano.', 429, traza)
+    }
+    return fallo(CORS, 'limite', 'Has hecho muchas lecturas seguidas. Prueba dentro de un rato.', 429, traza)
   }
-  if ((porCliente.count ?? 0) >= LIMITE_POR_CLIENTE) {
-    return fallo('limite', 'Has hecho muchas lecturas seguidas. Prueba dentro de un rato.', 429, traza)
-  }
+
+  const callId = hueco.call_id as string
 
   // ── Llamada ──
   const t0 = Date.now()
@@ -534,37 +655,30 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const ms = Date.now() - t0
 
-  // ── Rastro ──
-  // Una fila por llamada al modelo, salga bien o mal. Los nombres de columna son
-  // los de 10-esquema.sql y no se inventan.
-  //
-  // output_tokens lleva billedOutput (salida + razonamiento) a proposito: Google
-  // factura los tokens de pensar como salida, y usar los de texto a secas
-  // infravalora la factura entre dos y tres veces.
-  //
-  // account_id va null: esta funcion corre sin sesion (verify_jwt = false) y no
-  // se acepta por parametro. Un id de cuenta que manda el cliente no es un id de
-  // cuenta, es una peticion.
-  const { error: errRegistro } = await db.from('planning_ai_calls').insert({
-    kind,
-    account_id: null,
-    client_hash: huella,
-    model: MODELO,
-    input_tokens: usage.input,
-    output_tokens: usage.billedOutput,
-    latency_ms: ms,
-    is_ok: errorCode === null,
-    error_code: errorCode,
+  // ── Cerrar el rastro ──
+  const { error: errRegistro } = await db.rpc('planning_ai_cerrar', {
+    p_call_id: callId,
+    // Los tokens de una llamada que fallo NO son cero: si el modelo penso y
+    // luego devolvio algo que no se entiende, esos tokens se pagan igual. Cuando
+    // el adaptador no nos deja saberlos van a null, que significa "no se sabe".
+    // Poner cero seria decir que las llamadas que fallan salen gratis.
+    p_input_tokens: usage.input || null,
+    p_output_tokens: usage.billedOutput || null,
+    p_latency_ms: ms,
+    p_is_ok: errorCode === null,
+    p_error_code: errorCode,
   })
-  // Si el registro falla no se castiga al usuario: ya tiene su respuesta. Pero
-  // se grita en el log, porque con el registro roto el limite de arriba deja de
-  // contar y nos quedamos ciegos.
+
+  // Si cerrar el rastro falla, el usuario ya tiene su respuesta y no se le
+  // castiga. Pero se grita en el log: la fila se queda marcada como 'en_curso' y
+  // eso ensucia la unica cifra que dice lo que estamos gastando.
   if (errRegistro) {
-    console.error(`[${traza}] planning-ai: no se ha podido registrar la llamada`, errRegistro.message)
+    console.error(`[${traza}] planning-ai: no se ha podido cerrar el rastro`, errRegistro.message)
   }
 
   if (errorCode !== null) {
     return fallo(
+      CORS,
       'modelo',
       accion === 'mapear_columnas'
         ? 'No hemos podido leer las columnas. Puedes marcarlas tu a mano.'
@@ -576,5 +690,5 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   console.log(`[${traza}] planning-ai ${kind} ok ${ms}ms tokens=${usage.input}/${usage.billedOutput} modelo=${MODELO}`)
 
-  return json({ ok: true, accion, ...(salida as Record<string, unknown>) })
-})
+  return json(CORS, { ok: true, accion, ...(salida as Record<string, unknown>) })
+}

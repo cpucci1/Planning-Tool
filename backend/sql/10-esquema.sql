@@ -41,6 +41,21 @@ begin;
 -- ----------------------------------------------------------------------------
 create extension if not exists pgcrypto with schema extensions;
 
+-- El `with schema extensions` NO mueve una pgcrypto que ya estuviera instalada en
+-- otro sitio: el `if not exists` sale por la puerta sin tocar nada. Y como todas
+-- las funciones de abajo llaman a `extensions.crypt`, eso se veria como un
+-- backend que se instala perfecto y revienta al guardar el primer plan. Se
+-- comprueba aqui, que es donde cuesta cero.
+do $$
+begin
+  if not exists (
+    select 1 from pg_extension e join pg_namespace n on n.oid = e.extnamespace
+     where e.extname = 'pgcrypto' and n.nspname = 'extensions'
+  ) then
+    raise exception 'pgcrypto no esta en el esquema extensions; las funciones del planificador la llaman como extensions.crypt';
+  end if;
+end $$;
+
 -- ----------------------------------------------------------------------------
 -- 1. tool_accounts · la persona, compartida por todas las herramientas
 -- ----------------------------------------------------------------------------
@@ -67,6 +82,15 @@ comment on column public.tool_accounts.is_marketing_opt_in is
   'Si acepto expresamente que le escribamos. Nace en false: identificarse para guardar un plan no es consentir marketing.';
 comment on column public.tool_accounts.last_seen_at is
   'Ultima vez que se le vio. Sirve para medir quien vuelve, que es la metrica que dice si la herramienta engancha.';
+
+comment on column public.tool_accounts.id is
+  'Identificador de la cuenta dentro de las herramientas. Es distinto del de auth a proposito: si algun dia se cambia de proveedor de identidad, los planes siguen colgando de aqui.';
+comment on column public.tool_accounts.display_name is
+  'Como quiere que le llamemos. Lo pone la persona; nunca se rellena solo desde el correo.';
+comment on column public.tool_accounts.locale is
+  'Idioma de la persona. Hoy siempre es es; existe porque el dia que haya otro idioma no se puede deducir del correo.';
+comment on column public.tool_accounts.created_at is
+  'Cuando se identifico por primera vez en cualquiera de las herramientas.';
 
 create index if not exists tool_accounts_email_idx on public.tool_accounts (lower(email));
 
@@ -155,6 +179,24 @@ comment on column public.planning_plans.people_count is
   'Personas que salieron en la plantilla. Lo registra el front; la base NO lo recalcula. Esta fuera del jsonb solo para poder agrupar por el.';
 comment on column public.planning_plans.save_count is
   'Cuantas veces se ha guardado este plan. Separa la visita de paso del uso de verdad.';
+comment on column public.planning_plans.id is
+  'Identificador interno del plan. Es la clave para EDITAR y BORRAR, nunca el share_token: el token se comparte y no puede dar permiso para destruir.';
+comment on column public.planning_plans.account_id is
+  'Dueno del plan, o null mientras nadie lo ha reclamado. Todos los planes nacen null.';
+comment on column public.planning_plans.claimed_at is
+  'Cuando paso a tener dueno. Va siempre junto a account_id: un CHECK impide que exista uno sin el otro, porque si no "cuantos planes se reclaman" deja de poder contarse.';
+comment on column public.planning_plans.weekly_hours is
+  'Horas de plantilla a la semana que salieron del calculo. Lo registra el front; la base NO lo recalcula.';
+comment on column public.planning_plans.coverage_pct is
+  'Porcentaje de semanas del ano que la plantilla fija cubre. Lo elige el usuario arrastrando la linea del grafico.';
+comment on column public.planning_plans.peak_weeks_count is
+  'Cuantas semanas quedan por encima de la linea de cobertura. Son las que se cubren con extras, no contratando.';
+comment on column public.planning_plans.peak_hours_year is
+  'Horas de pico al ano que la plantilla fija no cubre. Es la cifra con la que se explica para que sirve Shifty.';
+comment on column public.planning_plans.created_at is
+  'Cuando se guardo el plan por primera vez, que es al llegar la persona a la pantalla de resultado.';
+comment on column public.planning_plans.updated_at is
+  'Ultima vez que se guardo. La mantiene un disparador, no el codigo que escribe: en produccion, 115 de las 172 tablas con updated_at no lo tienen y esa fecha miente.';
 
 create index if not exists planning_plans_account_idx
   on public.planning_plans (account_id, updated_at desc)
@@ -215,6 +257,16 @@ comment on column public.planning_plan_datasets.weeks_meta is
   'Total de comensales por semana ISO, ya sumado. Permite pintar el grafico del ano sin descomprimir la curva.';
 comment on column public.planning_plan_datasets.byte_size is
   'Tamano del bulto comprimido. Se guarda para poder medir el consumo sin leer la columna, que es justo lo que se quiere evitar.';
+comment on column public.planning_plan_datasets.plan_id is
+  'El plan al que pertenece la curva. Es tambien la clave primaria: un plan tiene una curva y solo una.';
+comment on column public.planning_plan_datasets.year is
+  'Ano del historico que subio el usuario. Fuera del bulto comprimido porque se usa para etiquetar sin descomprimir.';
+comment on column public.planning_plan_datasets.source_name is
+  'Nombre del fichero que subio, para poder reconocer el plan en su lista. El fichero en si NUNCA se sube: se lee entero en el navegador.';
+comment on column public.planning_plan_datasets.is_demo is
+  'Si el historico salio de los datos de ejemplo. Sin esto, las metricas de uso mezclan planes de verdad con gente probando.';
+comment on column public.planning_plan_datasets.created_at is
+  'Cuando se guardo la curva. No se toca al actualizar: lo que cambia entonces es el contenido, no el origen.';
 
 -- ----------------------------------------------------------------------------
 -- 4. planning_ai_calls · rastro y coste de cada llamada al modelo
@@ -248,6 +300,24 @@ comment on column public.planning_ai_calls.client_hash is
   'Hash con sal del cliente anonimo. No es la IP y no permite volver a la IP: la sal esta en los secretos de la edge function.';
 comment on column public.planning_ai_calls.kind is
   'Que se le pidio: map_columns (que es cada columna del fichero) o name_weeks (como se llama esta semana rara).';
+comment on column public.planning_ai_calls.id is
+  'Identificador de la llamada. Solo sirve para poder referirse a una fila concreta al mirar un caso raro.';
+comment on column public.planning_ai_calls.account_id is
+  'Cuenta que la provoco, si la habia. Hoy va siempre null: la funcion corre sin sesion y un id de cuenta que manda el cliente no es un id de cuenta, es una peticion.';
+comment on column public.planning_ai_calls.model is
+  'Id exacto del modelo al que se llamo. Se guarda para poder cruzar el gasto cuando se cambie de modelo.';
+comment on column public.planning_ai_calls.input_tokens is
+  'Tokens de entrada que factura Google.';
+comment on column public.planning_ai_calls.output_tokens is
+  'Tokens de salida MAS los de razonamiento. Google factura los de pensar como salida, y mirar solo los de texto infravalora la factura entre dos y tres veces.';
+comment on column public.planning_ai_calls.latency_ms is
+  'Lo que tardo la llamada al modelo. Es lo que dice si la pantalla se le esta quedando colgada a la gente.';
+comment on column public.planning_ai_calls.is_ok is
+  'Si el modelo contesto algo utilizable. Las llamadas que fallan tambien dejan fila, porque tambien se pagan.';
+comment on column public.planning_ai_calls.error_code is
+  'Que fallo, en corto. Null cuando salio bien.';
+comment on column public.planning_ai_calls.created_at is
+  'Cuando se llamo. Es la columna sobre la que se cuentan los limites por hora y por dia.';
 
 create index if not exists planning_ai_calls_created_idx on public.planning_ai_calls (created_at desc);
 create index if not exists planning_ai_calls_client_idx
@@ -255,7 +325,39 @@ create index if not exists planning_ai_calls_client_idx
   where client_hash is not null;
 
 -- ----------------------------------------------------------------------------
--- 5. RLS y permisos
+-- 5. planning_daily_counters · cortacircuitos de volumen
+-- ----------------------------------------------------------------------------
+--
+-- SE HONESTO CON LO QUE ESTO ES. No es un limite por IP y no impide el abuso:
+-- desde el navegador no llega una IP fiable a Postgres, y cualquier huella que
+-- mande el cliente la puede falsificar el cliente. Lo que hace es acotar el
+-- DESTROZO: si alguien escribe un bucle, deja de poder llenar los 500 MB del
+-- plan gratis y tumbar la herramienta para todos.
+--
+-- Vive aqui y no en 20-funciones.sql aunque solo la use una funcion: este es el
+-- fichero de las tablas, y una tabla escondida en el de funciones es una tabla
+-- que se queda sin RLS el dia que alguien reinstale solo el esquema.
+create table if not exists public.planning_daily_counters (
+  day        date not null,
+  kind       text not null,
+  -- Se llama `hits` y no `count` a proposito: `count` es tambien el nombre de
+  -- una funcion de Postgres, y sin cualificar dentro de un RETURNING eso es una
+  -- ambiguedad que no falla al crear la funcion, falla al llamarla.
+  hits       integer not null default 0,
+  primary key (day, kind)
+);
+
+comment on table public.planning_daily_counters is
+  'Contador diario por tipo de accion. Es un cortacircuitos de volumen, no un limite por usuario: acota el destrozo de un bucle, no lo impide.';
+comment on column public.planning_daily_counters.day is
+  'El dia que se cuenta. La cuenta se reinicia sola cada medianoche porque la clave lleva la fecha.';
+comment on column public.planning_daily_counters.kind is
+  'Que accion se cuenta: create_plan o update_plan.';
+comment on column public.planning_daily_counters.hits is
+  'Veces que se ha hecho esa accion hoy. Se llama hits y no count porque count es una funcion de Postgres y dentro de un RETURNING sin cualificar eso es una ambiguedad que falla al llamar, no al crear.';
+
+-- ----------------------------------------------------------------------------
+-- 6. RLS y permisos
 -- ----------------------------------------------------------------------------
 --
 -- ⚠️ ESTO NO ES OPCIONAL Y ES LA PARTE QUE MAS SE FALLA.
@@ -278,11 +380,19 @@ alter table public.tool_accounts          enable row level security;
 alter table public.planning_plans         enable row level security;
 alter table public.planning_plan_datasets enable row level security;
 alter table public.planning_ai_calls      enable row level security;
+alter table public.planning_daily_counters enable row level security;
 
 revoke all on public.tool_accounts          from anon, authenticated;
 revoke all on public.planning_plans         from anon, authenticated;
 revoke all on public.planning_plan_datasets from anon, authenticated;
 revoke all on public.planning_ai_calls      from anon, authenticated;
+revoke all on public.planning_daily_counters from anon, authenticated;
+
+-- Y que no puedan CREAR nada en public. Postgres concede CREATE sobre public a
+-- todo el mundo por herencia historica, y con eso un anonimo puede plantar una
+-- tabla o una funcion suya en el mismo esquema por el que pasan las nuestras.
+-- No es teorico: es la puerta clasica para envenenar un search_path.
+revoke create on schema public from anon, authenticated;
 
 -- Sin politicas a proposito. Si algun dia hace falta que el cliente lea una de
 -- estas tablas directamente, se anade la politica Y se documenta por que la

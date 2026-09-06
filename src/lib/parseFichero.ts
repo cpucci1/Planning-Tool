@@ -37,7 +37,7 @@
 // tiempo de ejecución. Se importa en vez de copiarse para que el contrato no
 // pueda desincronizarse en silencio; su sitio natural sería `lib/types.ts`, y
 // ahí debería mudarse el día que se pueda tocar ese fichero.
-import type { ColumnaDetectada, DestinoColumna } from '@/components/MapeoColumnas'
+import type { ColumnaDetectada, DestinoColumna } from './mapeo'
 import { applyLag, inferHours, weekTotal } from './demand'
 import { isoWeekStart } from './holidays'
 import { GRID_START_MIN, SLOTS_PER_DAY, clockToGridMin, minToSlot } from './time'
@@ -813,6 +813,24 @@ function detectarColumnas(
       ejemplos: muestrasDe(filas, i, destino),
     }
   })
+}
+
+/**
+ * Vuelve a sacar los ejemplos de cada columna con el destino que tenga AHORA.
+ *
+ * Hace falta porque los ejemplos se formatean según lo que se ha entendido que
+ * es la columna (ver `comoTexto`): en un Excel una fecha es el número 45.822, y
+ * enseñárselo así no le dice a nadie si esa columna es la suya. Cuando algo
+ * cambia el destino después de leer el fichero — el modelo, o el propio
+ * usuario en la pantalla de mapeo — los ejemplos se quedan formateados para el
+ * destino viejo y el usuario ve un número donde debería ver una fecha, que es
+ * justo lo único que le permite reconocer su columna.
+ */
+export function reetiquetarEjemplos(
+  filas: FilaCruda[],
+  columnas: ColumnaDetectada[],
+): ColumnaDetectada[] {
+  return columnas.map((c, i) => ({ ...c, ejemplos: muestrasDe(filas, i, c.destino) }))
 }
 
 /** Las 3 primeras filas de una columna, en texto y listas para enseñar. */
