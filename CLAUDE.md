@@ -502,9 +502,11 @@ cosa**, no por lo que decía:
   Y los cinco botones iguales del final son ahora dos importantes y tres pequeños. El PDF
   aparece dos veces a propósito (arriba y abajo), pero **con el mismo nombre**: repetir una
   acción en una página larga está bien, llamarla de dos maneras no.
-- **El catálogo de puestos se muda al paso de Equipo.** Estaba en la pantalla de lectura
-  del fichero, tres pasos antes de que esos puestos aparecieran como columnas de la tabla
-  de tramos, y allí no se entendía para qué servía.
+- **El catálogo de puestos se movió al paso de Equipo, y se devolvió.** El 2026-09-05 se
+  llevó al lado de la tabla de tramos, que es la que usa esos puestos como columnas. El
+  2026-09-06 Crescente lo devolvió a la lectura del fichero: **es donde lo pidió Fernando**
+  (punto 1.1 de su revisión) y manda eso. Queda anotado para que nadie lo vuelva a mover
+  por el mismo razonamiento sin esta conversación delante.
 
 ### 2 duodecies. Lo que la revisión dice que SÍ cumple
 

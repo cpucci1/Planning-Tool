@@ -21,7 +21,6 @@ import {
   Sliders,
   Users,
 } from 'lucide-react'
-import { RoleCatalog } from '@/components/RoleCatalog'
 import { TiersTable } from '@/components/TiersTable'
 import { DayCurve } from '@/components/charts/DayCurve'
 import {
@@ -564,12 +563,6 @@ export function StepTeam() {
             onRolesChange={p.setRoles}
             onBlocksChange={p.setBlocks}
           />
-
-          {/* El catálogo estaba en la pantalla de lectura del fichero, tres
-              pasos antes de que estos puestos aparecieran como columnas de la
-              tabla de tramos. Ahí no se entendía para qué servía; aquí está al
-              lado de lo que modifica. */}
-          <RoleCatalog blocks={p.model.blocks} roles={p.model.roles} onRolesChange={p.setRoles} />
 
           <AdvancedSettings />
 

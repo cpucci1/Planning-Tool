@@ -30,6 +30,7 @@ import { YearChart } from '@/components/charts/YearChart'
 import { WeekHeatmap } from '@/components/charts/WeekHeatmap'
 import { DayCurve } from '@/components/charts/DayCurve'
 import { HoursEditor } from '@/components/HoursEditor'
+import { RoleCatalog } from '@/components/RoleCatalog'
 import {
   MapeoColumnas,
   mapeoSuficiente,
@@ -367,6 +368,16 @@ export function StepDemand() {
         </div>
       </Card>
 
+      {/* El catálogo de puestos vive aquí, en la lectura del fichero, porque así
+          lo pidió Fernando (punto 1.1 de su revisión): primero qué categorías
+          hay y qué cuesta cada hora, y en el paso de equipo cuánta gente de cada
+          una hace falta según los comensales.
+
+          Estuvo un rato en el paso de equipo, pegado a la tabla de tramos que
+          usa estos puestos como columnas. Se devolvió aquí por decisión de
+          Crescente el 2026-09-06: manda el sitio que pidió el advisor. Si vuelve
+          a moverse, que sea con esa conversación delante. */}
+      <RoleCatalog blocks={p.model.blocks} roles={p.model.roles} onRolesChange={p.setRoles} />
       </div>
       )}
 
