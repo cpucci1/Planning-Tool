@@ -19,6 +19,14 @@
 # limite de correos a uno por segundo sin que nadie lo pidiera. Por eso estan
 # escritos abajo los valores que importan, aunque coincidan con el defecto.
 #
+# LOS OTROS SECRETOS DE freetools, que no van aqui porque son secretos:
+#   GEMINI_API_KEY          la clave del modelo
+#   BREVO_API_KEY           para mandar el correo del codigo
+#   PLANNING_AI_HASH_SALT   la sal de la huella del cliente
+#   SEND_EMAIL_HOOK_SECRET  el que firma el hook, el mismo que el de abajo
+#   PLANNING_AI_ORIGENES    las webs desde las que se acepta llamar a la IA;
+#                           hoy el dominio propio, el de Vercel y localhost
+#
 # ⚠️ El secreto NO va en este fichero. Va en la variable de entorno de arriba, y
 # tiene que ser el MISMO que el secreto `SEND_EMAIL_HOOK_SECRET` de las Edge
 # Functions, o la funcion rechaza todo con 401.
@@ -32,10 +40,21 @@ verify_jwt = false
 verify_jwt = false
 
 [auth]
-# El planificador corre en el 5174 en local. La direccion de produccion (Vercel)
-# hay que anadirla aqui el dia que se despliegue, o el retorno de sesion no vuelve.
-site_url = "http://localhost:5174"
-additional_redirect_urls = ["http://localhost:5174", "http://127.0.0.1:5174"]
+# La direccion de verdad del planificador. Si no esta aqui, alguien entra con su
+# codigo y la sesion NO vuelve: Auth solo devuelve a las direcciones de esta lista.
+#
+# Estan las cuatro que existen: el dominio propio, el que da Vercel (que sigue
+# funcionando y se usa para mirar un despliegue antes de apuntar el DNS), y las
+# dos de local. Los despliegues de vista previa de Vercel llevan una direccion
+# distinta cada vez, asi que ahi el login no vuelve: es a proposito, no se ponen
+# comodines sobre vercel.app porque eso abre el retorno a cualquier proyecto.
+site_url = "https://planificador.shifty.es"
+additional_redirect_urls = [
+  "https://planificador.shifty.es",
+  "https://shifty-planning.vercel.app",
+  "http://localhost:5174",
+  "http://127.0.0.1:5174",
+]
 
 [auth.email]
 enable_signup = true
