@@ -35,7 +35,7 @@ estas reglas son las mismas en todos: **un cambio de base afecta a los seis a la
 | `Docs` | **Fuente unica de documentacion, reglas y skills** | |
 | `Sales` | Marca, marketing y ventas | |
 | `Sales/sales-tool` | Scrapper, Enricher, Navigator (CRM comercial) | |
-| `Planning-Tool` | Planificador de plantilla. El unico que NO toca Supabase | `npm run dev` → :5174 |
+| `Planning-Tool` | Planificador de plantilla. **NO toca la base de produccion**: usa un proyecto Supabase propio, `freetools` | `npm run dev` → :5174 |
 
 Los ocho viven en una misma carpeta en el ordenador, `~/Desktop/Shifty/Github/`, que **no es un
 repositorio**: solo los contiene.
@@ -280,11 +280,24 @@ de Shifty.
 
 ## Estado
 
-**Solo front.** No hay backend, no hay login, no hay persistencia en servidor **ni en el
-navegador**. Cerrar la pestaña borra todo lo que no se haya descargado como PDF.
-La lectura del fichero con IA está **simulada**: se acepta cualquier archivo, se muestra
-el proceso de análisis y se devuelven **datos simulados** deterministas. Cuando exista
-backend, solo hay que sustituir `src/lib/fakeAI.ts` por una llamada real.
+**Front y backend, los dos en marcha.** Actualizado el 2026-09-06, cuando se instaló y se
+probó el backend en el proyecto Supabase `freetools` (ver la sección 10).
+
+- **El fichero se lee de verdad.** `src/lib/parseFichero.ts` era el sustituto de
+  `lib/fakeAI.ts` desde hacía días, estaba probado con 112 comprobaciones… y **no lo
+  llamaba nadie**: la aplicación seguía generando un histórico inventado a partir del
+  nombre del fichero. Se enchufó el 2026-09-06 en `StepImport.tsx`. `fakeAI` se queda
+  **solo** para los datos de ejemplo, que no tienen fichero que leer.
+- **Corregir una columna cambia el cálculo.** Antes el desplegable de la pantalla de mapeo
+  se movía y el resultado seguía saliendo de la columna equivocada, que engaña más que no
+  tener el desplegable, porque la pantalla dice que te ha hecho caso.
+- **La lectura de columnas y el nombre de las semanas raras los repasa un modelo de verdad**
+  (Gemini 3.8 Flash, `backend/functions/planning-ai/`). Los dos son opcionales: si no hay
+  backend, si falla o si tarda, se sigue con lo de siempre y no se entera nadie.
+- **El plan se guarda en el servidor** al llegar al resultado, sin cuenta, y se puede volver
+  a abrir con un enlace corto de doce caracteres (`?plan=xxxxxxxxxxxx`).
+- **Lo que NO funciona todavía: entrar con el correo.** El código está entero y probado, pero
+  la cuenta de Brevo rechaza los envíos por su restricción de IP. Ver la sección 10.
 
 `src/lib/persistence.ts` existe pero **no está conectado a nada**: es un guardado
 sin cuenta (autoguardado local + fichero `.json` descargable) que se construyó y se probó
@@ -502,9 +515,11 @@ cosa**, no por lo que decía:
   Y los cinco botones iguales del final son ahora dos importantes y tres pequeños. El PDF
   aparece dos veces a propósito (arriba y abajo), pero **con el mismo nombre**: repetir una
   acción en una página larga está bien, llamarla de dos maneras no.
-- **El catálogo de puestos se muda al paso de Equipo.** Estaba en la pantalla de lectura
-  del fichero, tres pasos antes de que esos puestos aparecieran como columnas de la tabla
-  de tramos, y allí no se entendía para qué servía.
+- **El catálogo de puestos se movió al paso de Equipo, y se devolvió.** El 2026-09-05 se
+  llevó al lado de la tabla de tramos, que es la que usa esos puestos como columnas. El
+  2026-09-06 Crescente lo devolvió a la lectura del fichero: **es donde lo pidió Fernando**
+  (punto 1.1 de su revisión) y manda eso. Queda anotado para que nadie lo vuelva a mover
+  por el mismo razonamiento sin esta conversación delante.
 
 ### 2 duodecies. Lo que la revisión dice que SÍ cumple
 
@@ -924,9 +939,14 @@ o exigir un tipo conocido rompe el login del Web-Panel.
 |---|---|
 | Tablas, permisos y funciones | `backend/sql/10-esquema.sql` y `20-funciones.sql` |
 | Comprobacion post-instalacion | `backend/sql/99-comprobar.sql` |
+| Prueba de que se defiende (ataca de verdad) | `backend/sql/98-probar-seguridad.sql` |
 | La funcion de Gemini | `backend/functions/planning-ai/` |
+| El correo con el codigo, por Brevo | `backend/functions/planning-auth-email/` |
 | El adaptador del modelo | `backend/functions/_shared/llm.ts`, copia del de Web-Panel |
 | El cliente y las llamadas | `src/lib/supabase.ts` y `src/lib/backend.ts` |
+| El tipo y el umbral del mapeo | `src/lib/mapeo.ts` |
+| La segunda opinion del modelo sobre las columnas | `src/lib/mapeoIA.ts` |
+| El nombre de las semanas raras | `src/lib/territorioIA.ts` |
 | Entrar con el correo | `src/components/CuentaModal.tsx` |
 
 ### Las decisiones que hay detras, para no volver a discutirlas
@@ -972,22 +992,89 @@ cumple. `src/lib/parseFichero.ts` parsea el CSV o el Excel **entero en el navega
 Gemini solo se le mandan **las cabeceras y tres filas de muestra**. El PDF no tiene soporte
 por eso mismo: no hay forma de leerlo sin subirlo.
 
-### Lo que NO esta verificado
+### Lo que se probo el 2026-09-06, y con que
 
-- **El id `gemini-3.8-flash` no se ha llamado nunca.** Sale del encargo y de una busqueda,
-  no de una respuesta de la API, porque aqui no hay clave. Comprobarlo antes del primer
-  despliegue; el comando esta en el README de la funcion.
-- **La calidad de los dos prompts esta sin medir.** Solo se ve con un fichero real delante.
-- **Nada del SQL se ha ejecutado contra una base.** No habia acceso a `freetools` ni Postgres
-  local. Por eso existe `99-comprobar.sql`.
+Todo esto se ejecuto contra `freetools` de verdad, no se dedujo:
 
-### Dos cosas abiertas
+- **El id `gemini-3.8-flash` EXISTE.** Comprobado contra la API de Google. Y las dos acciones
+  contestan: el mapeo de columnas y el nombre de la semana, con tokens y latencia reales
+  (entre 0,8 y 2,5 segundos) apuntados en `planning_ai_calls`.
+- **El SQL corre entero.** `99-comprobar.sql` da BIEN en las once comprobaciones,
+  `plpgsql_check` no saca ni un aviso en las 16 funciones y la consulta de sobrecargas
+  ambiguas da cero filas.
+- **El backend se defiende.** `98-probar-seguridad.sql`: 22 pruebas, 22 OK. Y con la clave
+  anonima de verdad por HTTP: las tres tablas rechazan el SELECT, borrar y reclamar el plan
+  de otro se rechazan, y leerlo por su enlace funciona.
+- **El viaje de la curva cuadra al byte.** Un plan de 60.956 filas guardado y vuelto a leer
+  desde otra pestaña: 52 semanas, 44 franjas por dia, y la suma de la curva descomprimida
+  (638.701) es exactamente la de los totales por semana. No sale plana ni a cero.
+- **Los tres fallos viejos siguen arreglados.** Subir un segundo fichero sin pulsar "empezar
+  de nuevo" crea un plan nuevo y NO pisa el anterior; abrir el enlace de otro no lo sube como
+  tuyo; y poner nombres en el cuadrante y volver a guardar SI los guarda.
+- **El aviso de filas descartadas existe y dice cuantas y por que**, con numeros de fila de
+  ejemplo. Antes no estaba escrito en ninguna parte.
 
-- **La libreria `xlsx` tiene dos avisos de seguridad de gravedad alta** y npm dice que no hay
-  arreglo por ahi (`GHSA-4r6h-8v6p-xvw6` y `GHSA-5pgg-2g8v-p4x9`). La version corregida, la
-  0.20, solo esta en el CDN propio de SheetJS. Pendiente de decidir.
-- **La rejilla del calculo va de 06:00 a 04:00** (`GRID_START_MIN` en `lib/time.ts`). Un
-  ticket de las 05:15 no tiene franja y se descarta, contandolo. Afecta a locales de copas.
+### Lo que sigue SIN verificar
+
+- **Que el correo con el codigo llegue.** Ver mas abajo: se para en Brevo, no en el codigo.
+- **La calidad del mapeo con muchos TPV distintos.** Se ha probado con cinco ficheros reales
+  descargados de internet y con uno construido a proposito en formato espanol. Con mas
+  formatos aparecera algo.
+- **Nada de esto se ha visto en produccion**, porque el planificador todavia no esta
+  desplegado con estas variables de entorno.
+
+### Lo que se decidio el 2026-09-07, y como quedo
+
+Crescente cerro las cuatro cosas que quedaban abiertas. Las cuatro estan hechas:
+
+- **Del fichero ya no sale ni un nombre de nadie.** Antes salian tres celdas por columna tal
+  cual, y en una columna `CAMARERO` eso eran los nombres de la plantilla saliendo hacia
+  Google. Ahora sale la FORMA y no el contenido: fechas, horas, numeros y codigos con digitos
+  van tal cual (`14/06/2025`, `86,50`, `T0010101`), y cualquier otra cosa sale como
+  `(texto, 4)`. La regla que lo sostiene es que un codigo lleva algun digito y un nombre de
+  pila no: sin ella, `Luis` y `Ana` pasaban por codigos cortos. Comprobado interceptando la
+  peticion de verdad en el navegador. Y comprobado tambien que el modelo sigue clasificando
+  igual de bien: lo que necesitaba saber de una columna de texto libre es que era texto libre.
+  Vive en `formaDeCelda`, en `src/lib/mapeoIA.ts`.
+- **La columna de tickets que es un CODIGO se detecta sola.** Es el caso normal del TPV
+  espanol: una fila por ticket y una columna con su numero de documento. Antes se multiplicaba
+  ese codigo por los comensales por ticket, no era un numero, y se descartaban TODAS las filas:
+  al usuario le salia que su fichero no valia. Ahora se perfila la propia columna y, si menos
+  de la mitad de sus valores son numeros, se cuenta **una fila, un ticket**, y se dice en
+  pantalla. Un fichero con cantidades de verdad se comporta exactamente igual que antes, que
+  es lo que hace este cambio seguro.
+- **La rejilla cubre las 24 horas** (`GRID_END_MIN` en `lib/time.ts`), de 06:00 a 06:00. Iba
+  hasta las 04:00 y tiraba en silencio los tickets de madrugada: justo las dos mejores horas de
+  un local de copas. El precio, aceptado a sabiendas: cuatro franjas que en un restaurante de
+  menu estan siempre a cero, y un 9% mas de curva. El cuadrante no las pinta, porque ya
+  recortaba la ventana visible a lo que de verdad ocurre. Un plan guardado con la rejilla vieja
+  se sigue abriendo: `ajustarFranjas` lo rellena con ceros en los tres sitios por donde entra
+  una curva (el servidor, el enlace largo y el autoguardado).
+- **La libreria `xlsx` sube a la 0.20.3**, instalada desde el CDN de SheetJS, que es donde esta
+  la version corregida. `npm audit` pasa de un aviso de gravedad alta a cero. ⚠️ Ojo: al no
+  venir de npm, quien instale necesita alcanzar `cdn.sheetjs.com`. Comprobado que Excel se
+  sigue leyendo igual, con sus fechas serie y sus horas en fraccion.
+
+Y una que no era de Crescente pero venia de la misma tanda:
+
+- **Recuperar un plan guardado ya no deja el mapeo sin efecto.** Las filas del fichero se
+  guardan aparte del autoguardado (`guardarFilas` en `persistence.ts`), porque la foto se
+  reescribe cada 600 ms y las filas no cambian nunca dentro de una lectura.
+
+### Dos trampas que costaron tiempo, para no repetirlas
+
+**En SQL, comparar con NULL no da falso: da desconocido, y un IF con desconocido NO ENTRA.**
+Tres funciones (`planning_update_plan`, `planning_delete_plan` y `planning_claim_plan`) tenian
+la misma guarda copiada y las tres fallaban por ahi: con una cuenta propia y solo el ENLACE de
+otro se podia sobrescribir y borrar su plan. Comprobado contra la base, no deducido. Ahora la
+guarda esta **en un solo sitio** (`planning_puede_escribir`) y todo lo desconocido cae a false.
+
+**La IP del cliente sale de `cf-connecting-ip`, no de `x-forwarded-for`.** Se midio
+desplegando una funcion que devolvia las cabeceras tal cual llegan: SI hay Cloudflare delante
+(el comentario del codigo decia lo contrario y era falso), el ultimo elemento de
+`x-forwarded-for` es un salto de infraestructura que **cambia en cada peticion**, y
+`true-client-ip` la puede mandar el cliente. Coger el elemento equivocado no rompe nada
+visible: apaga el limite por cliente en silencio.
 
 ---
 
