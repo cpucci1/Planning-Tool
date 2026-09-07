@@ -8,9 +8,12 @@
  * hora" en ajustes avanzados; no servía, porque un jefe de cocina y un office
  * no cuestan lo mismo y la plantilla mezcla los dos.
  *
- * Los puestos se añaden y se borran en la tabla de tramos, no aquí: allí es
- * donde hay que ponerles número, y tener dos sitios que crean puestos acaba
- * con dos listas distintas.
+ * Los puestos se añaden y se quitan AQUÍ además de en la tabla de tramos.
+ * Antes solo allí, y esta pantalla se titulaba "qué puestos tienes" sin dejar
+ * decir que no tienes uno: la única forma era ir a la otra pantalla y poner
+ * ceros a mano en todas las filas. Las dos llaman a `lib/catalogo`, que es lo
+ * que impide que acaben con dos listas distintas: dar de alta un puesto no es
+ * añadir una fila, es meterlo en TODOS los tramos.
  */
 
 import { useState } from 'react'
@@ -30,7 +33,15 @@ import {
   cn,
 } from './ui'
 import { SMI_HORA_EUR, porDebajoDelSmi } from '@/lib/contracts'
-import { borrarZona, crearZona, nextColor, renombrarZona, type ModelParts } from '@/lib/catalogo'
+import {
+  borrarPuesto,
+  borrarZona,
+  crearPuesto,
+  crearZona,
+  nextColor,
+  renombrarZona,
+  type ModelParts,
+} from '@/lib/catalogo'
 import { PALETTE } from '@/data/presets'
 import type { Block, Role, Tier } from '@/lib/types'
 
@@ -60,6 +71,10 @@ export function RoleCatalog({
   const [nuevaZona, setNuevaZona] = useState(false)
   const [nombreZona, setNombreZona] = useState('')
   const [zonaABorrar, setZonaABorrar] = useState<Block | null>(null)
+  const [puestoABorrar, setPuestoABorrar] = useState<Role | null>(null)
+  /** El puesto recién creado, para abrirle el nombre y que no se quede
+   *  llamándose "Nuevo puesto". Mismo patrón que la tabla de tramos. */
+  const [puestoNuevo, setPuestoNuevo] = useState<string | null>(null)
 
   function patch(id: string, d: Partial<Role>) {
     onRolesChange(roles.map((r) => (r.id === id ? { ...r, ...d } : r)))
@@ -169,8 +184,7 @@ export function RoleCatalog({
 
               {own.length === 0 && (
                 <p className="mb-2 text-[0.82rem] text-content-secondary">
-                  Todavía no tiene puestos. Se los pones en el paso de equipo, que es donde hay
-                  que decir cuánta gente hace falta en cada tramo.
+                  Todavía no tiene puestos. Añádele el primero aquí abajo.
                 </p>
               )}
 
@@ -187,6 +201,8 @@ export function RoleCatalog({
                         value={role.name}
                         onCommit={(v) => patch(role.id, { name: v })}
                         ariaLabel={`Cambiar el nombre del puesto ${role.name}`}
+                        autoEdit={puestoNuevo === role.id}
+                        onEditEnd={() => setPuestoNuevo(null)}
                         className="text-[0.9rem] font-bold text-content-primary"
                       />
                     </span>
@@ -218,9 +234,37 @@ export function RoleCatalog({
                       onChange={(v) => patch(role.id, { fullTimeOnly: v })}
                       label="Solo jornada completa"
                     />
+
+                    {/* "Qué puestos tienes" tiene que dejar decir que NO tienes
+                        uno. Antes solo se podía en la tabla de tramos, poniendo
+                        ceros a mano en todas las filas, y esta pantalla ni lo
+                        insinuaba: prometía una cosa y hacía otra. */}
+                    <button
+                      type="button"
+                      onClick={() => setPuestoABorrar(role)}
+                      aria-label={`Quitar el puesto ${role.name}`}
+                      title="No tengo este puesto"
+                      className="shrink-0 rounded-md p-1.5 text-content-muted transition-colors hover:bg-surface-elevated hover:text-destructive focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                    >
+                      <Trash2 size={15} />
+                    </button>
                   </li>
                 ))}
               </ul>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Plus size={14} />}
+                className="mt-2"
+                onClick={() => {
+                  const { parts, roleId } = crearPuesto(partes(), block)
+                  onPartsChange(parts)
+                  setPuestoNuevo(roleId)
+                }}
+              >
+                Añadir un puesto a {block.name}
+              </Button>
             </div>
           )
         })}
@@ -297,6 +341,34 @@ export function RoleCatalog({
           </p>
         </Modal>
 
+        <Modal
+          open={puestoABorrar !== null}
+          onClose={() => setPuestoABorrar(null)}
+          title={`¿Quitar ${puestoABorrar?.name ?? ''}?`}
+          subtitle="Deja de contar en la plantilla y desaparece de la tabla de tramos."
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setPuestoABorrar(null)}>
+                Dejarlo
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  if (puestoABorrar) onPartsChange(borrarPuesto(partes(), puestoABorrar.id))
+                  setPuestoABorrar(null)
+                }}
+              >
+                Sí, quitarlo
+              </Button>
+            </>
+          }
+        >
+          <p className="text-[0.9rem] leading-relaxed text-content-secondary">
+            Se va también lo que pedías de él en cada tramo. No hay deshacer, pero puedes volver a
+            añadirlo.
+          </p>
+        </Modal>
+
         {/* El interruptor va al final y no arriba: primero se ven los puestos,
             que es a lo que se viene, y el dinero es la segunda pregunta. Apagado
             de partida porque media pantalla de campos de euros que nadie va a
@@ -313,8 +385,8 @@ export function RoleCatalog({
         <Note tone="neutral" icon={<BadgeEuro size={15} strokeWidth={2.3} />}>
           Los puestos marcados como <strong>solo jornada completa</strong> no bajan nunca a un
           contrato parcial en el cuadrante, aunque sus horas quepan en uno. Es lo normal en los
-          puestos de mando. Para añadir o quitar puestos, ve al paso de equipo: allí es donde hay
-          que decirles cuánta gente hace falta en cada tramo.
+          puestos de mando. En el paso de equipo es donde dices cuánta gente de cada puesto hace
+          falta en cada tramo de comensales.
           {calcularCostes && (
             <>
               {' '}

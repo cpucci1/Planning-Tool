@@ -54,6 +54,68 @@ function triggerDownload(href: string, filename: string): void {
   a.remove()
 }
 
+/** base64 → Blob, sin pasar por `canvas.toBlob`, que es asíncrono. Ver el
+ *  aviso de `compartirODescargar`: aquí el que sea síncrono es el requisito. */
+function dataUrlABlob(dataUrl: string): Blob {
+  const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+  const binario = atob(base64)
+  const bytes = new Uint8Array(binario.length)
+  for (let i = 0; i < binario.length; i += 1) bytes[i] = binario.charCodeAt(i)
+  return new Blob([bytes], { type: 'image/png' })
+}
+
+/**
+ * Compartir de verdad, y si no se puede, descargar.
+ *
+ * El cuadrante de una persona viaja por WhatsApp: ese es el caso real, no
+ * guardar un PNG en la carpeta de descargas. En el móvil, que es donde esto
+ * pasa, `navigator.share` abre el menú del sistema y la imagen sale a WhatsApp
+ * en dos toques.
+ *
+ * Se pregunta con `canShare` y con el fichero DELANTE, no solo si existe
+ * `share`: hay navegadores que comparten texto y no ficheros, y ahí preguntar
+ * en general diría que sí y luego fallaría.
+ */
+async function compartirODescargar(canvas: HTMLCanvasElement, filename: string): Promise<void> {
+  /*
+   * ⚠️ EL BLOB SE HACE SIN NI UN `await`, Y ESO ES LO QUE HACE QUE FUNCIONE.
+   *
+   * `navigator.share` exige "activación transitoria": solo vale si se llama
+   * dentro del gesto de la persona. Safari la da por gastada en cuanto hay un
+   * `await` por medio, así que la versión obvia —esperar a `canvas.toBlob`, que
+   * es asíncrono, y luego compartir— falla con NotAllowedError justo en el
+   * iPhone, que es el sitio donde esto tiene sentido. Y falla en silencio,
+   * porque cae a la descarga y parece que no se ha cambiado nada.
+   *
+   * `toDataURL` es síncrono y pasar de base64 a Blob también, así que la
+   * llamada a `share` sigue dentro del mismo turno que la pulsación.
+   */
+  const file = new File([dataUrlABlob(canvas.toDataURL('image/png'))], filename, {
+    type: 'image/png',
+  })
+
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file] })
+      return
+    } catch (err) {
+      // Cancelar el menú de compartir NO es un fallo: es una respuesta. Si se
+      // descargara igual, quien se arrepiente se encuentra el fichero puesto.
+      // Se mira solo el nombre: no todos los navegadores rechazan con un
+      // DOMException, y exigir el tipo dejaba la cancelación cayendo a la
+      // descarga, que es justo lo que se quería evitar.
+      if (err instanceof Error && err.name === 'AbortError') return
+      // Cualquier otro fallo sí cae a la descarga: mejor el fichero que nada.
+    }
+  }
+
+  const url = URL.createObjectURL(file)
+  triggerDownload(url, filename)
+  // Se suelta DESPUÉS, no en la línea de al lado: revocar en el mismo turno
+  // puede cortarle la descarga al navegador antes de que la haya empezado.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
+
 // ─────────────────────────────────────────────────────────────
 // Imagen para WhatsApp
 // ─────────────────────────────────────────────────────────────
@@ -136,7 +198,11 @@ function drawRoundedBox(ctx: CanvasRenderingContext2D, x: number, y: number, w: 
  * filtra por `person.id` por su cuenta, así que se le puede pasar
  * `roster.shifts` entero sin pensarlo dos veces.
  */
-export function descargarTurnoPersona(person: Person, shifts: Shift[], roleName: string): void {
+export async function compartirTurnoPersona(
+  person: Person,
+  shifts: Shift[],
+  roleName: string,
+): Promise<void> {
   const canvas = document.createElement('canvas')
   canvas.width = IMG_W
   canvas.height = IMG_H
@@ -236,7 +302,13 @@ export function descargarTurnoPersona(person: Person, shifts: Shift[], roleName:
   ctx.font = `32px ${FONT_STACK}`
   ctx.fillText('Calculado con Shifty', IMG_W / 2, IMG_H - 22)
 
-  triggerDownload(canvas.toDataURL('image/png'), `turno-${slugify(person.label)}.png`)
+  try {
+    await compartirODescargar(canvas, `turno-${slugify(person.label)}.png`)
+  } catch {
+    // Que un fallo al compartir no deje el botón mudo Y ADEMÁS suelte un
+    // rechazo que nadie escucha: si algo va mal, al menos queda el fichero.
+    triggerDownload(canvas.toDataURL('image/png'), `turno-${slugify(person.label)}.png`)
+  }
 }
 
 // ─────────────────────────────────────────────────────────────

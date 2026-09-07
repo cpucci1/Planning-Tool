@@ -25,7 +25,7 @@ import {
   cn,
 } from '@/components/ui'
 import { describeMix } from '@/lib/contracts'
-import { descargarCuadranteCocina, descargarTurnoPersona } from '@/lib/cuadrante-imagen'
+import { compartirTurnoPersona, descargarCuadranteCocina } from '@/lib/cuadrante-imagen'
 import {
   DAYS,
   DAYS_SHORT,
@@ -718,14 +718,14 @@ function PersonView({
                         <button
                           type="button"
                           onClick={() =>
-                            descargarTurnoPersona(
+                            void compartirTurnoPersona(
                               person,
                               todosLosTurnos.filter((sh) => sh.personId === person.id),
                               role?.name ?? '',
                             )
                           }
-                          aria-label={`Descargar el turno de ${person.label} para mandarlo`}
-                          title="Descargar su turno para mandárselo"
+                          aria-label={`Compartir el turno de ${person.label}`}
+                          title="Mandarle su turno"
                           className={cn(
                             'mt-1 inline-flex items-center gap-1 rounded-pill px-1.5 py-0.5',
                             'text-[0.7rem] font-bold text-content-muted transition-colors',

@@ -14,7 +14,17 @@
  * problema en vez de un cálculo raro sin explicación.
  */
 
-import { Fragment, useId, useMemo, useState, type FocusEvent, type KeyboardEvent } from 'react'
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent,
+  type KeyboardEvent,
+} from 'react'
 import { AlertTriangle, ArrowUpDown, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import {
   Badge,
@@ -367,6 +377,45 @@ export function TiersTable({
    *  ellos siempre visibles la tabla triplica de tamaño y cuesta seguirla. */
   const [showLimits, setShowLimits] = useState(false)
 
+  /*
+   * QUE SE VEA QUE LA TABLA SIGUE HACIA LA DERECHA.
+   *
+   * Con más de cuatro o cinco puestos la tabla no cabe y hay que arrastrarla,
+   * pero nada lo indicaba: el borde de la tarjeta corta la última columna
+   * limpiamente y parece el final. Quien tiene seis puestos no llega a ver los
+   * dos últimos y no sabe que están.
+   *
+   * Se resuelve con una sombra en el borde por el que queda tabla, y se apaga
+   * cuando ya no queda: una sombra siempre puesta deja de significar nada.
+   */
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  const [sombra, setSombra] = useState({ izq: false, der: false })
+
+  const medirSombra = useCallback(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    // El margen de 1 px evita que un ancho fraccionario deje la sombra
+    // encendida para siempre en una tabla que sí cabe entera.
+    const izq = el.scrollLeft > 1
+    const der = el.scrollLeft + el.clientWidth < el.scrollWidth - 1
+    // Solo se toca el estado si de verdad cambia. Sin esto, cada evento de
+    // scroll creaba un objeto nuevo y React repintaba la tabla entera en cada
+    // fotograma del arrastre, que en esta tabla se nota.
+    setSombra((antes) => (antes.izq === izq && antes.der === der ? antes : { izq, der }))
+  }, [])
+
+  useEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    medirSombra()
+    // Hay que volver a medir cuando cambia el tamaño, no solo al arrastrar:
+    // añadir o quitar un puesto cambia el ancho sin que nadie haya hecho scroll.
+    const ro = new ResizeObserver(medirSombra)
+    ro.observe(el)
+    for (const hijo of Array.from(el.children)) ro.observe(hijo)
+    return () => ro.disconnect()
+  }, [medirSombra])
+
   const { tiers, roles, blocks } = model
 
   /** Columnas agrupadas por bloque, en el orden en que se pintan. */
@@ -581,7 +630,31 @@ export function TiersTable({
           }
         />
 
-        <div className="scroll-thin max-h-[70vh] overflow-auto border-t border-border-soft">
+        <div className="relative border-t border-border-soft">
+          {/* Las sombras van FUERA del que hace scroll y con `pointer-events-none`:
+              dentro se moverían con la tabla, y encima taparían los clics de la
+              última columna, que es justo la que se quiere alcanzar. */}
+          <div
+            aria-hidden
+            className={cn(
+              'pointer-events-none absolute inset-y-0 left-[140px] z-40 w-6 transition-opacity duration-200',
+              'bg-gradient-to-r from-content-primary/12 to-transparent',
+              sombra.izq ? 'opacity-100' : 'opacity-0',
+            )}
+          />
+          <div
+            aria-hidden
+            className={cn(
+              'pointer-events-none absolute inset-y-0 right-0 z-40 w-8 transition-opacity duration-200',
+              'bg-gradient-to-l from-content-primary/14 to-transparent',
+              sombra.der ? 'opacity-100' : 'opacity-0',
+            )}
+          />
+          <div
+            ref={scrollerRef}
+            onScroll={medirSombra}
+            className="scroll-thin max-h-[70vh] overflow-auto"
+          >
           <table className="w-full border-separate border-spacing-0 text-left">
             <thead>
               <tr>
@@ -716,13 +789,19 @@ export function TiersTable({
                         scope="col"
                         className={cn(
                           thBase,
-                          'sticky top-9 z-20 min-w-[64px] px-1.5 py-1.5 align-bottom',
+                          // Se acota el MÁXIMO, no se sube el mínimo: el nombre
+                          // largo parte en dos líneas en vez de estirar la
+                          // columna, y el corto sigue ocupando lo poco que
+                          // ocupaba. Con "Responsable de turno" la columna medía
+                          // el doble que su contenido real, que es una casilla
+                          // de dos dígitos.
+                          'sticky top-9 z-20 max-w-[92px] min-w-[64px] px-1 py-1.5 align-bottom',
                           gi > 0 && ri === 0 && 'border-l-2 border-l-border',
                         )}
                       >
-                        <div className="group/role flex items-center gap-1">
+                        <div className="group/role flex items-start gap-1">
                           <span
-                            className="h-1.5 w-1.5 shrink-0 rounded-pill"
+                            className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-pill"
                             style={{ backgroundColor: role.color }}
                             aria-hidden
                           />
@@ -732,7 +811,7 @@ export function TiersTable({
                             autoEdit={pendingRoleId === role.id}
                             onEditEnd={() => setPendingRoleId(null)}
                             onCommit={(v) => renameRole(role.id, v)}
-                            className="text-[0.78rem] font-bold text-content-primary"
+                            className="min-w-0 text-[0.78rem] leading-tight font-bold break-words text-content-primary"
                           />
                           <button
                             type="button"
@@ -914,6 +993,7 @@ export function TiersTable({
               })}
             </tbody>
           </table>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
