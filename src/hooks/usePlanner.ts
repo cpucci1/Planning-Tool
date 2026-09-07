@@ -21,6 +21,7 @@ import {
 import {
   actualizarPlan,
   crearPlan,
+  leerPlan,
   leerPlanLocal,
   olvidarPlanLocal,
   recordarPlanLocal,
@@ -40,11 +41,17 @@ import {
 } from '@/lib/staffing'
 import { buildRoster } from '@/lib/roster'
 import { analyzePeaks, summarizePlan } from '@/lib/contracts'
-import { decodificarPlan } from '@/lib/compartir'
+import { decodificarPlan, type PlanCompartido } from '@/lib/compartir'
+import { construirDatasetConDiagnostico } from '@/lib/parseFichero'
+import type { Descarte, FilaCruda, ResultadoDataset } from '@/lib/parseFichero'
+import type { ColumnaDetectada } from '@/lib/mapeo'
 import {
   SNAPSHOT_SOURCE,
   SNAPSHOT_VERSION,
+  borrarFilas,
   clearAutosave,
+  guardarFilas,
+  leerFilas,
   downloadSnapshot,
   loadAutosave,
   metaOf,
@@ -81,9 +88,42 @@ export const STEPS: { id: StepId; label: string; short: string }[] = [
   { id: 'result', label: 'Tu plan', short: 'Tu plan' },
 ]
 
+/**
+ * Lo que hace falta guardar de un fichero leído para poder rehacer el cálculo
+ * sin volver a abrirlo: sus filas, el mapeo que se está usando y lo que pasó al
+ * leerlo (cuántas filas se cayeron y por qué).
+ */
+export interface LecturaFichero {
+  nombre: string
+  filas: FilaCruda[]
+  mapeo: ColumnaDetectada[]
+  /** Solo se usa si NINGUNA columna es de comensales. */
+  comensalesPorTicket: number
+  filasLeidas: number
+  filasUsadas: number
+  descartes: Descarte[]
+  advertencias: ResultadoDataset['advertencias']
+  semanas: number
+}
+
 export function usePlannerState() {
   const [step, setStep] = useState<StepId>('import')
   const [dataset, setDataset] = useState<DemandDataset | null>(null)
+  /**
+   * El fichero que subió el usuario, ya parseado, para poder REHACER el cálculo
+   * cuando corrija una columna en la pantalla de mapeo.
+   *
+   * Sin esto, corregir el mapeo era un adorno: el desplegable cambiaba y el
+   * resultado seguía saliendo de la columna equivocada. Se guardan las filas y
+   * no el `File` porque volver a leer el fichero entero por cada cambio de
+   * desplegable son varios segundos con la pestaña congelada.
+   */
+  const [lectura, setLectura] = useState<LecturaFichero | null>(null)
+  /**
+   * El usuario ha tocado el horario a mano. Al rehacer el cálculo tras corregir
+   * una columna, el horario detectado cambia; si lo ha editado él, manda él.
+   */
+  const horarioTocado = useRef(false)
   const [hours, setHours] = useState<OpeningHours | null>(null)
   /**
    * Horario propio de cocina, opcional. `null` = comparte el horario general.
@@ -233,8 +273,15 @@ export function usePlannerState() {
     setTiers(next.tiers)
   }
 
-  /** Carga el resultado del análisis y arranca con lo detectado. */
-  function loadDataset(d: DemandDataset) {
+  /**
+   * Carga el resultado del análisis y arranca con lo detectado.
+   *
+   * `lecturaDelFichero` solo llega cuando el histórico viene de un fichero de
+   * verdad. Con los datos de ejemplo no hay filas que guardar, y por eso la
+   * pantalla de mapeo con el ejemplo sigue siendo lo que siempre fue: una
+   * demostración de cómo se verá con el fichero de uno.
+   */
+  function loadDataset(d: DemandDataset, lecturaDelFichero?: LecturaFichero) {
     // Un fichero nuevo es un plan NUEVO, y hay que olvidar el del servidor.
     // Sin esto, quien sube su segundo fichero sin pasar por "empezar de nuevo"
     // llega al resultado con el id y el secreto del plan anterior todavia en el
@@ -244,6 +291,20 @@ export function usePlannerState() {
     setPlanRemoto(null)
     setFalloGuardado(false)
     setDataset(d)
+    setLectura(lecturaDelFichero ?? null)
+    // Las filas se guardan aparte de la foto, para que quien recupere este plan
+    // manana pueda seguir corrigiendo columnas. Ver `guardarFilas`.
+    if (lecturaDelFichero) {
+      void guardarFilas({
+        nombre: lecturaDelFichero.nombre,
+        filas: lecturaDelFichero.filas,
+        mapeo: lecturaDelFichero.mapeo,
+        comensalesPorTicket: lecturaDelFichero.comensalesPorTicket,
+      })
+    } else {
+      void borrarFilas()
+    }
+    horarioTocado.current = false
     setHours(d.source.detectedHours)
     setSpecials(detectSpecialWeeks(d.weeks, d.year))
     // El ejemplo arranca con costes y ventas de muestra para que se vea el
@@ -262,6 +323,75 @@ export function usePlannerState() {
     }
     setStep('demand')
   }
+
+  /**
+   * Rehace el cálculo con el mapeo que el usuario acaba de corregir.
+   *
+   * NO se llama a `loadDataset`, y no es un detalle: esa función olvida el plan
+   * del servidor, pisa el horario, recalcula las semanas raras, borra los costes
+   * por hora y las ventas semanales y fuerza el paso a "demanda". Cablear aquí
+   * `loadDataset` significaría que corregir un desplegable le borra a alguien lo
+   * que ya haya escrito en el catálogo de puestos, sin un solo aviso.
+   *
+   * Aquí solo se sustituye el histórico. Y el horario, únicamente si el usuario
+   * todavía no lo ha tocado: si el mapeo estaba mal, el horario que se dedujo de
+   * él también lo estaba, pero si ya lo ha editado a mano, manda él.
+   */
+  function recalcularConMapeo(mapeo: ColumnaDetectada[], comensalesPorTicket: number) {
+    if (!lectura) return
+    const r = construirDatasetConDiagnostico(lectura.filas, mapeo, {
+      fileName: lectura.nombre,
+      comensalesPorTicket,
+    })
+    // Con ese mapeo no entra ni una fila: se guarda el diagnóstico para poder
+    // DECIRLO, pero NO se sustituye el histórico. Dejar el dataset vacío
+    // pondría a cero los gráficos, la plantilla y el cuadrante de la pantalla
+    // siguiente, y el usuario solo habría movido un desplegable: parecería que
+    // ha roto la herramienta en vez de que ese mapeo no vale.
+    if (r.semanas === 0 || r.filasUsadas === 0) {
+      setLectura({
+        ...lectura,
+        mapeo,
+        comensalesPorTicket,
+        filasLeidas: r.filasLeidas,
+        filasUsadas: 0,
+        descartes: r.descartes,
+        advertencias: r.advertencias,
+        semanas: 0,
+      })
+      return
+    }
+    setLectura({
+      ...lectura,
+      mapeo,
+      comensalesPorTicket,
+      filasLeidas: r.filasLeidas,
+      filasUsadas: r.filasUsadas,
+      descartes: r.descartes,
+      advertencias: r.advertencias,
+      semanas: r.semanas,
+    })
+    setDataset(r.dataset)
+    if (!horarioTocado.current) setHours(r.dataset.source.detectedHours)
+    // El mapeo corregido tambien se guarda: si no, al recuperar el plan volveria
+    // el mapeo original y el usuario veria deshecha su correccion.
+    void guardarFilas({
+      nombre: lectura.nombre,
+      filas: lectura.filas,
+      mapeo,
+      comensalesPorTicket,
+    })
+  }
+
+  /**
+   * El `setHours` que ve la pantalla. Deja constancia de que el horario lo ha
+   * puesto una persona, para que rehacer el cálculo tras corregir una columna no
+   * se lo pise con el que se deduzca del fichero.
+   */
+  const setHoursDelUsuario = useCallback((h: OpeningHours | null) => {
+    horarioTocado.current = true
+    setHours(h)
+  }, [])
 
   function reset() {
     // Y se borra lo guardado, que es lo que espera quien pulsa "empezar de
@@ -282,6 +412,9 @@ export function usePlannerState() {
     setPlanRemoto(null)
     setFalloGuardado(false)
     setDataset(null)
+    setLectura(null)
+    void borrarFilas()
+    horarioTocado.current = false
     setHours(null)
     setKitchenHours(null)
     setSpecials([])
@@ -326,25 +459,50 @@ export function usePlannerState() {
   ultimoSnapshot.current = buildSnapshot
 
   /**
-   * Un plan compartido llega en el `#` de la dirección. Ese SÍ se carga solo:
-   * quien abre un enlace lo abre para ver ese plan, no para empezar de cero.
-   * Se limpia la dirección después para que un refresco no lo vuelva a
-   * imponer por encima de lo que el usuario haya tocado desde entonces.
+   * Arrancar desde la dirección: un plan compartido.
+   *
+   * Hay DOS enlaces y este efecto es el único sitio que los mira, en un orden
+   * decidido. Dos efectos sueltos compitiendo no valdrían: el del `#` resuelve
+   * en milisegundos, porque solo descomprime; el del token corto tarda un viaje
+   * de red. Se vería primero un plan y encima el otro, sin orden garantizado.
+   *
+   *   1. `?plan=xxxxxxxxxxxx` — el enlace CORTO. Se lee del servidor. Gana
+   *      siempre, porque refleja el plan vivo: el `#` lleva una copia congelada
+   *      del momento en que se copió, así que si llegan los dos es casi seguro
+   *      que alguien ha pegado un enlace nuevo sobre una dirección vieja.
+   *   2. El `#` — el enlace LARGO de toda la vida, el plan entero comprimido
+   *      dentro de la dirección. Sigue funcionando sin backend, que es
+   *      justamente por lo que se hizo, y es el respaldo si el corto falla.
+   *
+   * En los dos casos se carga solo: quien abre un enlace lo abre para ver ESE
+   * plan, no para empezar de cero. Y en los dos se limpia la dirección después,
+   * para que un refresco no lo vuelva a imponer por encima de lo que el usuario
+   * haya tocado desde entonces.
    */
   useEffect(() => {
-    const hash = window.location.hash.slice(1)
-    if (!hash || hash.length < 20) return
     let vivo = true
-    decodificarPlan(hash).then((plan) => {
-      if (!vivo) return
-      if (!plan || !plan.dataset) {
-        // Le han mandado un plan y no se puede abrir (enlace partido por el
-        // cliente de correo, navegador antiguo). Callarse es peor: creería
-        // que el plan no existía.
-        setEnlaceRoto(true)
-        window.history.replaceState(null, '', window.location.pathname + window.location.search)
-        return
-      }
+
+    /**
+     * Deja la dirección sin la marca del enlace.
+     *
+     * Se quita el `#` entero y SOLO el parámetro `plan` de la query: el resto
+     * puede llevar un `utm_` de una campaña, y borrarlo dejaría sin atribución
+     * justo a quien ha llegado por un enlace compartido.
+     */
+    function limpiarDireccion() {
+      const url = new URL(window.location.href)
+      url.hash = ''
+      url.searchParams.delete('plan')
+      window.history.replaceState(null, '', url.pathname + url.search)
+    }
+
+    /**
+     * Los dos enlaces traen la misma foto con distinto envoltorio: el largo un
+     * `PlanCompartido` y el corto un `PlannerSnapshot` entero. Lo que se vuelca
+     * es exactamente lo mismo, así que se pide solo la parte común y ninguno de
+     * los dos tiene que fingir campos que no trae.
+     */
+    function volcar(plan: PlanCompartido) {
       vieneDeEnlace.current = true
       enlaceSinTocar.current = true
       setDataset(plan.dataset)
@@ -359,8 +517,54 @@ export function usePlannerState() {
       setPersonNames(plan.personNames ?? {})
       setStep('result')
       setSavedMeta(null)
-      window.history.replaceState(null, '', window.location.pathname + window.location.search)
-    })
+      limpiarDireccion()
+    }
+
+    /** El enlace largo del `#`. Devuelve si ha podido con él. */
+    async function probarHash(): Promise<boolean> {
+      const hash = window.location.hash.slice(1)
+      if (!hash || hash.length < 20) return false
+      const plan = await decodificarPlan(hash)
+      if (!vivo) return true
+      if (!plan || !plan.dataset) return false
+      volcar(plan)
+      return true
+    }
+
+    void (async () => {
+      const token = new URL(window.location.href).searchParams.get('plan')
+
+      if (token && hayBackend()) {
+        try {
+          const plan = await leerPlan(token)
+          if (!vivo) return
+          if (plan) {
+            volcar(plan)
+            return
+          }
+        } catch {
+          // Sin red o con el servidor caído. Se prueba el `#` antes de rendirse.
+        }
+        if (!vivo) return
+        if (await probarHash()) return
+        // Le han mandado un enlace y no se puede abrir. Callarse es lo peor que
+        // se puede hacer: creería que el plan no existía.
+        if (!vivo) return
+        setEnlaceRoto(true)
+        limpiarDireccion()
+        return
+      }
+
+      // Sin token (o sin backend configurado): el camino de siempre.
+      const habiaHash = window.location.hash.slice(1).length >= 20
+      if (await probarHash()) return
+      if (!vivo) return
+      if (token || habiaHash) {
+        setEnlaceRoto(true)
+        limpiarDireccion()
+      }
+    })()
+
     return () => {
       vivo = false
     }
@@ -407,6 +611,25 @@ export function usePlannerState() {
   /** Aplica una foto guardada al estado actual. */
   function applySnapshot(snap: PlannerSnapshot) {
     setDataset(snap.dataset)
+    // Y se recuperan las filas del fichero, que viven aparte. Sin esto, quien
+    // vuelve al dia siguiente puede corregir una columna y el calculo no se
+    // rehace, sin que la pantalla diga nada.
+    void leerFilas().then((f) => {
+      if (!f) return
+      setLectura({
+        nombre: f.nombre,
+        filas: f.filas as FilaCruda[],
+        mapeo: f.mapeo as ColumnaDetectada[],
+        comensalesPorTicket: f.comensalesPorTicket,
+        // El diagnostico no se guarda: se rehace en cuanto el usuario toque algo,
+        // y guardar un recuento viejo seria peor que no ensenar ninguno.
+        filasLeidas: f.filas.length,
+        filasUsadas: f.filas.length,
+        descartes: [],
+        advertencias: [],
+        semanas: snap.dataset.weeks.length,
+      })
+    })
     setHours(snap.hours)
     setKitchenHours(snap.kitchenHours ?? null)
     setSpecials(snap.specials)
@@ -430,6 +653,7 @@ export function usePlannerState() {
     savedSnap.current = null
     setSavedMeta(null)
     void clearAutosave()
+    void borrarFilas()
   }
 
   /** El guardado de verdad: un fichero que cruza de ordenador. */
@@ -703,10 +927,12 @@ export function usePlannerState() {
     step,
     setStep,
     dataset,
+    lectura,
     loadDataset,
+    recalcularConMapeo,
     reset,
     hours,
-    setHours,
+    setHours: setHoursDelUsuario,
     kitchenHours,
     setKitchenHoursEnabled,
     setKitchenHours,

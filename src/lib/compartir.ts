@@ -17,6 +17,7 @@ import {
   descomprimir,
   hayCompressionStream,
 } from './comprimir'
+import { ajustarFranjas } from './time'
 import type {
   Block,
   DemandDataset,
@@ -185,7 +186,20 @@ export async function decodificarPlan(texto: string): Promise<PlanCompartido | n
 
     const parsed: unknown = JSON.parse(new TextDecoder().decode(bytesJson))
     if (!esPlanCompartido(parsed)) return null
-    return restaurarInfinitoAlDecodificar(parsed)
+    const plan = restaurarInfinitoAlDecodificar(parsed)
+    // Un enlace copiado antes del 2026-09-07 trae días de 44 franjas, porque la
+    // rejilla llegaba hasta las 04:00 y ahora cubre las 24 horas. Sin rellenar,
+    // el cálculo lee `undefined` en las cuatro últimas y el plan sale mal sin
+    // dar ningún error. Un enlace viejo tiene que seguir abriéndose bien: es
+    // justo lo que promete que hace.
+    if (plan.dataset) {
+      for (const semana of plan.dataset.weeks) {
+        for (let d = 0; d < semana.days.length; d++) {
+          semana.days[d] = ajustarFranjas(semana.days[d])
+        }
+      }
+    }
+    return plan
   } catch {
     // Base64 inválido, JSON roto, un stream de descompresión que revienta con
     // datos corruptos... Un enlace mal copiado es un caso normal de uso, no

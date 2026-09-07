@@ -335,12 +335,29 @@ export function StepResult() {
     peakOnlyAnnualCostEur,
   }
   /**
-   * Copia un enlace que reproduce este mismo plan. El estado va dentro del
-   * `#` de la dirección, la parte que el navegador NO envía a ningún servidor:
-   * así se puede mandar al socio o a la gestoría sin que las ventas del
-   * restaurante pasen por ningún sitio.
+   * Copia el enlace de este plan. Hay dos, y se prefiere el corto.
+   *
+   * EL CORTO (`?plan=xxxxxxxxxxxx`) existe desde que hay servidor: son doce
+   * caracteres que se pegan en un WhatsApp y se pueden dictar por teléfono. El
+   * token solo da permiso para MIRAR; para escribir hace falta el secreto de
+   * edición, que no sale de este navegador. Por eso enseñarle el plan a tu jefe
+   * no le da permiso para borrarlo.
+   *
+   * EL LARGO lleva el plan entero comprimido dentro del `#`, la parte de la
+   * dirección que el navegador NO envía a ningún servidor. Son unos 14.000
+   * caracteres y hay clientes de correo que lo parten por la mitad, pero
+   * funciona SIN backend, y por eso se queda: es el respaldo cuando el plan
+   * todavía no se ha guardado o cuando el guardado ha fallado.
    */
   async function copiarEnlace() {
+    if (p.planRemoto && !p.falloGuardado) {
+      const corta = new URL(window.location.href)
+      corta.hash = ''
+      corta.search = ''
+      corta.searchParams.set('plan', p.planRemoto.shareToken)
+      await copiarAlPortapapeles(corta.toString())
+      return
+    }
     const url = await urlDelPlan(
       {
         version: 1,
@@ -357,6 +374,10 @@ export function StepResult() {
       },
       window.location.href,
     )
+    await copiarAlPortapapeles(url)
+  }
+
+  async function copiarAlPortapapeles(url: string) {
     try {
       await navigator.clipboard.writeText(url)
       setEnlaceCopiado(true)
@@ -1180,9 +1201,23 @@ export function StepResult() {
             {p.guardando ? 'Guardando…' : 'Guardado. Este plan tiene enlace propio.'}
           </p>
         )}
+        {/* El texto tiene que decir la verdad de lo que está pasando AHORA. Decía
+            "nada de esto se guarda en ningún servidor" mientras el plan se
+            estaba subiendo, que es exactamente el tipo de frase que hace que
+            luego nadie se crea nada de lo que dice la pantalla. */}
         <p className="mt-1 text-[0.86rem] leading-relaxed text-content-secondary">
-          Nada de esto se guarda en ningún servidor. El enlace lleva el plan dentro, así que quien
-          lo abra ve exactamente esto.
+          {p.planRemoto && !p.falloGuardado ? (
+            <>
+              Tu fichero de ventas nunca sale de este navegador. Lo que se guarda es el plan ya
+              calculado, para que puedas volver a él y compartirlo con un enlace corto. Quien lo
+              abra lo ve, pero no lo puede cambiar ni borrar.
+            </>
+          ) : (
+            <>
+              Nada de esto se guarda en ningún servidor. El enlace lleva el plan dentro, así que
+              quien lo abra ve exactamente esto.
+            </>
+          )}
         </p>
 
         <div className="mt-5 flex flex-wrap gap-2.5">

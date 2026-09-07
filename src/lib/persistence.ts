@@ -16,6 +16,7 @@
  */
 
 import { get, set, del } from 'idb-keyval'
+import { ajustarFranjas } from './time'
 import type {
   Block,
   DemandDataset,
@@ -75,6 +76,27 @@ export function metaOf(snap: PlannerSnapshot): SnapshotMeta {
 }
 
 /** Lo justo para no reventar con un fichero cualquiera o uno de otra versión. */
+/**
+ * Deja la curva de la foto con las franjas que espera el cálculo de HOY.
+ *
+ * Una foto guardada antes del 2026-09-07 trae días de 44 franjas, porque la
+ * rejilla llegaba hasta las 04:00. El cálculo ahora recorre 48 y las cuatro
+ * últimas saldrían `undefined`: la plantilla saldría mal sin dar ningún error.
+ * Se rellenan con ceros, que es exacto, porque en aquella rejilla esas franjas
+ * no existían y nadie pudo registrar nada en ellas.
+ *
+ * Muta la foto que se acaba de leer del disco a propósito: es un objeto recién
+ * parseado que todavía no ha visto nadie.
+ */
+function ajustarCurva(snap: PlannerSnapshot): PlannerSnapshot {
+  for (const semana of snap.dataset.weeks) {
+    for (let d = 0; d < semana.days.length; d++) {
+      semana.days[d] = ajustarFranjas(semana.days[d])
+    }
+  }
+  return snap
+}
+
 function isSnapshot(v: unknown): v is PlannerSnapshot {
   if (!v || typeof v !== 'object') return false
   const s = v as Record<string, unknown>
@@ -126,7 +148,7 @@ export async function saveAutosave(snap: PlannerSnapshot): Promise<void> {
 export async function loadAutosave(): Promise<PlannerSnapshot | null> {
   try {
     const v = await get(STORE_KEY)
-    if (isSnapshot(v)) return v
+    if (isSnapshot(v)) return ajustarCurva(v)
   } catch {
     idbBroken = true
   }
@@ -134,7 +156,7 @@ export async function loadAutosave(): Promise<PlannerSnapshot | null> {
     const raw = localStorage.getItem(STORE_KEY)
     if (raw) {
       const v: unknown = JSON.parse(raw)
-      if (isSnapshot(v)) return v
+      if (isSnapshot(v)) return ajustarCurva(v)
     }
   } catch {
     // Sin nada que recuperar.
@@ -150,6 +172,69 @@ export async function clearAutosave(): Promise<void> {
   }
   try {
     localStorage.removeItem(STORE_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Las filas del fichero
+//
+// POR QUE VAN APARTE Y NO DENTRO DE LA FOTO
+// La foto se reescribe cada 600 ms mientras alguien toca la tabla de tramos.
+// Meter ahi las filas del fichero (varios megas en un historico de un ano) seria
+// reescribir esos megas en cada tecla. Las filas, en cambio, NO cambian nunca
+// dentro de una lectura: se escriben una vez, al leer el fichero, y se leen una
+// vez, al recuperar el plan.
+//
+// Y hacen falta: sin ellas, quien recupera un plan del dia anterior puede
+// corregir una columna en la pantalla de lectura y el calculo NO se rehace, sin
+// que la pantalla diga nada. Es el mismo engano que se quito el 2026-09-06, pero
+// apareciendo solo en unas sesiones.
+// ─────────────────────────────────────────────────────────────
+
+const FILAS_KEY = 'shifty-planning:filas'
+
+/** Lo que hace falta para poder rehacer el calculo sin volver a abrir el fichero. */
+export interface FilasGuardadas {
+  nombre: string
+  /** Las filas de datos, sin la cabecera. */
+  filas: unknown[][]
+  /** El mapeo que se estaba usando, y lo que se estimo por ticket. */
+  mapeo: unknown[]
+  comensalesPorTicket: number
+}
+
+export async function guardarFilas(v: FilasGuardadas): Promise<void> {
+  try {
+    await set(FILAS_KEY, v)
+  } catch {
+    // Sin sitio (cuota, modo privado): el plan se recupera igual, lo unico que
+    // se pierde es poder corregir una columna sin volver a subir el fichero.
+    // No se cae a localStorage a proposito: son megas y ahi no caben.
+  }
+}
+
+export async function leerFilas(): Promise<FilasGuardadas | null> {
+  try {
+    const v = await get(FILAS_KEY)
+    if (
+      v &&
+      typeof v === 'object' &&
+      Array.isArray((v as FilasGuardadas).filas) &&
+      Array.isArray((v as FilasGuardadas).mapeo)
+    ) {
+      return v as FilasGuardadas
+    }
+  } catch {
+    // ignore
+  }
+  return null
+}
+
+export async function borrarFilas(): Promise<void> {
+  try {
+    await del(FILAS_KEY)
   } catch {
     // ignore
   }
@@ -206,7 +291,7 @@ export function readSnapshotFile(file: File): Promise<PlannerSnapshot> {
         )
         return
       }
-      resolve(parsed)
+      resolve(ajustarCurva(parsed))
     }
     reader.readAsText(file)
   })

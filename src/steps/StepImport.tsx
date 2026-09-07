@@ -6,8 +6,13 @@
  * principal (soltar el fichero) y deja a mano la salida para quien no lo tenga
  * delante (la muestra de lo que sale).
  *
- * El análisis no es decoración: recorre los pasos reales de `lib/fakeAI` y los
- * va marcando. Cuando termina llama a `loadDataset`, que ya avanza de paso.
+ * El análisis no es decoración y desde el 2026-09-06 tampoco es una simulación:
+ * el fichero se lee de verdad con `lib/parseFichero`, entero y dentro del
+ * navegador, y cada paso de la lista se marca cuando esa fase ha ocurrido de
+ * verdad. Solo los datos de ejemplo siguen pasando por `lib/fakeAI`, que es lo
+ * único que queda de la época en la que no se leía nada.
+ *
+ * Cuando termina llama a `loadDataset`, que ya avanza de paso.
  */
 
 import {
@@ -35,6 +40,8 @@ import {
   Users,
 } from 'lucide-react'
 import { ANALYSIS_STEPS, analyzeFile } from '@/lib/fakeAI'
+import { construirDatasetConDiagnostico, leerFichero } from '@/lib/parseFichero'
+import { mapearColumnasConIA } from '@/lib/mapeoIA'
 import { usePlanner } from '@/hooks/usePlanner'
 import { QueVasAObtener } from '@/components/QueVasAObtener'
 import { Button, Card, Modal, Note, cn } from '@/components/ui'
@@ -143,6 +150,16 @@ export function StepImport() {
     }
   }, [])
 
+  /**
+   * Le da al navegador la oportunidad de pintar antes de seguir.
+   *
+   * El parseo y el reparto en franjas son síncronos y no ceden el hilo: con
+   * decenas de miles de filas la animación no avanza y los checks saltan todos
+   * de golpe al final, que es exactamente la impresión de que la herramienta se
+   * ha colgado justo cuando promete que abre rápido.
+   */
+  const respirar = () => new Promise((r) => setTimeout(r, 0))
+
   async function run(file: File | null) {
     if (phase !== 'idle') return
     setError(null)
@@ -156,28 +173,105 @@ export function StepImport() {
     )
 
     try {
-      const dataset = await analyzeFile(
-        file ? { name: file.name, size: file.size } : null,
-        (progress) => {
+      // Los datos de ejemplo siguen siendo generados: no hay fichero que leer.
+      if (!file) {
+        const dataset = await analyzeFile(null, (progress) => {
           if (alive.current) setCurrent(progress.step)
-        },
-      )
+        })
+        if (!alive.current) return
+        setCurrent(TOTAL_STEPS)
+        setDoneInfo({ weeks: dataset.weeks.length, year: dataset.year })
+        setPhase('done')
+        await sleep(650)
+        if (!alive.current) return
+        p.loadDataset(dataset)
+        return
+      }
+
+      // ── El camino de verdad ──
+      // Los pasos se marcan cuando la fase ha pasado, no con un temporizador.
+      setCurrent(0)
+      await respirar()
+      const fichero = await leerFichero(file)
       if (!alive.current) return
 
+      setCurrent(1)
+      await respirar()
+
+      // La segunda opinión del modelo sobre qué es cada columna. Del fichero
+      // solo salen las cabeceras y tres filas de muestra, que es justo lo que
+      // promete la portada. Si no hay backend, si falla o si tarda, devuelve el
+      // mapeo de siempre y aquí no se entera nadie.
+      setCurrent(2)
+      const mapeo = await mapearColumnasConIA(fichero)
+      if (!alive.current) return
+
+      setCurrent(3)
+      await respirar()
+      let mapeoFinal = mapeo
+      let r = construirDatasetConDiagnostico(fichero.filas, mapeoFinal, { fileName: fichero.nombre })
+
+      // SI CON ESE MAPEO NO SALE NI UNA FILA, SE VUELVE AL DEL LECTOR ANTES DE
+      // RENDIRSE. Pasa de verdad y no es hipotético: en un fichero real con una
+      // columna MESA (que la heurística lee como comensales) y un N_TICKET que
+      // es un código y no un número, el modelo acierta al descartar MESA, pero
+      // entonces el conteo se va a la columna de códigos y se cae el fichero
+      // entero. Antes de decirle a nadie que su histórico no vale, se prueba con
+      // lo que entendió el lector él solo.
+      if ((r.semanas === 0 || r.filasUsadas === 0) && mapeoFinal !== fichero.columnas) {
+        mapeoFinal = fichero.columnas
+        r = construirDatasetConDiagnostico(fichero.filas, mapeoFinal, { fileName: fichero.nombre })
+      }
+      if (!alive.current) return
+
+      // Un fichero que se lee pero del que no sale ni una semana no es un
+      // fichero válido para esto, y decirlo aquí es mejor que dejar al usuario
+      // en la pantalla siguiente con todos los gráficos en blanco. Se le dice
+      // POR QUÉ se ha caído todo: "no vale" a secas no le deja hacer nada.
+      if (r.semanas === 0 || r.filasUsadas === 0) {
+        const principal = [...r.descartes].sort((a, b) => b.filas - a.filas)[0]
+        throw new Error(principal ? `sin_filas_utiles:${principal.mensaje}` : 'sin_filas_utiles')
+      }
+
+      setCurrent(4)
+      await respirar()
+      setCurrent(5)
+      await respirar()
+
       setCurrent(TOTAL_STEPS)
-      setDoneInfo({ weeks: dataset.weeks.length, year: dataset.year })
+      setDoneInfo({ weeks: r.dataset.weeks.length, year: r.dataset.year })
       setPhase('done')
       // Medio segundo para que se vea el último check antes de cambiar de paso:
       // si no, el trabajo terminado no se llega a leer.
       await sleep(650)
       if (!alive.current) return
-      p.loadDataset(dataset)
-    } catch {
+      p.loadDataset(r.dataset, {
+        nombre: fichero.nombre,
+        filas: fichero.filas,
+        mapeo: mapeoFinal,
+        comensalesPorTicket: 2,
+        filasLeidas: r.filasLeidas,
+        filasUsadas: r.filasUsadas,
+        descartes: r.descartes,
+        advertencias: r.advertencias,
+        semanas: r.semanas,
+      })
+    } catch (e) {
       if (!alive.current) return
       setPhase('idle')
       setCurrent(-1)
       setSource(null)
-      setError('No hemos podido leer ese fichero. Prueba con otro.')
+      const mensaje = (e as Error)?.message ?? ''
+      if (mensaje.startsWith('sin_filas_utiles')) {
+        const porQue = mensaje.slice('sin_filas_utiles:'.length)
+        setError(
+          'Hemos abierto el fichero pero no ha entrado ni una fila en el cálculo.' +
+            (porQue ? ` El motivo de casi todas: ${porQue.toLowerCase()}` : '') +
+            ' Comprueba que es el histórico de ventas, con una fila por ticket, y no un resumen.',
+        )
+      } else {
+        setError('No hemos podido leer ese fichero. Prueba con otro, en CSV o Excel.')
+      }
     }
   }
 

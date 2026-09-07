@@ -37,7 +37,7 @@
 // tiempo de ejecución. Se importa en vez de copiarse para que el contrato no
 // pueda desincronizarse en silencio; su sitio natural sería `lib/types.ts`, y
 // ahí debería mudarse el día que se pueda tocar ese fichero.
-import type { ColumnaDetectada, DestinoColumna } from '@/components/MapeoColumnas'
+import type { ColumnaDetectada, DestinoColumna } from './mapeo'
 import { applyLag, inferHours, weekTotal } from './demand'
 import { isoWeekStart } from './holidays'
 import { GRID_START_MIN, SLOTS_PER_DAY, clockToGridMin, minToSlot } from './time'
@@ -68,6 +68,7 @@ export type CodigoAdvertencia =
   | 'sin-cabecera'
   | 'sin-hora'
   | 'comensales-estimados'
+  | 'tickets-son-codigo'
   | 'historico-corto'
   | 'horario-poco-poblado'
   | 'varios-anos'
@@ -815,6 +816,24 @@ function detectarColumnas(
   })
 }
 
+/**
+ * Vuelve a sacar los ejemplos de cada columna con el destino que tenga AHORA.
+ *
+ * Hace falta porque los ejemplos se formatean según lo que se ha entendido que
+ * es la columna (ver `comoTexto`): en un Excel una fecha es el número 45.822, y
+ * enseñárselo así no le dice a nadie si esa columna es la suya. Cuando algo
+ * cambia el destino después de leer el fichero — el modelo, o el propio
+ * usuario en la pantalla de mapeo — los ejemplos se quedan formateados para el
+ * destino viejo y el usuario ve un número donde debería ver una fecha, que es
+ * justo lo único que le permite reconocer su columna.
+ */
+export function reetiquetarEjemplos(
+  filas: FilaCruda[],
+  columnas: ColumnaDetectada[],
+): ColumnaDetectada[] {
+  return columnas.map((c, i) => ({ ...c, ejemplos: muestrasDe(filas, i, c.destino) }))
+}
+
 /** Las 3 primeras filas de una columna, en texto y listas para enseñar. */
 function muestrasDe(filas: FilaCruda[], i: number, destino: DestinoColumna): string[] {
   const fuera: string[] = []
@@ -1146,12 +1165,48 @@ export function construirDatasetConDiagnostico(
   const estimado = iComensales < 0 && iTickets >= 0
   const porTicket = opciones.comensalesPorTicket ?? COMENSALES_POR_TICKET_DEFECTO
 
+  // ¿La columna de tickets CUENTA tickets o los IDENTIFICA?
+  //
+  // Es la diferencia entre `3` y `T0010101`, y en el TPV español lo segundo es
+  // lo normal: una fila por ticket y una columna con su número de documento.
+  // Multiplicar ese código por los comensales por ticket no tiene sentido, así
+  // que hasta el 2026-09-07 esas filas se descartaban TODAS y el usuario se
+  // encontraba con que su fichero "no valía". Ahora se mira la propia columna:
+  // si la mayoría de sus valores no son números, es un identificador, y
+  // entonces lo que hay que contar es UNA fila, UN ticket.
+  //
+  // El umbral es la mitad a propósito y no "alguno": un fichero con la columna
+  // bien puesta puede traer un puñado de celdas sucias, y eso no lo convierte en
+  // una columna de códigos.
+  const ticketsSonCodigo = (() => {
+    if (!estimado) return false
+    const muestra = filas.slice(0, FILAS_A_OLFATEAR)
+    let vistos = 0
+    let numericos = 0
+    for (const f of muestra) {
+      const v = f[iTickets] ?? null
+      if (v === null || String(v).trim() === '') continue
+      vistos++
+      if (parsearNumero(v) !== null) numericos++
+    }
+    return vistos > 0 && numericos / vistos < 0.5
+  })()
+
   if (estimado) {
     advertencias.push({
       codigo: 'comensales-estimados',
       mensaje:
         `Tu fichero no trae comensales, así que se han estimado a ${porTicket.toLocaleString('es-ES')} por ticket. ` +
         'Toda cifra de comensales que veas a partir de aquí es una estima, no un dato de tu TPV.',
+    })
+  }
+
+  if (ticketsSonCodigo) {
+    advertencias.push({
+      codigo: 'tickets-son-codigo',
+      mensaje:
+        'Tu columna de tickets trae códigos y no cantidades, así que se ha contado un ticket por cada línea del fichero. ' +
+        'Si tu export trae una línea por PRODUCTO y no por ticket, ese número sale alto: marca esa columna como "No la uses" y dinos cuál cuenta.',
     })
   }
 
@@ -1226,12 +1281,24 @@ export function construirDatasetConDiagnostico(
       }
       comensales = v
     } else if (iTickets >= 0) {
-      const v = parsearNumero(fila[iTickets] ?? null)
-      if (v === null || v < 0) {
-        descartes.anota('comensales-ilegibles', numeroDeFila)
-        continue
+      if (ticketsSonCodigo) {
+        // La columna identifica, no cuenta: esta fila ES un ticket. Una celda
+        // vacía no lo es, y ahí sí se descarta, porque una fila sin ticket en un
+        // fichero de tickets es una fila que no sabemos qué hace ahí.
+        const bruto = fila[iTickets]
+        if (bruto === null || bruto === undefined || String(bruto).trim() === '') {
+          descartes.anota('comensales-ilegibles', numeroDeFila)
+          continue
+        }
+        comensales = porTicket
+      } else {
+        const v = parsearNumero(fila[iTickets] ?? null)
+        if (v === null || v < 0) {
+          descartes.anota('comensales-ilegibles', numeroDeFila)
+          continue
+        }
+        comensales = v * porTicket
       }
-      comensales = v * porTicket
     } else {
       // Sin comensales y sin tickets no hay nada que contar. `mapeoSuficiente`
       // ya lo impide en pantalla; aquí se para igual en vez de inventar un 1

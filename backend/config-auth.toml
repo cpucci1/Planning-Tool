@@ -1,0 +1,61 @@
+# Configuracion de Auth del proyecto freetools, en un fichero para que no viva
+# solo en el panel.
+#
+# QUE ES ESTO Y POR QUE ESTA AQUI
+# El "Send Email Hook" de Supabase (lo que hace que el codigo de acceso salga por
+# Brevo con nuestra marca) se activa desde el panel a mano. Un ajuste que solo
+# vive en un panel es un ajuste que nadie sabe que existe hasta que se rompe. Con
+# este fichero se puede volver a dejar el proyecto como esta hoy con un comando.
+#
+# COMO SE APLICA
+#   cd <una carpeta con supabase/config.toml que sea este fichero>
+#   export SUPABASE_ACCESS_TOKEN=...
+#   export SEND_EMAIL_HOOK_SECRET='v1,whsec_...'
+#   supabase config push --project-ref wabnolojhxlqhevehybw
+#
+# ⚠️ `config push` MANDA LA CONFIGURACION ENTERA DE AUTH, no solo lo que pongas
+# aqui: lo que no escribas se queda con el valor por defecto de la CLI, no con el
+# que tenga hoy el proyecto. El 2026-09-06 eso apago el MFA por TOTP y bajo el
+# limite de correos a uno por segundo sin que nadie lo pidiera. Por eso estan
+# escritos abajo los valores que importan, aunque coincidan con el defecto.
+#
+# ⚠️ El secreto NO va en este fichero. Va en la variable de entorno de arriba, y
+# tiene que ser el MISMO que el secreto `SEND_EMAIL_HOOK_SECRET` de las Edge
+# Functions, o la funcion rechaza todo con 401.
+
+project_id = "freetools"
+
+[functions.planning-ai]
+verify_jwt = false
+
+[functions.planning-auth-email]
+verify_jwt = false
+
+[auth]
+# El planificador corre en el 5174 en local. La direccion de produccion (Vercel)
+# hay que anadirla aqui el dia que se despliegue, o el retorno de sesion no vuelve.
+site_url = "http://localhost:5174"
+additional_redirect_urls = ["http://localhost:5174", "http://127.0.0.1:5174"]
+
+[auth.email]
+enable_signup = true
+# Apagado a proposito: aqui se entra con el CODIGO de seis digitos, no con el
+# enlace de confirmacion. Encenderlo obliga a pulsar un enlace que lleva al
+# site_url, y eso es una pieza mas que puede romperse.
+enable_confirmations = false
+otp_length = 6
+otp_expiry = 3600
+# Un correo por minuto y direccion. Sin esto, cualquiera puede llenarle el buzon a
+# otro pulsando el boton, y ademas se come la cuota de Brevo.
+max_frequency = "60s"
+
+# No lo usa el planificador (se entra con un codigo por correo), pero estaba
+# encendido antes de tocar nada y apagarlo no era parte del encargo.
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+[auth.hook.send_email]
+enabled = true
+uri = "https://wabnolojhxlqhevehybw.supabase.co/functions/v1/planning-auth-email"
+secrets = "env(SEND_EMAIL_HOOK_SECRET)"

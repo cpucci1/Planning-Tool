@@ -21,12 +21,20 @@ begin;
 create or replace function public.planning_set_updated_at()
 returns trigger
 language plpgsql
+-- El search_path va fijo tambien aqui, aunque sea un trigger de dos lineas: el
+-- linter de Supabase marca como riesgo toda funcion sin el, y una lista de
+-- avisos con excepciones "que ya sabemos que estan bien" acaba en una lista que
+-- nadie mira.
+set search_path = public, pg_temp
 as $$
 begin
   new.updated_at := now();
   return new;
 end;
 $$;
+
+comment on function public.planning_set_updated_at() is
+  'Pone updated_at en cada UPDATE de planning_plans. Existe para que esa fecha no mienta, que es lo que le pasa a dos de cada tres tablas de la base de produccion.';
 
 drop trigger if exists planning_plans_updated_at on public.planning_plans;
 create trigger planning_plans_updated_at
@@ -37,9 +45,14 @@ create trigger planning_plans_updated_at
 -- 1. Piezas internas
 -- ----------------------------------------------------------------------------
 
--- Token del enlace: 12 caracteres de un alfabeto sin parecidos (ni O ni 0, ni
--- l ni 1). La gente lo va a dictar por telefono y lo va a leer de un WhatsApp.
--- Son 32^12 combinaciones, o sea que no se adivina probando.
+-- Token del enlace: 12 caracteres de un alfabeto de 31 sin parecidos (ni O ni 0,
+-- ni l ni 1). La gente lo va a dictar por telefono y lo va a leer de un WhatsApp.
+-- Son 31^12 combinaciones, unos 7,8 x 10^17.
+--
+-- El azar sale de gen_random_bytes y NO de random(). random() es un generador
+-- pseudoaleatorio sembrado por sesion: quien vea un par de tokens seguidos puede
+-- reconstruir la secuencia y adivinar los siguientes. Y este token es la unica
+-- llave del enlace de un plan, asi que adivinarlo es leer el plan de otro.
 create or replace function public.planning_new_share_token()
 returns text
 language plpgsql
@@ -48,13 +61,15 @@ set search_path = public, extensions, pg_temp
 as $$
 declare
   v_alfabeto constant text := 'abcdefghjkmnpqrstuvwxyz23456789';
+  v_bytes bytea;
   v_token text;
   v_intentos int := 0;
 begin
   loop
     v_token := '';
+    v_bytes := extensions.gen_random_bytes(12);
     for i in 1..12 loop
-      v_token := v_token || substr(v_alfabeto, 1 + floor(random() * length(v_alfabeto))::int, 1);
+      v_token := v_token || substr(v_alfabeto, 1 + (get_byte(v_bytes, i - 1) % length(v_alfabeto)), 1);
     end loop;
 
     exit when not exists (select 1 from public.planning_plans p where p.share_token = v_token);
@@ -94,6 +109,9 @@ comment on function public.planning_current_account() is
 -- 2. Cortacircuitos de volumen
 -- ----------------------------------------------------------------------------
 --
+-- La tabla `planning_daily_counters` vive en 10-esquema.sql, con el resto de las
+-- tablas y con su RLS. Aqui solo esta la funcion que la toca.
+--
 -- SE HONESTO CON LO QUE ESTO ES. No es un limite por IP y no impide el abuso:
 -- desde el navegador no llega una IP fiable a Postgres, y cualquier huella que
 -- mande el cliente la puede falsificar el cliente. Lo que hace es acotar el
@@ -101,23 +119,7 @@ comment on function public.planning_current_account() is
 -- plan gratis y tumbar la herramienta para todos.
 --
 -- El limite es global y por dia. Cuando salta, deja de crear planes nuevos pero
--- los que ya existen se siguen leyendo y editando.
-create table if not exists public.planning_daily_counters (
-  day        date not null,
-  kind       text not null,
-  -- Se llama `hits` y no `count` a proposito: `count` es tambien el nombre de
-  -- una funcion de Postgres, y sin cualificar dentro de un RETURNING eso es una
-  -- ambiguedad que no falla al crear la funcion, falla al llamarla.
-  hits       integer not null default 0,
-  primary key (day, kind)
-);
-
-comment on table public.planning_daily_counters is
-  'Contador diario por tipo de accion. Es un cortacircuitos de volumen, no un limite por usuario: acota el destrozo de un bucle, no lo impide.';
-
-alter table public.planning_daily_counters enable row level security;
-revoke all on public.planning_daily_counters from anon, authenticated;
-
+-- los que ya existen se siguen leyendo.
 create or replace function public.planning_bump_counter(p_kind text, p_limit integer)
 returns void
 language plpgsql
@@ -138,6 +140,66 @@ begin
   end if;
 end;
 $$;
+
+comment on function public.planning_bump_counter(text, integer) is
+  'Suma uno al contador del dia y revienta si pasa del tope. Es un cortacircuitos de volumen, no un limite por usuario: acota el destrozo de un bucle, no lo impide.';
+
+-- ----------------------------------------------------------------------------
+-- 2 bis. La guarda de escritura, en un solo sitio
+-- ----------------------------------------------------------------------------
+--
+-- POR QUE EXISTE, Y POR QUE NO ESTA COPIADA EN CADA FUNCION.
+-- Estaba copiada en planning_update_plan, planning_delete_plan y
+-- planning_claim_plan, y las tres tenian el mismo fallo de NULL en distinta
+-- rama. Comprobado contra la base el 2026-09-06: con una cuenta propia y solo el
+-- enlace de otro se podia SOBRESCRIBIR y BORRAR su plan. Tres copias de una
+-- comprobacion es exactamente como se arregla una y se dejan dos vivas.
+--
+-- El fallo, para que no vuelva: en SQL, comparar NULL con cualquier cosa no da
+-- falso, da desconocido. Un `if not (...)` con desconocido dentro NO ENTRA, asi
+-- que la excepcion no salta y la escritura pasa. Un plan anonimo tiene
+-- account_id nulo y un cliente puede mandar el secreto nulo, asi que las dos
+-- ramas podian valer desconocido. Por eso aqui todo acaba en coalesce.
+
+create or replace function public.planning_secreto_vale(p_edit_secret text, p_hash text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, extensions, pg_temp
+as $$
+  select coalesce(
+    p_edit_secret is not null
+      and length(p_edit_secret) > 0
+      and p_hash = extensions.crypt(p_edit_secret, p_hash),
+    false)
+$$;
+
+comment on function public.planning_secreto_vale is
+  'True solo si el secreto de edicion casa con su hash. Un secreto nulo o vacio es false, nunca desconocido: un NULL colandose en un IF es lo que abria el plan de otro.';
+
+create or replace function public.planning_puede_escribir(
+  p_account_id      uuid,
+  p_plan_account_id uuid,
+  p_edit_secret     text,
+  p_hash            text
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, extensions, pg_temp
+as $$
+  select coalesce(
+           p_account_id is not null
+             and p_plan_account_id is not null
+             and p_plan_account_id = p_account_id,
+           false)
+      or public.planning_secreto_vale(p_edit_secret, p_hash)
+$$;
+
+comment on function public.planning_puede_escribir is
+  'Quien puede escribir en un plan: su dueno, o quien traiga el secreto de edicion. Unica guarda de escritura del planificador; update, delete y claim la usan y no la reimplementan.';
 
 -- ----------------------------------------------------------------------------
 -- 3. La cuenta
@@ -299,21 +361,19 @@ begin
     raise exception 'planning_no_existe';
   end if;
 
-  -- El mensaje de error es el MISMO tanto si el plan no existe como si el
-  -- secreto no vale, para no convertir esto en un oraculo que diga que planes
-  -- existen. Por eso el "no existe" de arriba y este dicen cosas distintas solo
-  -- para el dueno legitimo... y por eso aqui abajo no se distingue.
-  if not (
-    (v_account is not null and v_plan.account_id = v_account)
-    or (p_edit_secret is not null
-        and v_plan.edit_secret_hash = extensions.crypt(p_edit_secret, v_plan.edit_secret_hash))
-  ) then
+  if not public.planning_puede_escribir(v_account, v_plan.account_id, p_edit_secret, v_plan.edit_secret_hash) then
     raise exception 'planning_sin_permiso';
   end if;
 
   if length(v_covers) > 2 * 1024 * 1024 then
     raise exception 'planning_demasiado_grande';
   end if;
+
+  -- Tambien aqui, y no solo al crear. Reescribir el mismo plan en bucle no crea
+  -- filas, pero reescribe 8 KB cada vez y deja la version muerta hasta que pase
+  -- el autovacuum: un bucle de guardado infla la base igual que uno de creacion.
+  -- El tope es mas alto porque guardar de verdad se hace muchas veces por plan.
+  perform public.planning_bump_counter('update_plan', 50000);
 
   update public.planning_plans
      set config           = p_config,
@@ -367,7 +427,11 @@ begin
   return query
     select p.id, p.config, p.config_version,
            encode(d.covers, 'base64'), d.weeks_meta, d.year, d.is_demo,
-           (v_account is not null and p.account_id = v_account) as is_mine,
+           -- coalesce y no la comparacion a secas: con un plan anonimo,
+           -- `null = uuid` da NULL, y el front recibiria null donde espera un
+           -- booleano. Un "no lo se" ahi se lee como "si" en cuanto alguien
+           -- escriba `if (fila.is_mine == null)` al reves.
+           coalesce(v_account is not null and p.account_id = v_account, false) as is_mine,
            p.created_at, p.updated_at
       from public.planning_plans p
       join public.planning_plan_datasets d on d.plan_id = p.id
@@ -402,7 +466,7 @@ begin
 
   -- Ya es suyo: no es un error, es que le ha dado dos veces o ha recargado.
   -- Salir en silencio hace que el front pueda reintentar sin pensar.
-  if v_plan.account_id = v_account then
+  if v_plan.account_id is not distinct from v_account then
     return;
   end if;
 
@@ -410,7 +474,10 @@ begin
     raise exception 'planning_ya_tiene_dueno';
   end if;
 
-  if v_plan.edit_secret_hash <> extensions.crypt(p_edit_secret, v_plan.edit_secret_hash) then
+  -- Aqui NO vale la guarda de escritura entera: reclamar exige el secreto
+  -- siempre. Por el camino del dueno no se puede llegar, porque el plan que se
+  -- reclama es por definicion el que todavia no tiene dueno.
+  if not public.planning_secreto_vale(p_edit_secret, v_plan.edit_secret_hash) then
     raise exception 'planning_sin_permiso';
   end if;
 
@@ -487,11 +554,7 @@ begin
     return; -- borrar algo que no existe ya deja el mundo como se queria
   end if;
 
-  if not (
-    (v_account is not null and v_plan.account_id = v_account)
-    or (p_edit_secret is not null
-        and v_plan.edit_secret_hash = extensions.crypt(p_edit_secret, v_plan.edit_secret_hash))
-  ) then
+  if not public.planning_puede_escribir(v_account, v_plan.account_id, p_edit_secret, v_plan.edit_secret_hash) then
     raise exception 'planning_sin_permiso';
   end if;
 
@@ -531,6 +594,115 @@ comment on function public.planning_purge_abandoned is
   'Borra planes anonimos sin tocar desde hace N dias. Los que tienen dueno no se tocan jamas. Pensada para un cron; no se concede a anon ni a authenticated.';
 
 -- ----------------------------------------------------------------------------
+-- 11. El rastro y el limite de la funcion de IA
+-- ----------------------------------------------------------------------------
+--
+-- POR QUE ESTO VIVE AQUI Y NO EN LA EDGE FUNCTION.
+--
+-- Antes eran tres viajes por HTTP desde la funcion: contar lo del cliente,
+-- contar lo global, y despues escribir la fila. Dos problemas medidos el
+-- 2026-09-06 contra este mismo proyecto:
+--
+-- 1. NO FRENA NADA EN PARALELO. Entre el conteo y la escritura pasan los
+--    segundos que tarda Gemini. Veinte peticiones a la vez leen todas el mismo
+--    numero y todas pasan: un tope de 30 deja entrar 50. Contar lo que ya
+--    termino no frena lo que esta en vuelo, y en vuelo es justo como se abusa de
+--    un endpoint publico.
+-- 2. FALLA EN FRIO. Los dos conteos iban con HEAD, y un HEAD que falla no trae
+--    cuerpo: el error llegaba como cadena vacia. Como la funcion esta escrita
+--    para NO llamar al modelo si no puede contar, al usuario le salia "no
+--    disponible" sin ningun motivo legible. Paso en la primera llamada despues
+--    de dos despliegues seguidos.
+--
+-- Aqui las dos cosas van en la misma transaccion, con un cerrojo que serializa
+-- las reservas. Un viaje en vez de tres, sin carrera, y con un error de verdad.
+
+create or replace function public.planning_ai_reservar(
+  p_kind           text,
+  p_client_hash    text,
+  p_model          text,
+  p_limite_cliente integer default 30,
+  p_ventana_min    integer default 60,
+  p_limite_global  integer default 2000
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions, pg_temp
+as $$
+declare
+  v_cliente integer;
+  v_global  integer;
+  v_id      uuid;
+begin
+  -- Cerrojo de transaccion sobre una constante. Las reservas se ponen en fila y
+  -- ninguna cuenta un numero que otra esta a punto de cambiar. Se puede porque
+  -- el volumen es ridiculo: el tope global son 2.000 llamadas al dia.
+  perform pg_advisory_xact_lock(841001);
+
+  select count(*) into v_global
+    from public.planning_ai_calls
+   where created_at > now() - interval '1 day';
+
+  if v_global >= p_limite_global then
+    return jsonb_build_object('ok', false, 'motivo', 'global', 'cuantas', v_global);
+  end if;
+
+  select count(*) into v_cliente
+    from public.planning_ai_calls
+   where client_hash = p_client_hash
+     and created_at > now() - make_interval(mins => p_ventana_min);
+
+  if v_cliente >= p_limite_cliente then
+    return jsonb_build_object('ok', false, 'motivo', 'cliente', 'cuantas', v_cliente);
+  end if;
+
+  -- La fila se escribe AHORA, antes de llamar al modelo, con is_ok en false y los
+  -- tokens a null. Asi la peticion siguiente ya la ve contada. El precio es que
+  -- una llamada que se muera a medias deja una fila marcada como fallida, que es
+  -- exactamente lo que fue.
+  insert into public.planning_ai_calls (kind, account_id, client_hash, model, is_ok, error_code)
+  values (p_kind, null, p_client_hash, p_model, false, 'en_curso')
+  returning id into v_id;
+
+  return jsonb_build_object('ok', true, 'call_id', v_id);
+end;
+$$;
+
+comment on function public.planning_ai_reservar is
+  'Cuenta los limites y aparta la fila de la llamada en la misma transaccion, con cerrojo. Contar por un lado y escribir por otro no frena nada en paralelo: entre las dos cosas cabe una tarde entera de peticiones simultaneas.';
+
+create or replace function public.planning_ai_cerrar(
+  p_call_id       uuid,
+  p_input_tokens  integer,
+  p_output_tokens integer,
+  p_latency_ms    integer,
+  p_is_ok         boolean,
+  p_error_code    text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public, extensions, pg_temp
+as $$
+begin
+  update public.planning_ai_calls
+     set input_tokens  = p_input_tokens,
+         -- output_tokens lleva salida MAS razonamiento: Google factura los
+         -- tokens de pensar como salida, y usar los de texto a secas infravalora
+         -- la factura entre dos y tres veces.
+         output_tokens = p_output_tokens,
+         latency_ms    = p_latency_ms,
+         is_ok         = p_is_ok,
+         error_code    = p_error_code
+   where id = p_call_id;
+end;
+$$;
+
+comment on function public.planning_ai_cerrar is
+  'Cierra el rastro de una llamada reservada: tokens, latencia y si salio bien. Los tokens de una llamada que fallo se dejan en null, que significa "no se sabe"; poner cero seria decir que fallar sale gratis, y no sale.';
+
+-- ----------------------------------------------------------------------------
 -- 11. Permisos de ejecucion
 -- ----------------------------------------------------------------------------
 --
@@ -542,6 +714,15 @@ revoke all on function public.planning_current_account()          from public, a
 revoke all on function public.planning_bump_counter(text, integer) from public, anon, authenticated;
 revoke all on function public.planning_purge_abandoned(integer)   from public, anon, authenticated;
 revoke all on function public.planning_set_updated_at()           from public, anon, authenticated;
+revoke all on function public.planning_secreto_vale(text, text)   from public, anon, authenticated;
+revoke all on function public.planning_puede_escribir(uuid, uuid, text, text) from public, anon, authenticated;
+
+-- Estas dos son de la edge function y de nadie mas. Quien pueda llamarlas puede
+-- inflar el contador de todo el mundo o vaciar el rastro de lo que gastamos.
+revoke all on function public.planning_ai_reservar(text, text, text, integer, integer, integer) from public, anon, authenticated;
+revoke all on function public.planning_ai_cerrar(uuid, integer, integer, integer, boolean, text) from public, anon, authenticated;
+grant execute on function public.planning_ai_reservar(text, text, text, integer, integer, integer) to service_role;
+grant execute on function public.planning_ai_cerrar(uuid, integer, integer, integer, boolean, text) to service_role;
 
 revoke all on function public.planning_create_plan(jsonb, integer, text, jsonb, integer, text, boolean, integer, numeric, integer, integer, numeric) from public, anon, authenticated;
 revoke all on function public.planning_update_plan(uuid, text, jsonb, integer, text, jsonb, integer, numeric, integer, integer, numeric) from public, anon, authenticated;

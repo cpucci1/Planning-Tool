@@ -348,13 +348,15 @@ async function pruebaFilasRotas() {
   const r = construirDatasetConDiagnostico(f.filas, f.columnas, { fileName: f.nombre })
 
   igual('el fichero traía 9 filas de datos', r.filasLeidas, 9)
-  igual('entran las 3 buenas', r.filasUsadas, 3)
-  igual('y suman 12 comensales', totalDe(r.dataset.weeks), 12)
+  // El 05:15 ENTRA desde el 2026-09-07: la rejilla cubre las 24 horas. Antes se
+  // descartaba, y con ello se perdían las dos mejores horas de un local de copas.
+  igual('entran las 4 buenas, incluida la de las 05:15', r.filasUsadas, 4)
+  igual('y suman 14 comensales', totalDe(r.dataset.weeks), 14)
 
   igual('2 fechas ilegibles (el texto y el 31 de febrero)', descarte(r.descartes, 'fecha-ilegible'), 2)
   igual('1 hora ilegible', descarte(r.descartes, 'hora-ilegible'), 1)
   igual('1 comensal no numérico', descarte(r.descartes, 'comensales-ilegibles'), 1)
-  igual('1 hora fuera de la rejilla (05:15)', descarte(r.descartes, 'hora-fuera-de-rejilla'), 1)
+  igual('ya no se cae nada por la rejilla', descarte(r.descartes, 'hora-fuera-de-rejilla'), 0)
   igual('1 fila de otro año', descarte(r.descartes, 'fuera-del-ano'), 1)
 
   const contadas = r.descartes.reduce((a, d) => a + d.filas, 0)
@@ -504,6 +506,47 @@ async function pruebaAmbigua() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// 10. La columna de tickets es un CODIGO, no una cantidad
+// ─────────────────────────────────────────────────────────────
+//
+// Es el caso normal del TPV espanol: una fila por ticket y una columna con su
+// numero de documento. Hasta el 2026-09-07 se multiplicaba ese codigo por los
+// comensales por ticket, parsearNumero devolvia null y se descartaban TODAS las
+// filas: al usuario le salia que su fichero no valia.
+
+const CSV_TICKET_CODIGO = [
+  'F_SERV;HORA;N_TICKET;IMPORTE',
+  '14/06/2025;13:30;T-0001;42,50',
+  '14/06/2025;14:00;T-0002;18,00',
+  '14/06/2025;21:15;T-0003;66,20',
+  '15/06/2025;13:45;T-0004;31,10',
+].join('\n')
+
+const CSV_TICKET_CANTIDAD = [
+  'F_SERV;HORA;TICKETS;IMPORTE',
+  '14/06/2025;13:30;3;42,50',
+  '14/06/2025;14:00;2;18,00',
+  '14/06/2025;21:15;5;66,20',
+].join('\n')
+
+async function pruebaTicketsPorCodigo() {
+  titulo('10 · La columna de tickets es un codigo y no una cantidad')
+
+  const r = await leerYConstruir(ficheroDe(aUtf8(CSV_TICKET_CODIGO), 'tickets-codigo.csv'))
+  igual('no se cae ni una fila', r.filasUsadas, 4)
+  // Cuatro filas, un ticket cada una, dos comensales por ticket.
+  igual('cuenta una fila = un ticket', totalDe(r.dataset.weeks), 8)
+  comprobar('y lo dice', tieneAviso(r.advertencias, 'tickets-son-codigo'))
+  comprobar('sin dejar de avisar de que son una estima', tieneAviso(r.advertencias, 'comensales-estimados'))
+
+  // Y lo que ya funcionaba tiene que seguir igual: una columna con cantidades
+  // de verdad se sigue sumando, no se cuenta por filas.
+  const n = await leerYConstruir(ficheroDe(aUtf8(CSV_TICKET_CANTIDAD), 'tickets-numero.csv'))
+  igual('una columna con cantidades sigue sumandose', totalDe(n.dataset.weeks), 20)
+  comprobar('y ahi no salta el aviso nuevo', !tieneAviso(n.advertencias, 'tickets-son-codigo'))
+}
+
+// ─────────────────────────────────────────────────────────────
 
 async function main() {
   pruebaNumeros()
@@ -515,6 +558,7 @@ async function main() {
   await pruebaMadrugada()
   await pruebaExcel()
   await pruebaAmbigua()
+  await pruebaTicketsPorCodigo()
 
   console.log(`\n\x1b[1m${pasadas} comprobaciones pasadas, ${fallos.length} fallidas\x1b[0m`)
   if (fallos.length > 0) {
