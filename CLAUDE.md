@@ -1040,23 +1040,38 @@ ciertas, tres arregladas:
 - **Pedir el codigo dos veces dentro del mismo minuto dejaba sin salida**: cartel rojo en la
   pantalla del correo y ninguna forma de escribir el codigo que ya estaba en la bandeja.
 
-### ⚠️ El alta con contrasena, y lo que sigue abierto
+### El alta con contrasena, cerrada
 
-Cualquiera puede darse de alta en freetools con el correo de otro y una contrasena suya. Antes eso
-devolvia **sesion en el acto**, con el correo marcado como verificado sin haber probado nada;
-encendiendo `enable_confirmations` esa sesion ya no se entrega.
+Cualquiera podia darse de alta en freetools con el correo de un restaurante y una contrasena suya.
+Como solo hay UNA cuenta por direccion, cuando el dueno de verdad entraba con su codigo entraba en
+ESA cuenta, y desde ahi el que la registro veia su lista de planes y se los podia borrar.
+Reproducido paso a paso contra la base el 2026-09-07.
 
-**Pero eso no lo cierra del todo, y esta medido:** si la victima entra despues con su codigo, su
-correo queda confirmado y la contrasena que dejo puesta el atacante vuelve a valer. A partir de ahi
-ese atacante ve la lista de planes de esa persona (nombre de su fichero, cuanta gente, cuantas
-horas) y puede borrarselos.
+Se probaron las tres salidas antes de elegir, y las dos primeras no valen:
 
-Para cerrarlo del todo hay que quitar la via de contrasena, y **Supabase no tiene un interruptor
-para eso**: no esta en `config.toml` (comprobado listando todas las opciones que conoce la CLI).
-`enable_signup = false` no vale, porque apagaria tambien el alta por codigo, que es justo como entra
-la gente. Las salidas que quedan son un disparador sobre `auth.users` que vacie la contrasena, o un
-hook de "antes de crear el usuario" que rechace las altas con contrasena. Lo primero choca con la
-regla de no tocar `auth.users`; lo segundo esta sin probar. **Pendiente de decidir.**
+- **Confirmacion de correo.** Ayuda y se queda encendida (el alta ya no entrega sesion en el acto),
+  pero NO cierra: medido, en cuanto la victima entra con su codigo su correo queda confirmado y la
+  contrasena del otro vuelve a valer.
+- **El enganche `before user created`**, que era lo limpio. **No sirve.** Se desplego una funcion
+  espia que registraba lo que recibe, y el aviso de un alta con contrasena y el de una con codigo
+  salen IDENTICOS: mismo `provider: email`, mismas identidades vacias, mismos campos. No hay nada
+  por lo que distinguirlos.
+- **Apagar el registro.** Apagaria tambien el alta por codigo, que es como entra la gente.
+
+Supabase no tiene interruptor para quitar la via de contrasena (comprobado listando todas las
+opciones que conoce su CLI), asi que se quita con un disparador sobre `auth.users` que deja toda
+cuenta sin ninguna: `backend/sql/30-nada-de-contrasenas.sql`, en su propio fichero para que se vea
+que toca `auth.users`. Sin contrasena guardada, la comparacion de GoTrue no puede cuadrar nunca.
+
+Comprobado despues: la contrasena no entra, y el codigo sigue entrando con un usuario nuevo, su
+cuenta creada y su lista de planes.
+
+### ⚠️ Los limites de Auth estaban en 30 por hora, para TODO el proyecto
+
+No por persona: por proyecto. Con 30 personas entrando en una hora, la herramienta dejaba de mandar
+codigos **a todo el mundo**. Para un lead magnet que se ensena en una feria o que sale en un correo,
+30 se agotan en diez minutos. Subidos el 2026-09-07 y escritos en `backend/config-auth.toml`. El
+techo de verdad ya no es ese, es el tope diario del plan gratuito de Brevo.
 
 ### La limpieza, programada
 

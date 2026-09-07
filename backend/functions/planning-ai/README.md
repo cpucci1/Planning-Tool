@@ -299,13 +299,24 @@ El log de la funcion esta en **Edge Functions → planning-ai → Logs**, y se b
   (ver `planning_ai_reservar` en `20-funciones.sql`), pero no se han lanzado 31 llamadas seguidas
   para verlo saltar.
 
-## Una decision que no es tecnica y hay que tomar
+## Del fichero no sale el nombre de nadie
 
-De cada columna salen **tres celdas de muestra**. En una columna tipo `CAMARERO` eso son nombres de
-empleados saliendo del navegador hacia Google. La portada promete que **el fichero** no se sube, y
-eso se cumple; pero esas tres celdas si salen, y conviene decirlo en voz alta antes de desplegar.
+De cada columna salen **tres celdas de muestra**, y hasta el 2026-09-07 salian tal cual: en una
+columna `CAMARERO`, eso eran los nombres de la plantilla de un restaurante saliendo hacia Google.
 
-Las opciones son tres: aceptarlo tal cual; vaciar las celdas de las columnas que la heuristica ya ha
-dado por irrelevantes (a cambio de que el modelo acierte menos, porque muchas veces es justo el
-valor lo que dice si una columna es un codigo o un numero); o mandar solo las cabeceras. **No se ha
-decidido.**
+Ya no. Sale la **forma** y no el contenido, y lo decide `formaDeCelda` en `src/lib/mapeoIA.ts`:
+
+| Lo que hay en el fichero | Lo que sale |
+|---|---|
+| `14/06/2025`, `21:40`, `86,50`, `4` | tal cual: son formas, no identifican a nadie |
+| `T0010101`, `MESA3`, `A-12` | tal cual: llevan digito, son codigos |
+| `Luis`, `Ana`, `Tarjeta` | `(texto, 4)`, `(texto, 3)`, `(texto, 7)` |
+| `Calle Mayor 3, 2ºB` | `(texto, 18)` |
+
+**La regla que lo sostiene es el digito**: un codigo lleva alguno y un nombre de pila no. Sin ella,
+`Luis` y `Ana` pasaban por codigos cortos, que es justo lo que esto viene a evitar.
+
+Comprobado de dos formas el 2026-09-07: interceptando la peticion de verdad desde la web publicada
+(no salio ni un nombre), y comparando lo que contesta el modelo con celdas anonimizadas y sin
+anonimizar. Clasifica igual, porque de una columna de texto libre lo unico que necesitaba saber es
+que era texto libre.
