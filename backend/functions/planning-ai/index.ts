@@ -533,6 +533,27 @@ async function manejar(
     return fallo(CORS, 'metodo', 'Solo POST.', 405, traza)
   }
 
+  // EL TIPO DE CONTENIDO TIENE QUE SER JSON, Y ESTO NO ES UNA FORMALIDAD: es lo
+  // que hace que la lista de origenes de arriba sirva de algo.
+  //
+  // Un navegador solo pide permiso por adelantado (el preflight) cuando la
+  // peticion NO es "simple", y una peticion con Content-Type: text/plain SI lo
+  // es. Sin esta comprobacion, una web cualquiera podia mandar el mismo cuerpo
+  // diciendo que era texto plano: el navegador no preguntaba, la funcion se lo
+  // tragaba igual porque parsea el cuerpo venga como venga, llamaba a Gemini,
+  // pagaba la llamada y gastaba una de las 2.000 del dia. Lo unico que el
+  // navegador impedia era LEER la respuesta.
+  //
+  // O sea que el candado estaba puesto y la puerta de al lado abierta: cualquiera
+  // podia agotarnos el tope del dia desde el navegador de sus visitantes y dejar
+  // la lectura automatica apagada para los restaurantes de verdad. Comprobado en
+  // un navegador de verdad el 2026-09-07, con los dos errores distintos de Chrome
+  // delante. Exigiendo JSON, esa peticion vuelve a necesitar permiso previo.
+  const tipo = (req.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase()
+  if (tipo !== 'application/json') {
+    return fallo(CORS, 'entrada_invalida', 'El cuerpo tiene que venir como application/json.', 415, traza)
+  }
+
   // SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY las inyecta la plataforma sola; no
   // se configuran a mano. La sal si, y sin ella no se arranca.
   const url = Deno.env.get('SUPABASE_URL') ?? ''
