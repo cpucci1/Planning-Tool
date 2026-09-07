@@ -1142,6 +1142,27 @@ desplegando una funcion que devolvia las cabeceras tal cual llegan: SI hay Cloud
 `true-client-ip` la puede mandar el cliente. Coger el elemento equivocado no rompe nada
 visible: apaga el limite por cliente en silencio.
 
+### La tarjeta que se ve al compartir el enlace (2026-09-07)
+
+La herramienta se pasa entre hosteleros por WhatsApp, y el enlace salia como una linea de texto
+pelada, sin imagen ni titulo, que es exactamente como se lee un enlace sospechoso. La pagina no
+tenia **ninguna** etiqueta Open Graph.
+
+Ahora `index.html` las lleva todas, y la imagen es `public/og.png`: 1200x630, dibujada con las
+mismas letras y colores de la marca, con el titular, tres etiquetas (gratis, sin registro, en dos
+minutos) y el grafico de una semana con el sabado como dia punta, que es el argumento del producto
+en una imagen.
+
+Dos cosas que hay que respetar si algun dia se cambia:
+
+- **El peso.** WhatsApp deja de ensenar la vista previa cuando la imagen pasa de unos 300 KB. La
+  actual son 50 KB; hay margen, pero no es infinito.
+- **Las direcciones van absolutas.** Una relativa la resuelve bien un navegador, pero los robots
+  que leen la tarjeta no siempre, y entonces la imagen no sale y nadie sabe por que.
+
+Comprobado en produccion pidiendo la pagina haciendose pasar por WhatsApp: salen todas las
+etiquetas, y la imagen responde 200 con su tipo y su peso desde los dos dominios.
+
 ---
 
 ## Origen
