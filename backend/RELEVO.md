@@ -21,18 +21,15 @@ permisos de tabla** para `anon` y `authenticated`.
 Los secretos puestos en `freetools`: `GEMINI_API_KEY`, `BREVO_API_KEY`, `PLANNING_AI_HASH_SALT`
 y `SEND_EMAIL_HOOK_SECRET`.
 
-## Lo único que falta, y no es código
+## Ya no falta nada de esto
 
-**La cuenta de Brevo rechaza los envíos por su restricción de IP.** Devuelve 401 diciendo que la
-IP no está autorizada. Las funciones de Supabase salen por IPs de AWS que cambian en cada
-arranque, así que añadirlas a la lista no vale: hay que **apagar la restricción** en
-https://app.brevo.com/security/authorised_ips, o mandar el correo por otro proveedor.
+El correo del código **funciona** desde el 2026-09-07. Estuvo unas horas parado por la
+restricción de IP de la cuenta de Brevo, que se apagó. Y el planificador está publicado en
+`planificador.shifty.es`, con las variables de entorno puestas en Vercel.
 
-Está explicado entero, con el mensaje literal de Brevo, en
-`functions/planning-auth-email/README.md`.
-
-Mientras tanto: se calcula, se guarda el plan sin cuenta y el enlace corto funciona. Lo que no
-se puede es entrar con el correo para reclamarlo.
+Probado contra producción: se sube el fichero, se lee entero en el navegador, el modelo repasa
+las columnas, se guarda el plan, el enlace corto lo abre desde una sesión limpia, y con el
+código del correo se entra y el plan pasa a tener dueño.
 
 ## ⛔ Lo que sigue prohibido
 

@@ -1,36 +1,20 @@
 # planning-auth-email
 
-> ## ⛔ LO ÚNICO QUE FALTA, Y NO SE PUEDE HACER DESDE AQUÍ
+> ## ✅ FUNCIONA, desde el 2026-09-07
 >
-> **La cuenta de Brevo tiene encendida la restricción por IP y está rechazando
-> nuestros envíos.** Probado de verdad el 2026-09-06: Supabase Auth llamó al
-> hook, la firma se verificó, la función llamó a Brevo, y Brevo contestó 401 con
-> este mensaje:
+> Estuvo unas horas sin mandar nada: la cuenta de Brevo tenía encendida la
+> restricción por IP y devolvía 401, porque las funciones de Supabase salen por
+> direcciones de AWS que cambian en cada arranque. Crescente apagó esa
+> restricción y el correo salió a la primera.
 >
-> > *We have detected you are using an unrecognised IP address 2a05:d014:61b:2708:…
-> > If you performed this action make sure to add the new IP address in this link:
-> > https://app.brevo.com/security/authorised_ips*
+> Probado de punta a punta contra producción: Auth llama al hook, la firma se
+> verifica, Brevo acepta el envío y devuelve su identificador, el código llega a
+> la bandeja de entrada (no a spam), y con él se abre sesión y el plan anónimo
+> pasa a tener dueño.
 >
-> O sea: **la clave es correcta y el código funciona**; lo que falla es un ajuste
-> de seguridad de la cuenta de Brevo.
->
-> **Añadir esa IP a la lista NO sirve.** Las funciones de Supabase salen a
-> internet por direcciones de AWS que cambian en cada arranque, así que mañana
-> sería otra. La única salida por ese camino es **apagar la restricción por IP**
-> en https://app.brevo.com/security/authorised_ips, y eso es una decisión de
-> seguridad de la cuenta de Shifty entera, no solo del planificador: hay que
-> tomarla a sabiendas, no por inercia.
->
-> Si no se quiere tocar esa restricción, la alternativa es mandar el correo por
-> otro proveedor. En `Website/` ya hay una clave de Resend en uso, que no tiene
-> esa limitación. Cambiar de proveedor aquí es reescribir una sola función de
-> este mismo fichero, `mandarPorBrevo`, y nada más: el hook, la firma y el correo
-> se quedan igual.
->
-> **Hasta que eso se decida, entrar con el correo no funciona.** El resto del
-> planificador sí: se calcula, se guarda el plan sin cuenta y el enlace corto
-> funciona. Lo que no se puede es reclamar el plan para volver a él desde otro
-> dispositivo.
+> **Si algún día vuelve a fallar con un 401 de Brevo diciendo "unrecognised IP
+> address", es esa misma restricción, que alguien habrá vuelto a encender.** No
+> se arregla añadiendo la IP: cambia cada vez.
 
 
 El correo con el codigo de acceso. Lo llama **Supabase Auth**, no el front, cada vez que alguien

@@ -42,6 +42,12 @@ export function CuentaModal({
   const [codigo, setCodigo] = useState('')
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /**
+   * El mensaje de arriba no siempre es un fallo. Cuando se pide un segundo
+   * código antes de tiempo, lo que hay que decir es "ya lo tienes en el correo",
+   * y eso en rojo parece que algo se ha roto cuando no se ha roto nada.
+   */
+  const [avisoSuave, setAvisoSuave] = useState(false)
 
   // Al cerrarse vuelve a su estado inicial. Sin esto, quien lo cierra a mitad y
   // lo vuelve a abrir se encuentra el paso del codigo sin haber pedido ninguno.
@@ -50,6 +56,7 @@ export function CuentaModal({
       setFase('email')
       setCodigo('')
       setError(null)
+      setAvisoSuave(false)
       setCargando(false)
     }
   }, [open])
@@ -57,14 +64,29 @@ export function CuentaModal({
   async function mandarCodigo(e: FormEvent) {
     e.preventDefault()
     setError(null)
+    setAvisoSuave(false)
     setCargando(true)
     try {
       await pedirCodigo(email.trim())
       setFase('codigo')
-    } catch {
-      // El error de Supabase no se enseña tal cual: dice cosas como "Email rate
-      // limit exceeded" que no le sirven a nadie.
-      setError('No hemos podido mandar el código. Revisa el correo y vuelve a intentarlo.')
+    } catch (err) {
+      const mensaje = err instanceof Error ? err.message : ''
+      // OJO CON EL LÍMITE DE FRECUENCIA, que no es un fallo: es que ya se mandó
+      // uno hace menos de un minuto. Tratarlo como un error dejaba a la persona
+      // en la pantalla del correo, con un cartel rojo y SIN forma de escribir el
+      // código que ya tenía en la bandeja. Se pasa a la pantalla del código
+      // igual, que es donde puede hacer algo con él.
+      const esPorFrecuencia =
+        /rate limit|only request this after|after \d+ seconds|429/i.test(mensaje)
+      if (esPorFrecuencia) {
+        setFase('codigo')
+        setAvisoSuave(true)
+        setError('Ya te habíamos mandado un código hace un momento. Míralo en tu correo y escríbelo aquí.')
+      } else {
+        // El error de Supabase no se enseña tal cual: dice cosas que no le
+        // sirven a nadie.
+        setError('No hemos podido mandar el código. Revisa el correo y vuelve a intentarlo.')
+      }
     } finally {
       setCargando(false)
     }
@@ -73,6 +95,7 @@ export function CuentaModal({
   async function confirmar(e: FormEvent) {
     e.preventDefault()
     setError(null)
+    setAvisoSuave(false)
     setCargando(true)
     try {
       await comprobarCodigo(email.trim(), codigo.trim())
@@ -147,7 +170,7 @@ export function CuentaModal({
             />
           </div>
 
-          {error && <Note tone="danger">{error}</Note>}
+          {error && <Note tone={avisoSuave ? 'info' : 'danger'}>{error}</Note>}
 
           <p className="text-[0.78rem] leading-relaxed text-content-muted">
             Solo lo usamos para que puedas volver a tu plan. No te apuntamos a ninguna lista de
@@ -192,7 +215,7 @@ export function CuentaModal({
             />
           </div>
 
-          {error && <Note tone="danger">{error}</Note>}
+          {error && <Note tone={avisoSuave ? 'info' : 'danger'}>{error}</Note>}
 
           <p className="text-[0.78rem] leading-relaxed text-content-muted">
             Si no te llega en un minuto, mira en spam.
@@ -206,6 +229,7 @@ export function CuentaModal({
                 setFase('email')
                 setCodigo('')
                 setError(null)
+                setAvisoSuave(false)
               }}
             >
               Cambiar el correo

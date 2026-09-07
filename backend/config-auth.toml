@@ -58,10 +58,24 @@ additional_redirect_urls = [
 
 [auth.email]
 enable_signup = true
-# Apagado a proposito: aqui se entra con el CODIGO de seis digitos, no con el
-# enlace de confirmacion. Encenderlo obliga a pulsar un enlace que lleva al
-# site_url, y eso es una pieza mas que puede romperse.
-enable_confirmations = false
+# ENCENDIDO desde el 2026-09-07, y NO rompe el codigo de seis digitos: se probo
+# con un usuario nuevo de punta a punta despues de cambiarlo.
+#
+# Estaba apagado, y eso dejaba la puerta abierta a quedarse con la cuenta de
+# otro: cualquiera podia darse de alta con el correo de un restaurante y una
+# contrasena suya, y /auth/v1/signup devolvia sesion EN EL ACTO con el correo
+# marcado como verificado sin que nadie hubiera probado nada. Comprobado contra
+# freetools antes de arreglarlo.
+#
+# Con esto encendido, esa alta ya no entrega sesion: el atacante se queda fuera
+# con un "Email not confirmed".
+#
+# ⚠️ LO QUE ESTO NO ARREGLA, y esta medido: si la victima entra DESPUES con su
+# codigo, su correo queda confirmado y la contrasena que dejo puesta el atacante
+# vuelve a valer. Cerrar eso del todo pide quitar la via de contrasena, y
+# Supabase no tiene un interruptor para eso: no esta en config.toml. Pendiente de
+# decidir como.
+enable_confirmations = true
 otp_length = 6
 otp_expiry = 3600
 # Un correo por minuto y direccion. Sin esto, cualquiera puede llenarle el buzon a
