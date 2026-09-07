@@ -72,6 +72,9 @@ export function RoleCatalog({
   const [nombreZona, setNombreZona] = useState('')
   const [zonaABorrar, setZonaABorrar] = useState<Block | null>(null)
   const [puestoABorrar, setPuestoABorrar] = useState<Role | null>(null)
+  /** El puesto recién creado, para abrirle el nombre y que no se quede
+   *  llamándose "Nuevo puesto". Mismo patrón que la tabla de tramos. */
+  const [puestoNuevo, setPuestoNuevo] = useState<string | null>(null)
 
   function patch(id: string, d: Partial<Role>) {
     onRolesChange(roles.map((r) => (r.id === id ? { ...r, ...d } : r)))
@@ -198,6 +201,8 @@ export function RoleCatalog({
                         value={role.name}
                         onCommit={(v) => patch(role.id, { name: v })}
                         ariaLabel={`Cambiar el nombre del puesto ${role.name}`}
+                        autoEdit={puestoNuevo === role.id}
+                        onEditEnd={() => setPuestoNuevo(null)}
                         className="text-[0.9rem] font-bold text-content-primary"
                       />
                     </span>
@@ -253,8 +258,9 @@ export function RoleCatalog({
                 icon={<Plus size={14} />}
                 className="mt-2"
                 onClick={() => {
-                  const { parts } = crearPuesto(partes(), block)
+                  const { parts, roleId } = crearPuesto(partes(), block)
                   onPartsChange(parts)
+                  setPuestoNuevo(roleId)
                 }}
               >
                 Añadir un puesto a {block.name}

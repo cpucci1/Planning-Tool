@@ -396,10 +396,12 @@ export function TiersTable({
     if (!el) return
     // El margen de 1 px evita que un ancho fraccionario deje la sombra
     // encendida para siempre en una tabla que sí cabe entera.
-    setSombra({
-      izq: el.scrollLeft > 1,
-      der: el.scrollLeft + el.clientWidth < el.scrollWidth - 1,
-    })
+    const izq = el.scrollLeft > 1
+    const der = el.scrollLeft + el.clientWidth < el.scrollWidth - 1
+    // Solo se toca el estado si de verdad cambia. Sin esto, cada evento de
+    // scroll creaba un objeto nuevo y React repintaba la tabla entera en cada
+    // fotograma del arrastre, que en esta tabla se nota.
+    setSombra((antes) => (antes.izq === izq && antes.der === der ? antes : { izq, der }))
   }, [])
 
   useEffect(() => {
@@ -635,7 +637,7 @@ export function TiersTable({
           <div
             aria-hidden
             className={cn(
-              'pointer-events-none absolute inset-y-0 left-0 z-40 w-6 transition-opacity duration-200',
+              'pointer-events-none absolute inset-y-0 left-[140px] z-40 w-6 transition-opacity duration-200',
               'bg-gradient-to-r from-content-primary/12 to-transparent',
               sombra.izq ? 'opacity-100' : 'opacity-0',
             )}
@@ -787,12 +789,13 @@ export function TiersTable({
                         scope="col"
                         className={cn(
                           thBase,
-                          // Estrechas a propósito: el nombre largo parte en dos
-                          // líneas en vez de estirar la columna. Con "Responsable
-                          // de turno" la columna medía el doble que su contenido
-                          // real, que es una casilla de dos dígitos, y cabían
-                          // tres puestos donde caben cinco.
-                          'sticky top-9 z-20 w-[84px] min-w-[84px] px-1 py-1.5 align-bottom',
+                          // Se acota el MÁXIMO, no se sube el mínimo: el nombre
+                          // largo parte en dos líneas en vez de estirar la
+                          // columna, y el corto sigue ocupando lo poco que
+                          // ocupaba. Con "Responsable de turno" la columna medía
+                          // el doble que su contenido real, que es una casilla
+                          // de dos dígitos.
+                          'sticky top-9 z-20 max-w-[92px] min-w-[64px] px-1 py-1.5 align-bottom',
                           gi > 0 && ri === 0 && 'border-l-2 border-l-border',
                         )}
                       >

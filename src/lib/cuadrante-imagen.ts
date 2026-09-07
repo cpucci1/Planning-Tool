@@ -54,6 +54,16 @@ function triggerDownload(href: string, filename: string): void {
   a.remove()
 }
 
+/** base64 → Blob, sin pasar por `canvas.toBlob`, que es asíncrono. Ver el
+ *  aviso de `compartirODescargar`: aquí el que sea síncrono es el requisito. */
+function dataUrlABlob(dataUrl: string): Blob {
+  const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+  const binario = atob(base64)
+  const bytes = new Uint8Array(binario.length)
+  for (let i = 0; i < binario.length; i += 1) bytes[i] = binario.charCodeAt(i)
+  return new Blob([bytes], { type: 'image/png' })
+}
+
 /**
  * Compartir de verdad, y si no se puede, descargar.
  *
@@ -64,17 +74,26 @@ function triggerDownload(href: string, filename: string): void {
  *
  * Se pregunta con `canShare` y con el fichero DELANTE, no solo si existe
  * `share`: hay navegadores que comparten texto y no ficheros, y ahí preguntar
- * en general diría que sí y luego fallaría. Si no se puede, o si la persona
- * cancela el menú, se descarga, que es lo que hacía antes.
+ * en general diría que sí y luego fallaría.
  */
 async function compartirODescargar(canvas: HTMLCanvasElement, filename: string): Promise<void> {
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
-  if (!blob) {
-    triggerDownload(canvas.toDataURL('image/png'), filename)
-    return
-  }
+  /*
+   * ⚠️ EL BLOB SE HACE SIN NI UN `await`, Y ESO ES LO QUE HACE QUE FUNCIONE.
+   *
+   * `navigator.share` exige "activación transitoria": solo vale si se llama
+   * dentro del gesto de la persona. Safari la da por gastada en cuanto hay un
+   * `await` por medio, así que la versión obvia —esperar a `canvas.toBlob`, que
+   * es asíncrono, y luego compartir— falla con NotAllowedError justo en el
+   * iPhone, que es el sitio donde esto tiene sentido. Y falla en silencio,
+   * porque cae a la descarga y parece que no se ha cambiado nada.
+   *
+   * `toDataURL` es síncrono y pasar de base64 a Blob también, así que la
+   * llamada a `share` sigue dentro del mismo turno que la pulsación.
+   */
+  const file = new File([dataUrlABlob(canvas.toDataURL('image/png'))], filename, {
+    type: 'image/png',
+  })
 
-  const file = new File([blob], filename, { type: 'image/png' })
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file] })
@@ -82,12 +101,15 @@ async function compartirODescargar(canvas: HTMLCanvasElement, filename: string):
     } catch (err) {
       // Cancelar el menú de compartir NO es un fallo: es una respuesta. Si se
       // descargara igual, quien se arrepiente se encuentra el fichero puesto.
-      if (err instanceof DOMException && err.name === 'AbortError') return
+      // Se mira solo el nombre: no todos los navegadores rechazan con un
+      // DOMException, y exigir el tipo dejaba la cancelación cayendo a la
+      // descarga, que es justo lo que se quería evitar.
+      if (err instanceof Error && err.name === 'AbortError') return
       // Cualquier otro fallo sí cae a la descarga: mejor el fichero que nada.
     }
   }
 
-  const url = URL.createObjectURL(blob)
+  const url = URL.createObjectURL(file)
   triggerDownload(url, filename)
   // Se suelta DESPUÉS, no en la línea de al lado: revocar en el mismo turno
   // puede cortarle la descarga al navegador antes de que la haya empezado.
@@ -280,7 +302,13 @@ export async function compartirTurnoPersona(
   ctx.font = `32px ${FONT_STACK}`
   ctx.fillText('Calculado con Shifty', IMG_W / 2, IMG_H - 22)
 
-  await compartirODescargar(canvas, `turno-${slugify(person.label)}.png`)
+  try {
+    await compartirODescargar(canvas, `turno-${slugify(person.label)}.png`)
+  } catch {
+    // Que un fallo al compartir no deje el botón mudo Y ADEMÁS suelte un
+    // rechazo que nadie escucha: si algo va mal, al menos queda el fichero.
+    triggerDownload(canvas.toDataURL('image/png'), `turno-${slugify(person.label)}.png`)
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
