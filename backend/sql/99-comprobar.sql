@@ -70,8 +70,8 @@ crear as (
 ),
 funciones as (
   select 'Funciones creadas' as comprobacion,
-         count(*)::text || ' de 16' as valor,
-         case when count(*) = 16 then 'BIEN' else 'FALTA ALGUNA O SOBRA' end as veredicto
+         count(*)::text || ' de 17' as valor,
+         case when count(*) = 17 then 'BIEN' else 'FALTA ALGUNA O SOBRA' end as veredicto
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public'
@@ -141,6 +141,24 @@ disparador as (
      and t.tgname = 'planning_plans_updated_at'
      and not t.tgisinternal
 ),
+-- Sin esto, cualquiera puede quedarse con la cuenta de otro registrando su
+-- correo antes que el. Ver 30-nada-de-contrasenas.sql.
+sin_contrasenas as (
+  select 'Nadie puede guardar una contrasena' as comprobacion,
+         count(*)::text || ' de 1' as valor,
+         case when count(*) = 1 then 'BIEN' else 'PELIGRO: falta el disparador' end as veredicto
+    from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'auth' and c.relname = 'users'
+     and t.tgname = 'planning_sin_contrasenas' and not t.tgisinternal
+),
+contrasenas_guardadas as (
+  select 'Contrasenas guardadas (tiene que ser 0)' as comprobacion,
+         (select count(*)::text from auth.users where encrypted_password is not null) as valor,
+         case when (select count(*) from auth.users where encrypted_password is not null) = 0
+              then 'BIEN' else 'PELIGRO: alguna cuenta tiene contrasena' end as veredicto
+),
 datos as (
   select 'Planes guardados' as comprobacion,
          (select count(*)::text from public.planning_plans) as valor,
@@ -156,4 +174,6 @@ union all select * from ejecutables
 union all select * from con_sesion
 union all select * from pgcrypto
 union all select * from disparador
+union all select * from sin_contrasenas
+union all select * from contrasenas_guardadas
 union all select * from datos;

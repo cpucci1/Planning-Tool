@@ -70,17 +70,40 @@ enable_signup = true
 # Con esto encendido, esa alta ya no entrega sesion: el atacante se queda fuera
 # con un "Email not confirmed".
 #
-# ⚠️ LO QUE ESTO NO ARREGLA, y esta medido: si la victima entra DESPUES con su
-# codigo, su correo queda confirmado y la contrasena que dejo puesta el atacante
-# vuelve a valer. Cerrar eso del todo pide quitar la via de contrasena, y
-# Supabase no tiene un interruptor para eso: no esta en config.toml. Pendiente de
-# decidir como.
+# LO QUE ESTO NO ARREGLABA, y estaba medido: si la victima entraba DESPUES con
+# su codigo, su correo quedaba confirmado y la contrasena que dejo puesta el
+# atacante volvia a valer. Eso lo cierra el disparador de
+# backend/sql/30-nada-de-contrasenas.sql, que impide guardar ninguna contrasena.
+# Esto se queda encendido igualmente: es una capa mas y no cuesta nada.
 enable_confirmations = true
 otp_length = 6
 otp_expiry = 3600
 # Un correo por minuto y direccion. Sin esto, cualquiera puede llenarle el buzon a
 # otro pulsando el boton, y ademas se come la cuota de Brevo.
 max_frequency = "60s"
+
+# ⚠️ ESTOS LIMITES SON POR HORA Y PARA TODO EL PROYECTO, no por persona.
+# Venian a 30, y eso significa que con 30 personas entrando en una hora la
+# herramienta deja de mandar codigos PARA TODOS. Para un lead magnet que se
+# ensena en una feria o que sale en un correo, 30 se agotan en diez minutos.
+# Se subieron el 2026-09-07 despues de comerselos en las propias pruebas.
+#
+# El techo de verdad no es este, es Brevo: su plan gratuito tiene un tope diario
+# propio. Si empieza a fallar el envio con la cuota de Supabase de sobra, mirar
+# ahi.
+[auth.rate_limit]
+email_sent = 150
+sign_in_sign_ups = 500
+token_verifications = 500
+
+# Apagado. Se probo para rechazar las altas con contrasena y NO SIRVE: el aviso
+# que manda es identico para un alta con contrasena y para una con codigo, asi
+# que no se puede rechazar una sin rechazar la otra. Lo que cierra ese agujero es
+# el disparador de backend/sql/30-nada-de-contrasenas.sql.
+[auth.hook.before_user_created]
+enabled = false
+uri = ""
+secrets = ""
 
 # No lo usa el planificador (se entra con un codigo por correo), pero estaba
 # encendido antes de tocar nada y apagarlo no era parte del encargo.

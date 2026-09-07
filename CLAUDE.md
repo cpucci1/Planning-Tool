@@ -1023,6 +1023,41 @@ Todo esto se ejecuto contra `freetools` de verdad, no se dedujo:
 - **Nada de esto se ha visto en produccion**, porque el planificador todavia no esta
   desplegado con estas variables de entorno.
 
+### Lo que saco la auditoria de produccion (2026-09-07)
+
+Con la herramienta ya publicada en `planificador.shifty.es` se audito desde fuera. Cuatro cosas
+ciertas, tres arregladas:
+
+- **El candado de CORS tenia la puerta de al lado abierta.** La funcion de IA no miraba el tipo de
+  contenido, y un navegador solo pide permiso por adelantado cuando la peticion NO es "simple". Con
+  `Content-Type: text/plain`, una web cualquiera mandaba el mismo cuerpo, la funcion lo parseaba
+  igual, llamaba a Gemini y gastaba una de las 2.000 del dia; lo unico que el navegador impedia era
+  LEER la respuesta. Cualquiera podia agotarnos el tope y dejar la lectura automatica apagada para
+  los restaurantes de verdad. **Ya se exige `application/json`.**
+- **Cabeceras y cacheo**, en un `vercel.json` nuevo. La que de verdad importa aqui es
+  `Referrer-Policy`: el enlace de un plan viaja en la direccion, y sin ella se filtraria a cualquier
+  sitio al que se enlace.
+- **Pedir el codigo dos veces dentro del mismo minuto dejaba sin salida**: cartel rojo en la
+  pantalla del correo y ninguna forma de escribir el codigo que ya estaba en la bandeja.
+
+### ⚠️ El alta con contrasena, y lo que sigue abierto
+
+Cualquiera puede darse de alta en freetools con el correo de otro y una contrasena suya. Antes eso
+devolvia **sesion en el acto**, con el correo marcado como verificado sin haber probado nada;
+encendiendo `enable_confirmations` esa sesion ya no se entrega.
+
+**Pero eso no lo cierra del todo, y esta medido:** si la victima entra despues con su codigo, su
+correo queda confirmado y la contrasena que dejo puesta el atacante vuelve a valer. A partir de ahi
+ese atacante ve la lista de planes de esa persona (nombre de su fichero, cuanta gente, cuantas
+horas) y puede borrarselos.
+
+Para cerrarlo del todo hay que quitar la via de contrasena, y **Supabase no tiene un interruptor
+para eso**: no esta en `config.toml` (comprobado listando todas las opciones que conoce la CLI).
+`enable_signup = false` no vale, porque apagaria tambien el alta por codigo, que es justo como entra
+la gente. Las salidas que quedan son un disparador sobre `auth.users` que vacie la contrasena, o un
+hook de "antes de crear el usuario" que rechace las altas con contrasena. Lo primero choca con la
+regla de no tocar `auth.users`; lo segundo esta sin probar. **Pendiente de decidir.**
+
 ### La limpieza, programada
 
 `planning_purge_abandoned` existia desde el primer dia y **no la llamaba nadie**: un plan anonimo
