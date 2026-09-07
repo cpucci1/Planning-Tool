@@ -1023,6 +1023,22 @@ Todo esto se ejecuto contra `freetools` de verdad, no se dedujo:
 - **Nada de esto se ha visto en produccion**, porque el planificador todavia no esta
   desplegado con estas variables de entorno.
 
+### La limpieza, programada
+
+`planning_purge_abandoned` existia desde el primer dia y **no la llamaba nadie**: un plan anonimo
+que nadie ha tocado en 180 dias se quedaba ahi para siempre. Desde el 2026-09-07 hay un cron de
+`pg_cron` en freetools, `planning-purgar-anonimos`, a las 04:15 UTC. Los planes con dueno no se
+tocan jamas.
+
+### ⚠️ El plan gratuito de Supabase se pausa a los 7 dias
+
+Lo dice su propia documentacion de puesta en produccion: *"We may pause applications on the Free
+Plan that exhibit low activity in a 7-day period"*. Para un lead magnet recien lanzado eso NO es
+teorico: una semana floja y el proyecto se pausa, con lo que dejan de funcionar el guardado, el
+enlace corto y el login. El calculo sigue, porque la herramienta esta escrita para aguantar que se
+caiga el backend, pero es justo el fallo que nadie ve venir. Decision pendiente: pasar a Pro o
+asumir que hay que despausarlo a mano.
+
 ### Lo que se decidio el 2026-09-07, y como quedo
 
 Crescente cerro las cuatro cosas que quedaban abiertas. Las cuatro estan hechas:
