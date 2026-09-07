@@ -8,10 +8,12 @@
  *
  * COMO SE PARTE UN PLAN
  * La foto del planificador son 13 campos, y uno solo, la curva de comensales,
- * es el 86,6% del peso: 16.016 enteros por plan (52 semanas x 7 dias x 44
- * franjas), de los cuales el 62% son ceros. Medido sobre Postgres, esa curva
- * como jsonb ocuparia 192.198 bytes; comprimida con deflate-raw son 8.041. Con
- * los 500 MB del plan gratis, eso es la diferencia entre 2.600 planes y 60.000.
+ * es el 86,6% del peso: 17.472 enteros por plan (52 semanas x 7 dias x 48
+ * franjas), y la mayoria son ceros. Medido sobre Postgres con la rejilla de 44
+ * franjas que habia hasta el 2026-09-07, esa curva como jsonb ocupaba 192.198
+ * bytes por plan y comprimida 8.041. Al estirar la rejilla a las 24 horas son un
+ * 9% mas, y comprime aun mejor porque lo que se anade son ceros seguidos. Con
+ * los 500 MB del plan gratis eso siguen siendo decenas de miles de planes.
  *
  * Por eso va partido: la curva viaja comprimida a `planning_plan_datasets` y
  * todo lo demas, que es pequeno y sirve para pintar, va en `config`.
@@ -22,6 +24,7 @@
 import { supabase } from './supabase'
 import { base64ToBytes, bytesToBase64, comprimir, descomprimir, hayCompressionStream } from './comprimir'
 import { SNAPSHOT_VERSION, type PlannerSnapshot } from './persistence'
+import { ajustarFranjas } from './time'
 import type { DemandDataset, WeekDemand } from './types'
 
 /** Lo que devuelve el servidor al crear un plan. El secreto viene UNA vez. */
@@ -129,7 +132,12 @@ function recomponerCurva(
     const base = i * porSemana
     const days: number[][] = []
     for (let d = 0; d < 7; d++) {
-      days.push(plano.slice(base + d * porDia, base + (d + 1) * porDia))
+      // `ajustarFranjas` y no el trozo a secas: un plan guardado antes del
+      // 2026-09-07 trae 44 franjas por día, porque la rejilla llegaba hasta las
+      // 04:00 y ahora cubre las 24 horas. Sin rellenar, el cálculo lee
+      // `undefined` en las cuatro últimas y la plantilla sale mal sin dar ningún
+      // error. El enlace de un plan viejo tiene que seguir abriéndose bien.
+      days.push(ajustarFranjas(plano.slice(base + d * porDia, base + (d + 1) * porDia)))
     }
     return { isoWeek: meta.isoWeek, year: meta.year, startDate: meta.startDate, days, total: meta.total }
   })

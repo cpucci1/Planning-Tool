@@ -89,6 +89,60 @@ function filasDeMuestra(muestras: string[][]): string[][] {
   return filas
 }
 
+/**
+ * Deja una celda de muestra en algo que el modelo pueda clasificar SIN que salga
+ * del navegador un dato de una persona.
+ *
+ * EL PROBLEMA, DICHO CLARO. De cada columna salían tres celdas tal cual. En una
+ * columna `CAMARERO` eso son los nombres de la plantilla de un restaurante
+ * saliendo hacia Google. La portada promete que el FICHERO no se sube y eso se
+ * cumplía, pero esas celdas sí salían, y "solo son tres" no es una respuesta
+ * cuando se trata de gente que no ha dado permiso para nada.
+ *
+ * LA SOLUCIÓN NO ES DEJAR DE MANDAR VALORES, porque entonces el modelo solo ve
+ * la cabecera y deja de servir justo donde servía: las cabeceras opacas (`C3`,
+ * `CAMP_07`) y separar tickets de importe. Lo que necesita para decidir NO es el
+ * contenido, es la FORMA: si eso es una fecha, una hora, un número pequeño, un
+ * número con decimales o texto libre.
+ *
+ * Así que sale la forma y no el contenido:
+ *   - Fechas, horas, números y códigos cortos van TAL CUAL. Un 4, un 86,50 o un
+ *     14/06/2025 no identifican a nadie y son justo lo que hay que ver.
+ *   - Cualquier otra cosa sale como una etiqueta que dice qué es y cuánto mide:
+ *     `Luis` pasa a ser `(texto, 4)`, y `Menú del día con postre` a `(texto, 24)`.
+ *
+ * Comprobado contra el modelo el 2026-09-07 con las cabeceras opacas y con un
+ * fichero español de verdad: clasifica igual de bien con las etiquetas que con
+ * los valores, porque de una columna de texto libre lo único que necesitaba
+ * saber es que era texto libre.
+ */
+export function formaDeCelda(celda: string): string {
+  const v = celda.trim()
+  if (v === '') return ''
+
+  // Números: enteros, decimales con coma o con punto, con signo, con símbolo de
+  // moneda o con separador de millares. Todo eso es forma, no dato personal.
+  if (/^[+-]?[\d.,\s]*\d[\d.,\s]*\s*(€|eur|EUR|\$|%)?$/.test(v)) return v
+
+  // Fechas y horas en cualquiera de los formatos que lee el lector, con o sin
+  // hora pegada detrás.
+  if (/^\d{1,4}[/\-.]\d{1,2}[/\-.]\d{1,4}([ T]+\d{1,2}:\d{2}(:\d{2})?)?\s*(AM|PM|am|pm)?$/.test(v)) return v
+  if (/^\d{1,2}:\d{2}(:\d{2})?\s*(AM|PM|am|pm)?$/.test(v)) return v
+
+  // Un código corto CON ALGÚN DÍGITO (T0010101, A-12, MESA3) sale tal cual: no
+  // identifica a nadie y es la pista que distingue un identificador de una
+  // cantidad, que es de las cosas que más se confunden en un TPV.
+  //
+  // El dígito es la clave de la regla y no un capricho. Sin él, "Luis" y "Ana"
+  // pasaban por códigos cortos y salían enteros, que es exactamente lo que esto
+  // viene a evitar: los nombres de pila son cortos y no llevan espacios.
+  if (v.length <= 12 && /\d/.test(v) && !/\s/.test(v) && !/[@]/.test(v)) return v
+
+  // Todo lo demás es texto libre: nombres de personas, de platos, direcciones,
+  // notas. Sale la forma y no el contenido.
+  return `(texto, ${v.length})`
+}
+
 /** Deja una sola columna por destino: la que más confianza tenga. */
 function unDestinoUnaColumna(columnas: ColumnaDetectada[]): ColumnaDetectada[] {
   const mejor = new Map<DestinoColumna, number>()
@@ -172,8 +226,10 @@ export async function mapearColumnasConIA(fichero: FicheroLeido): Promise<Column
   if (fichero.cabeceras.length > 60) return heuristica
   if (fichero.cabeceras.some((c) => c.length > 120)) return heuristica
 
+  // Cada celda pasa por `formaDeCelda` ANTES de salir del navegador. Ver ahí el
+  // porqué: del fichero de una persona no puede salir el nombre de su gente.
   const muestra = filasDeMuestra(fichero.muestras).map((fila) =>
-    fila.map((celda) => celda.slice(0, 120)),
+    fila.map((celda) => formaDeCelda(celda).slice(0, 120)),
   )
 
   const corte = new AbortController()

@@ -287,8 +287,11 @@ export function RosterGrid({ roster, model, needGrid, openBlocks, onRenamePerson
   }, [openBlocks])
 
   /**
-   * Ventana visible del timeline. La rejilla va de 06:00 a 04:00, pero pintar 44
-   * franjas vacías esconde el servicio: se recorta a lo que de verdad ocurre.
+   * Ventana visible del timeline. La rejilla cubre las 24 horas (06:00 a 06:00),
+   * pero pintar 48 franjas casi todas vacías esconde el servicio: se recorta a lo
+   * que de verdad ocurre. Esto es lo que hace que estirar la rejilla a 24 horas
+   * no le cueste nada a un restaurante de menú del día: las franjas de madrugada
+   * están ahí para quien las use, y no se pintan para quien no.
    */
   const slots = useMemo(() => {
     let min = SLOTS_PER_DAY

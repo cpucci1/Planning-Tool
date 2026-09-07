@@ -2,7 +2,7 @@
  * Editor del horario de apertura.
  *
  * Una fila por día sobre una pista que va de GRID_START_MIN a GRID_END_MIN
- * (06:00 → 04:00 del día siguiente). Cada tramo es una barra que se mueve
+ * (06:00 → 06:00 del día siguiente). Cada tramo es una barra que se mueve
  * entera o se estira por los extremos, siempre en saltos de 30 minutos.
  *
  * SOLAPES: al arrastrar, la barra hace TOPE contra sus vecinas — nunca se come

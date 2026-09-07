@@ -16,10 +16,22 @@ export const SLOT_MINUTES = 30
 /** 06:00 — nadie sirve comensales antes. */
 export const GRID_START_MIN = 6 * 60
 
-/** 04:00 del día siguiente, expresado como minuto 1680. */
-export const GRID_END_MIN = 28 * 60
+/**
+ * 06:00 del día siguiente, expresado como minuto 1800.
+ *
+ * Era 04:00 (minuto 1680) hasta el 2026-09-07, y eso tiraba en silencio todo
+ * ticket entre las 04:00 y las 06:00: justo las dos mejores horas de un local de
+ * copas. Se contaban como descartados, pero un local que cierra a las 05:00
+ * salía dimensionado como si cerrase a las 04:00, que es un error caro y
+ * silencioso.
+ *
+ * Ahora la ventana cubre las 24 horas y no se pierde nada. El precio, decidido a
+ * sabiendas: un restaurante de menú del día lleva cuatro franjas que siempre
+ * están a cero, y la curva de cada plan ocupa un 9% más.
+ */
+export const GRID_END_MIN = 30 * 60
 
-export const SLOTS_PER_DAY = (GRID_END_MIN - GRID_START_MIN) / SLOT_MINUTES // 44
+export const SLOTS_PER_DAY = (GRID_END_MIN - GRID_START_MIN) / SLOT_MINUTES // 48
 
 /** 0 = lunes … 6 = domingo. Semana española, no americana. */
 export const DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'] as const
@@ -79,6 +91,25 @@ export function parseTime(value: string): number | null {
 export function clockToGridMin(h: number, m: number): number {
   const raw = h * 60 + m
   return raw < GRID_START_MIN ? raw + 1440 : raw
+}
+
+/**
+ * Deja un día de la curva con exactamente `SLOTS_PER_DAY` franjas.
+ *
+ * POR QUÉ HACE FALTA. El 2026-09-07 la rejilla pasó de 44 franjas (06:00 → 04:00)
+ * a 48 (las 24 horas). Un plan guardado antes de ese día trae días de 44, y el
+ * cálculo los recorre hasta la 47: sin esto, las cuatro últimas salen `undefined`,
+ * `tierFor` recibe algo que no es un número y la plantilla sale mal SIN dar
+ * ningún error. Rellenar con ceros es exacto, además: en aquella rejilla esas
+ * franjas no existían, así que nadie había registrado comensales en ellas.
+ *
+ * Se recorta también por arriba por si algún día la ventana se estrecha.
+ */
+export function ajustarFranjas(dia: number[]): number[] {
+  if (dia.length === SLOTS_PER_DAY) return dia
+  const salida = new Array<number>(SLOTS_PER_DAY)
+  for (let i = 0; i < SLOTS_PER_DAY; i++) salida[i] = dia[i] ?? 0
+  return salida
 }
 
 /** Franjas de la rejilla como array de índices, para iterar en JSX. */

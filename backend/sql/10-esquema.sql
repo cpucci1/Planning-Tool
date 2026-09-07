@@ -215,7 +215,7 @@ create index if not exists planning_plans_huerfanos_idx
 -- ----------------------------------------------------------------------------
 --
 -- POR QUE UNA TABLA APARTE Y POR QUE bytea
--- La curva son 52 semanas x 7 dias x 44 franjas de media hora = 16.016 enteros,
+-- La curva son 52 semanas x 7 dias x 48 franjas de media hora = 17.472 enteros,
 -- el 86,6% del peso del plan. Medido sobre la base: como jsonb ocuparia 192.198
 -- bytes por plan, casi cuatro veces su propio texto, porque jsonb guarda cada
 -- numero con su cabecera. Comprimida con el mismo deflate-raw que ya usa
@@ -252,7 +252,7 @@ create table if not exists public.planning_plan_datasets (
 comment on table  public.planning_plan_datasets is
   'La curva de comensales de un plan, comprimida con deflate-raw. Aparte de planning_plans porque es el 86% del peso y casi ninguna consulta la necesita.';
 comment on column public.planning_plan_datasets.covers is
-  'Los 16.016 enteros de la curva (52 semanas x 7 dias x 44 franjas), comprimidos. Mismo formato que el enlace compartido del front.';
+  'Los 17.472 enteros de la curva (52 semanas x 7 dias x 48 franjas), comprimidos. El numero de franjas por dia viaja dentro de config, asi que un plan guardado con una rejilla mas corta se sigue leyendo. Mismo formato que el enlace compartido del front.';
 comment on column public.planning_plan_datasets.weeks_meta is
   'Total de comensales por semana ISO, ya sumado. Permite pintar el grafico del ano sin descomprimir la curva.';
 comment on column public.planning_plan_datasets.byte_size is

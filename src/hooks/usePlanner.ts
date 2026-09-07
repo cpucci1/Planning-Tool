@@ -48,7 +48,10 @@ import type { ColumnaDetectada } from '@/lib/mapeo'
 import {
   SNAPSHOT_SOURCE,
   SNAPSHOT_VERSION,
+  borrarFilas,
   clearAutosave,
+  guardarFilas,
+  leerFilas,
   downloadSnapshot,
   loadAutosave,
   metaOf,
@@ -289,6 +292,18 @@ export function usePlannerState() {
     setFalloGuardado(false)
     setDataset(d)
     setLectura(lecturaDelFichero ?? null)
+    // Las filas se guardan aparte de la foto, para que quien recupere este plan
+    // manana pueda seguir corrigiendo columnas. Ver `guardarFilas`.
+    if (lecturaDelFichero) {
+      void guardarFilas({
+        nombre: lecturaDelFichero.nombre,
+        filas: lecturaDelFichero.filas,
+        mapeo: lecturaDelFichero.mapeo,
+        comensalesPorTicket: lecturaDelFichero.comensalesPorTicket,
+      })
+    } else {
+      void borrarFilas()
+    }
     horarioTocado.current = false
     setHours(d.source.detectedHours)
     setSpecials(detectSpecialWeeks(d.weeks, d.year))
@@ -358,6 +373,14 @@ export function usePlannerState() {
     })
     setDataset(r.dataset)
     if (!horarioTocado.current) setHours(r.dataset.source.detectedHours)
+    // El mapeo corregido tambien se guarda: si no, al recuperar el plan volveria
+    // el mapeo original y el usuario veria deshecha su correccion.
+    void guardarFilas({
+      nombre: lectura.nombre,
+      filas: lectura.filas,
+      mapeo,
+      comensalesPorTicket,
+    })
   }
 
   /**
@@ -390,6 +413,7 @@ export function usePlannerState() {
     setFalloGuardado(false)
     setDataset(null)
     setLectura(null)
+    void borrarFilas()
     horarioTocado.current = false
     setHours(null)
     setKitchenHours(null)
@@ -587,6 +611,25 @@ export function usePlannerState() {
   /** Aplica una foto guardada al estado actual. */
   function applySnapshot(snap: PlannerSnapshot) {
     setDataset(snap.dataset)
+    // Y se recuperan las filas del fichero, que viven aparte. Sin esto, quien
+    // vuelve al dia siguiente puede corregir una columna y el calculo no se
+    // rehace, sin que la pantalla diga nada.
+    void leerFilas().then((f) => {
+      if (!f) return
+      setLectura({
+        nombre: f.nombre,
+        filas: f.filas as FilaCruda[],
+        mapeo: f.mapeo as ColumnaDetectada[],
+        comensalesPorTicket: f.comensalesPorTicket,
+        // El diagnostico no se guarda: se rehace en cuanto el usuario toque algo,
+        // y guardar un recuento viejo seria peor que no ensenar ninguno.
+        filasLeidas: f.filas.length,
+        filasUsadas: f.filas.length,
+        descartes: [],
+        advertencias: [],
+        semanas: snap.dataset.weeks.length,
+      })
+    })
     setHours(snap.hours)
     setKitchenHours(snap.kitchenHours ?? null)
     setSpecials(snap.specials)
@@ -610,6 +653,7 @@ export function usePlannerState() {
     savedSnap.current = null
     setSavedMeta(null)
     void clearAutosave()
+    void borrarFilas()
   }
 
   /** El guardado de verdad: un fichero que cruza de ordenador. */
