@@ -54,6 +54,46 @@ function triggerDownload(href: string, filename: string): void {
   a.remove()
 }
 
+/**
+ * Compartir de verdad, y si no se puede, descargar.
+ *
+ * El cuadrante de una persona viaja por WhatsApp: ese es el caso real, no
+ * guardar un PNG en la carpeta de descargas. En el móvil, que es donde esto
+ * pasa, `navigator.share` abre el menú del sistema y la imagen sale a WhatsApp
+ * en dos toques.
+ *
+ * Se pregunta con `canShare` y con el fichero DELANTE, no solo si existe
+ * `share`: hay navegadores que comparten texto y no ficheros, y ahí preguntar
+ * en general diría que sí y luego fallaría. Si no se puede, o si la persona
+ * cancela el menú, se descarga, que es lo que hacía antes.
+ */
+async function compartirODescargar(canvas: HTMLCanvasElement, filename: string): Promise<void> {
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+  if (!blob) {
+    triggerDownload(canvas.toDataURL('image/png'), filename)
+    return
+  }
+
+  const file = new File([blob], filename, { type: 'image/png' })
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file] })
+      return
+    } catch (err) {
+      // Cancelar el menú de compartir NO es un fallo: es una respuesta. Si se
+      // descargara igual, quien se arrepiente se encuentra el fichero puesto.
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      // Cualquier otro fallo sí cae a la descarga: mejor el fichero que nada.
+    }
+  }
+
+  const url = URL.createObjectURL(blob)
+  triggerDownload(url, filename)
+  // Se suelta DESPUÉS, no en la línea de al lado: revocar en el mismo turno
+  // puede cortarle la descarga al navegador antes de que la haya empezado.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
+
 // ─────────────────────────────────────────────────────────────
 // Imagen para WhatsApp
 // ─────────────────────────────────────────────────────────────
@@ -136,7 +176,11 @@ function drawRoundedBox(ctx: CanvasRenderingContext2D, x: number, y: number, w: 
  * filtra por `person.id` por su cuenta, así que se le puede pasar
  * `roster.shifts` entero sin pensarlo dos veces.
  */
-export function descargarTurnoPersona(person: Person, shifts: Shift[], roleName: string): void {
+export async function compartirTurnoPersona(
+  person: Person,
+  shifts: Shift[],
+  roleName: string,
+): Promise<void> {
   const canvas = document.createElement('canvas')
   canvas.width = IMG_W
   canvas.height = IMG_H
@@ -236,7 +280,7 @@ export function descargarTurnoPersona(person: Person, shifts: Shift[], roleName:
   ctx.font = `32px ${FONT_STACK}`
   ctx.fillText('Calculado con Shifty', IMG_W / 2, IMG_H - 22)
 
-  triggerDownload(canvas.toDataURL('image/png'), `turno-${slugify(person.label)}.png`)
+  await compartirODescargar(canvas, `turno-${slugify(person.label)}.png`)
 }
 
 // ─────────────────────────────────────────────────────────────

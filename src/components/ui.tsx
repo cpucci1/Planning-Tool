@@ -17,6 +17,7 @@ import {
   type InputHTMLAttributes,
   type ReactNode,
 } from 'react'
+import { createPortal } from 'react-dom'
 
 export function cn(...inputs: Parameters<typeof clsx>) {
   return twMerge(clsx(inputs))
@@ -482,7 +483,23 @@ export function Modal({
 
   if (!open) return null
 
-  return (
+  /*
+   * VA POR UN PORTAL A `document.body`, Y NO ES UN CAPRICHO.
+   *
+   * `position: fixed` se coloca respecto a la pantalla SOLO si ningún
+   * antepasado tiene transform, filter o backdrop-filter. En cuanto uno lo
+   * tiene, el fixed pasa a colocarse respecto a ESE antepasado.
+   *
+   * Es lo que pasaba: la animación de entrada de las tarjetas (`.stagger > *`)
+   * deja puesto un transform, así que el modal de borrar una zona se anclaba a
+   * la tarjeta del catálogo. Con la página desplazada, el modal aparecía medio
+   * fuera por arriba: se veía el final del texto y los botones, y el título no.
+   * Medido en el navegador el 2026-09-07: la caja del modal salía en -714 px.
+   *
+   * Sacándolo a `body` deja de depender de dónde se use. Cualquier modal nuevo
+   * nace bien sin que nadie tenga que acordarse de esto.
+   */
+  return createPortal(
     <div className="fixed inset-0 z-100 flex items-end justify-center p-0 sm:items-center sm:p-6">
       <div
         className="animate-fade-in absolute inset-0 bg-content-primary/40 backdrop-blur-[2px]"
@@ -518,7 +535,8 @@ export function Modal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
