@@ -6,6 +6,47 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Calcula la plantilla que necesita tu restaurante a partir de tu demanda real. Gratis, sin registro." />
     <title>Planificador de plantilla · Shifty</title>
+
+    <!--
+      LA TARJETA QUE SE VE AL COMPARTIR EL ENLACE.
+
+      Esto no es adorno: la herramienta se comparte por WhatsApp entre hosteleros,
+      y sin estas etiquetas el enlace salia como una linea de texto pelada, que se
+      lee como algo sospechoso. La imagen es `public/og.png`, 1200x630 y 50 KB:
+      WhatsApp deja de ensenar la vista previa cuando la imagen pasa de unos
+      300 KB, asi que si algun dia se cambia, hay que mirar el peso.
+
+      Las direcciones van ABSOLUTAS a proposito. Una relativa la resuelve bien un
+      navegador, pero los robots que leen la tarjeta (WhatsApp, Slack, Telegram)
+      no siempre, y entonces la imagen no sale y nadie sabe por que.
+    -->
+    <link rel="canonical" href="https://planificador.shifty.es/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Shifty" />
+    <meta property="og:locale" content="es_ES" />
+    <meta property="og:url" content="https://planificador.shifty.es/" />
+    <meta property="og:title" content="¿Cuánta gente necesitas de verdad? Tu histórico ya lo sabe" />
+    <meta
+      property="og:description"
+      content="Sube el export de tu TPV y te decimos cuánta gente necesitas, con qué contratos y en qué turnos. Gratis y sin registro."
+    />
+    <meta property="og:image" content="https://planificador.shifty.es/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Planificador de plantilla de Shifty: la demanda de una semana, con el sábado como día punta."
+    />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="¿Cuánta gente necesitas de verdad? Tu histórico ya lo sabe" />
+    <meta
+      name="twitter:description"
+      content="Sube el export de tu TPV y te decimos cuánta gente necesitas, con qué contratos y en qué turnos. Gratis y sin registro."
+    />
+    <meta name="twitter:image" content="https://planificador.shifty.es/og.png" />
   </head>
   <body>
     <div id="root"></div>
