@@ -8,4 +8,5 @@ Este fichero solo localiza las reglas; no las duplica.
    de leer, editar o ejecutar nada dentro de ese proyecto.
 3. Las skills de Codex en `.agents/skills/` son enlaces a `.claude/skills/`. El contenido se mantiene
    únicamente en la fuente indicada por `CLAUDE.md`.
-
+4. Si una lectura indica que la salida se ha truncado, continúa por tramos hasta llegar al final.
+   Un `CLAUDE.md` truncado no cuenta como leído.
