@@ -203,6 +203,12 @@ Website: en React Native no existe.
    **No se crean ficheros de migración locales.**
 7. **Antes de desplegar una Edge Function**, comparar con producción: un deploy reemplaza el bundle
    entero y el 2026-07-06 se perdió una semana de arreglos.
+8. **Los OTA de las apps móviles los pide Crescente, siempre.** Mergear a `main` no pone nada en el
+   móvil de nadie, y ahí acaba el trabajo del agente: no se lanza `eas update` ni ninguna otra
+   actualización por aire por iniciativa propia, ni "para probarlo", ni aunque el arreglo sea
+   urgente. Ya pasó una vez: se lanzó uno que él no había pedido y se agotó la cuota de
+   actualizaciones, así que las que sí hacían falta se quedaron sin poder salir. Al terminar se le
+   dice que está listo y **se espera a que él lo pida**. Lo mismo para las builds de tienda.
 
 **Verificación:** `tsc --noEmit` y `npm run lint` a cero. En móviles, iOS **y** Android. En Website,
 `npm run build`. Y ojo: **Client-App, Website, sales-tool y Planning no tienen ningún candado de
