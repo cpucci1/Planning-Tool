@@ -40,7 +40,7 @@
 import type { ColumnaDetectada, DestinoColumna } from './mapeo'
 import { applyLag, inferHours, weekTotal } from './demand'
 import { isoWeekStart } from './holidays'
-import { GRID_START_MIN, SLOTS_PER_DAY, clockToGridMin, minToSlot } from './time'
+import { GRID_START_MIN, SLOTS_PER_DAY, SLOT_MINUTES, clockToGridMin, minToSlot } from './time'
 import type { DemandDataset, WeekDemand } from './types'
 
 // ─────────────────────────────────────────────────────────────
@@ -64,6 +64,8 @@ export type FormatoFecha = 'dd/mm' | 'mm/dd'
 export type CodigoAdvertencia =
   | 'fecha-ambigua'
   | 'fecha-en-conflicto'
+  | 'fichero-agrupado'
+  | 'sin-detalle-horario'
   | 'codificacion-latin1'
   | 'sin-cabecera'
   | 'sin-hora'
@@ -167,6 +169,21 @@ export interface ResultadoDataset {
   semanas: number
   /** Formato de fecha que se ha acabado usando. */
   formatoFecha: FormatoFecha
+  /**
+   * Cada cuántos minutos trae horas el fichero. 1 o 5 en un fichero de tickets
+   * de verdad, 60 en uno agrupado por horas, 1.440 en uno con un total por día.
+   */
+  paso: number
+  /**
+   * True si el paso se ha repartido entre varias franjas por venir agrupado.
+   * Ver `detectarPasoHorario`.
+   */
+  repartido: boolean
+  /**
+   * True si el fichero no tiene detalle dentro del día y no sirve para
+   * dimensionar turnos. La pantalla de subida lo rechaza con eso.
+   */
+  sinDetalleHorario: boolean
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -204,6 +221,38 @@ const EPOCH_EXCEL = Date.UTC(1899, 11, 30)
  * fechas es tiempo tirado y bloquea la pestaña.
  */
 const FILAS_A_OLFATEAR = 400
+
+/**
+ * Hasta dónde se reparte un fichero que viene agrupado, en minutos.
+ *
+ * Un fichero por horas se reparte entre sus dos medias horas y el resultado es
+ * casi el mismo. Un fichero de bloques de cuatro horas se reparte entre ocho
+ * franjas: se pierde la forma de dentro del bloque, pero el número de gente
+ * sale del orden correcto, y se dice en pantalla.
+ *
+ * Por encima de eso (un total por servicio o por día) NO se reparte: repartir
+ * un total diario entre las 48 franjas dibujaría comensales a las siete de la
+ * mañana, que es inventar la forma del día. Ahí se rechaza el fichero.
+ */
+const PASO_MAXIMO_REPARTIBLE = 4 * 60
+
+/**
+ * Filas con hora que hacen falta para fiarse del paso detectado.
+ *
+ * Con cuatro filas, dos horas separadas no significan que el fichero venga
+ * agrupado. Por debajo de este número se avisa pero no se rechaza nada: el
+ * usuario sabe de su fichero más que una muestra de cuatro filas.
+ */
+const FILAS_PARA_FIARSE_DEL_PASO = 40
+
+/** Peso mínimo de una hora para contar en el paso. Ver `detectarPasoHorario`. */
+const PESO_MINIMO_DE_UNA_HORA = 0.005
+
+/**
+ * Filas que tienen que encajar en el paso para creerse que el fichero viene
+ * agrupado. Ver la comprobación de encaje en `detectarPasoHorario`.
+ */
+const ENCAJE_MINIMO_DEL_PASO = 0.95
 
 /** Etiquetas de `mappedTo`, las que entiende la pantalla de mapeo. */
 const ETIQUETA_POR_DESTINO: Record<DestinoColumna, string> = {
@@ -623,7 +672,8 @@ export function detectarFormatoFecha(valores: ValorCrudo[]): {
         codigo: 'fecha-en-conflicto',
         mensaje:
           'Hay fechas que solo cuadran como día/mes y otras que solo cuadran como mes/día. ' +
-          `Se han leído como ${ddmm >= mmdd ? 'día/mes' : 'mes/día'}, que es lo que encaja en más filas, pero revísalo.`,
+          `Se han leído como ${ddmm >= mmdd ? 'día/mes' : 'mes/día'}, que es lo que encaja en más filas. ` +
+          'Revísalo abajo, donde dice cómo se leen tus fechas: si el orden es el otro, las semanas se colocan mal.',
       },
     }
   }
@@ -637,12 +687,140 @@ export function detectarFormatoFecha(valores: ValorCrudo[]): {
         codigo: 'fecha-ambigua',
         mensaje:
           'En tus fechas ningún número pasa de 12, así que no se puede saber si son día/mes o mes/día. ' +
-          'Se han leído como día/mes, que es lo normal en España. Si tu fichero viene en formato americano, dilo.',
+          'Se han leído como día/mes, que es lo normal en España. Si tu fichero viene en formato americano, ' +
+          'cámbialo en el botón de abajo, donde dice cómo se leen tus fechas.',
       },
     }
   }
 
   return { formato: 'dd/mm', advertencia: null }
+}
+
+/**
+ * Cada cuánto trae horas el fichero, y si eso se puede creer.
+ *
+ * ── POR QUÉ HACE FALTA ───────────────────────────────────────────────────
+ * Toda la herramienta descansa en una curva de comensales por media hora. Un
+ * export de tickets la da tal cual. Pero medio TPV exporta YA AGRUPADO: una
+ * fila por hora, o por bloque de dos horas, o un total por servicio.
+ *
+ * Sin esto, las 80 comidas de una hora entraban enteras en la franja de las
+ * 13:00 y la de las 13:30 se quedaba a cero. El pico simultáneo salía al doble
+ * y el pico es justo lo que marca cuánta gente hace falta (ver `drivers` en
+ * staffing): la plantilla salía inflada, con un número creíble y sin un solo
+ * aviso. Es el error más caro que puede cometer esta herramienta.
+ *
+ * ── CÓMO SE DECIDE ───────────────────────────────────────────────────────
+ * Con las horas que de verdad aparecen, no con la cabecera ni con el nombre
+ * del fichero. Se cuenta cuántas filas hay en cada hora distinta, se tiran las
+ * que no llegan al 0,5% (una fila sucia a las 13:37 en un fichero por horas no
+ * lo convierte en un fichero de tickets) y el paso es la **distancia más
+ * pequeña** entre dos horas que queden.
+ *
+ * La distancia más pequeña, y no la media ni el máximo común divisor, porque:
+ * - Un hueco entre comida y cena es normal y no dice nada del paso.
+ * - Un fichero de tickets a horas exactas por casualidad da 30 y se trata como
+ *   lo que es, media hora, que no necesita reparto.
+ * - Cerrar los lunes no cambia la respuesta.
+ *
+ * ── Y LUEGO SE COMPRUEBA QUE ENCAJA ──────────────────────────────────────
+ * El paso solo se cree si el 95% de las filas cae justo en él. Sin esa segunda
+ * vuelta, un fichero de tickets de verdad con mucho volumen podía acabar
+ * repartido: al tirar las horas flojas quedan las puntas, que en un local con
+ * reserva son las horas en punto, y de ahí sale un paso de 60 que el fichero
+ * NO tiene. Eso partiría los picos en dos y sacaría MENOS gente de la que hace
+ * falta, que es el error peor de los dos. Con la comprobación de encaje, un
+ * fichero con horas sueltas se queda como está.
+ *
+ * El encaje se mide contra la hora más temprana y no contra medianoche: un
+ * fichero con un total por servicio (13:00 y 21:00) tiene un paso de 8 horas
+ * perfectamente real, y 780 no es múltiplo de 480.
+ *
+ * Una sola hora en todo el fichero (el total del día colgado de las 00:00) da
+ * 1.440: no hay nada dentro del día que repartir.
+ */
+export function detectarPasoHorario(minutos: number[]): { paso: number; fiable: boolean } {
+  const fiable = minutos.length >= FILAS_PARA_FIARSE_DEL_PASO
+
+  const cuenta = new Map<number, number>()
+  for (const m of minutos) {
+    // El reloj, no el minuto de rejilla: la 01:00 de la madrugada es la misma
+    // hora del día tanto si el turno la cuenta como del día anterior o no.
+    const hora = ((m % 1440) + 1440) % 1440
+    cuenta.set(hora, (cuenta.get(hora) ?? 0) + 1)
+  }
+  if (cuenta.size === 0) return { paso: 1440, fiable: false }
+
+  const umbral = minutos.length * PESO_MINIMO_DE_UNA_HORA
+  let horas = [...cuenta.entries()]
+    .filter(([, n]) => n >= umbral)
+    .map(([h]) => h)
+    .sort((a, b) => a - b)
+  // Con tan pocas filas que el umbral se lo come todo, se mira sin umbral: es
+  // mejor decidir con lo que hay que decidir con una lista vacía.
+  if (horas.length === 0) horas = [...cuenta.keys()].sort((a, b) => a - b)
+  if (horas.length === 1) return { paso: 1440, fiable }
+
+  let paso = 1440
+  for (let i = 1; i < horas.length; i++) {
+    const d = horas[i] - horas[i - 1]
+    if (d > 0 && d < paso) paso = d
+  }
+  if (paso <= SLOT_MINUTES) return { paso, fiable }
+
+  // El encaje: con el paso ya calculado, ¿caen las filas donde deberían?
+  const base = horas[0]
+  let encajan = 0
+  for (const [hora, n] of cuenta) {
+    if ((((hora - base) % paso) + paso) % paso === 0) encajan += n
+  }
+  if (encajan / minutos.length < ENCAJE_MINIMO_DEL_PASO) {
+    // No viene agrupado: son horas de verdad con sus puntas. Se deja como está.
+    return { paso: 1, fiable }
+  }
+  return { paso, fiable }
+}
+
+/**
+ * Redondea un día de la curva a enteros SIN cambiar su total.
+ *
+ * Hace falta desde que un fichero agrupado reparte cada bloque entre varias
+ * franjas: repartir 5 comensales entre dos medias horas da 2,5 y 2,5, y
+ * redondear cada una por su cuenta da 3 y 3, o sea, un comensal salido de la
+ * nada en cada bloque del día. Con la promesa de "el total es el tuyo" escrita
+ * en pantalla, eso no puede pasar.
+ *
+ * Reparto por mayor resto: cada franja se queda con su parte entera y los que
+ * faltan para cuadrar el total van a las franjas con la fracción más alta. Un
+ * día que ya venía en enteros (el caso normal) sale idéntico.
+ */
+export function redondearConservandoTotal(dia: number[]): number[] {
+  const base = dia.map((v) => Math.floor(v))
+  const objetivo = Math.round(dia.reduce((s, v) => s + v, 0))
+  let faltan = objetivo - base.reduce((s, v) => s + v, 0)
+  if (faltan <= 0) return base
+
+  const orden = dia
+    .map((v, i) => ({ i, resto: v - Math.floor(v) }))
+    .sort((a, b) => b.resto - a.resto || a.i - b.i)
+  for (const { i } of orden) {
+    if (faltan === 0) break
+    base[i] += 1
+    faltan--
+  }
+  return base
+}
+
+/**
+ * En cuántas franjas hay que repartir una fila, según el paso del fichero.
+ *
+ * 1 = tal cual, que es el caso normal. Nunca más de las que caben en el tope
+ * repartible: un total diario no se reparte, se rechaza.
+ */
+export function franjasPorFila(paso: number): number {
+  if (paso <= SLOT_MINUTES) return 1
+  if (paso > PASO_MAXIMO_REPARTIBLE) return 1
+  return Math.round(paso / SLOT_MINUTES)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1244,6 +1422,8 @@ export function construirDatasetConDiagnostico(
   const puntos: Punto[] = []
   const porAno = new Map<number, number>()
   let sinHoraPropia = 0
+  /** Las horas de las filas que valen, para saber si el fichero viene agrupado. */
+  const horasVistas: number[] = []
 
   for (let n = 0; n < filas.length; n++) {
     const fila = filas[n]
@@ -1322,6 +1502,8 @@ export function construirDatasetConDiagnostico(
       continue
     }
 
+    horasVistas.push(minutos)
+
     const ano = anoISO(t)
     puntos.push({
       ano,
@@ -1376,7 +1558,54 @@ export function construirDatasetConDiagnostico(
     }
   }
 
+  // ¿Viene el fichero agrupado? Se decide con las horas que han entrado, no con
+  // la cabecera. Ver `detectarPasoHorario`: de esto depende que el pico no salga
+  // al doble.
+  // Nada de esto se hace con una muestra que no lo sostiene. Cuatro tickets a
+  // las 22:00, 00:30, 01:30 y 14:00 dan un paso de 60 minutos por pura
+  // casualidad, y repartir ahi partiria en dos una copa que si tenia su hora
+  // exacta. Por debajo de `FILAS_PARA_FIARSE_DEL_PASO` no se reparte ni se
+  // afirma nada: un historico asi ya lleva su propio aviso de corto.
+  const { paso, fiable: pasoFiable } = detectarPasoHorario(horasVistas)
+  const franjasPorBloque = pasoFiable ? franjasPorFila(paso) : 1
+  const repartido = franjasPorBloque > 1
+  const sinDetalleHorario = pasoFiable && paso > PASO_MAXIMO_REPARTIBLE
+
+  if (repartido) {
+    const bloque =
+      paso >= 60
+        ? `${(paso / 60).toLocaleString('es-ES')} ${paso === 60 ? 'hora' : 'horas'}`
+        : `${paso} minutos`
+    advertencias.push({
+      codigo: 'fichero-agrupado',
+      mensaje:
+        `Tu fichero no trae la hora de cada ticket: viene agrupado en bloques de ${bloque}. ` +
+        `Cada bloque se ha repartido a partes iguales entre sus ${franjasPorBloque} franjas de media hora, ` +
+        'porque meterlo entero en la primera dispararía el pico y te saldría más plantilla de la que necesitas. ' +
+        'El total de comensales es el tuyo; lo que no sabemos es cómo se movían dentro del bloque. ' +
+        'Con un export ticket a ticket el cuadrante sale más fino.',
+    })
+  }
+
+  if (sinDetalleHorario) {
+    advertencias.push({
+      codigo: 'sin-detalle-horario',
+      mensaje:
+        (paso >= 1440
+          ? 'Tu fichero trae un solo total por día, sin hora. '
+          : `Tu fichero trae bloques de ${Math.round(paso / 60)} horas, demasiado grandes para saber cómo se reparte el día. `) +
+        'Esta herramienta dimensiona turnos a partir de lo que pasa dentro del día, así que con esto no se puede: ' +
+        'repartir ese total a ojo sería inventarse la forma de tu servicio. Pide a tu TPV el export de ventas ' +
+        'con la hora de cada ticket, o al menos por tramos de media hora o de una hora.',
+    })
+  }
+
   // Segunda pasada: al cubo de su semana.
+  //
+  // Si el fichero viene agrupado, la fila no cae en una franja: se reparte entre
+  // las que cubre su bloque. El reparto se queda DENTRO de la rejilla y divide
+  // solo entre las franjas que caben, para que el total de comensales de la
+  // semana siga siendo exactamente el del fichero.
   const porSemana = new Map<number, number[][]>()
   let usadas = 0
   for (const p of puntos) {
@@ -1389,7 +1618,14 @@ export function construirDatasetConDiagnostico(
       dias = Array.from({ length: 7 }, () => new Array<number>(SLOTS_PER_DAY).fill(0))
       porSemana.set(p.semana, dias)
     }
-    dias[p.dia][p.franja] += p.comensales
+    if (franjasPorBloque === 1) {
+      dias[p.dia][p.franja] += p.comensales
+    } else {
+      const ultima = Math.min(p.franja + franjasPorBloque, SLOTS_PER_DAY)
+      const cuantas = ultima - p.franja
+      const parte = p.comensales / cuantas
+      for (let f = p.franja; f < ultima; f++) dias[p.dia][f] += parte
+    }
     usadas++
   }
 
@@ -1398,7 +1634,7 @@ export function construirDatasetConDiagnostico(
   const weeks: WeekDemand[] = [...porSemana.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([isoWeek, dias]) => {
-      const days = dias.map((d) => d.map((v) => Math.round(v)))
+      const days = dias.map(redondearConservandoTotal)
       return {
         isoWeek,
         year,
@@ -1459,6 +1695,9 @@ export function construirDatasetConDiagnostico(
     advertencias,
     semanas: weeks.length,
     formatoFecha,
+    paso,
+    repartido,
+    sinDetalleHorario,
   }
 }
 

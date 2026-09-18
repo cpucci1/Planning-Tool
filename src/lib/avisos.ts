@@ -11,7 +11,7 @@
 import { DAYS } from './time'
 import type { DayIndex, Roster, Settings, Shift, StaffingModel } from './types'
 
-export type AvisoTipo = 'descanso' | 'libranzas' | 'horas' | 'sin-cubrir'
+export type AvisoTipo = 'descanso' | 'libranzas' | 'horas' | 'contrato-flojo' | 'sin-cubrir'
 
 export interface Aviso {
   tipo: AvisoTipo
@@ -165,6 +165,59 @@ function avisosHoras(roster: Roster, model: StaffingModel): Aviso[] {
 }
 
 // ─────────────────────────────────────────────────────────────
+// 3 bis. Contrato mucho más grande que los turnos
+// ─────────────────────────────────────────────────────────────
+
+/** Por debajo de esto, un contrato se está pagando medio vacío. */
+const OCUPACION_MINIMA = 0.6
+
+/**
+ * El caso que parece un error de la herramienta y no lo es: un encargado con
+ * contrato de 40 h y 9 h de turnos.
+ *
+ * Sale de `fullTimeOnly` (`roster.ts`): los puestos de mando no bajan a un
+ * contrato parcial aunque sus horas quepan, porque un encargado se contrata a
+ * jornada completa o no se contrata. El cálculo es correcto, pero la pantalla
+ * certificaba que todo estaba en regla — `avisosHoras` solo mira a quien se
+ * PASA de su contrato, nunca a quien le falta la mitad — y entonces la única
+ * lectura posible era "esto está mal calculado".
+ *
+ * Es un aviso, no un incumplimiento: no hay nada ilegal en pagar una jornada
+ * completa a quien trabaja nueve horas. Solo cuesta dinero, y hay que decirlo.
+ */
+function avisosContratoFlojo(roster: Roster, model: StaffingModel, settings: Settings): Aviso[] {
+  const avisos: Aviso[] = []
+  const menorActivo = settings.contracts
+    .filter((c) => c.enabled)
+    .reduce<number | null>((min, c) => (min === null || c.hours < min ? c.hours : min), null)
+
+  for (const person of roster.people) {
+    if (person.contractHours <= 0) continue
+    if (person.assignedHours >= person.contractHours * OCUPACION_MINIMA) continue
+
+    const role = model.roles.find((r) => r.id === person.roleId)
+    const puesto = role ? ` (${role.name})` : ''
+    const cifras = `tiene un contrato de ${fmtNumero(person.contractHours)} h y solo ${fmtNumero(person.assignedHours)} h de turnos`
+
+    const porQue = role?.fullTimeOnly
+      ? `su puesto está marcado como solo jornada completa, así que no baja a un contrato parcial aunque le quepa. Si quieres que baje, apaga ese interruptor en el catálogo de puestos.`
+      : menorActivo !== null && person.contractHours <= menorActivo
+        ? `es el contrato más pequeño que tienes activo. Activa uno menor en los ajustes del paso de equipo si quieres ajustarlo.`
+        : `sus turnos no se han podido juntar con los de nadie más sin romper el descanso o las libranzas.`
+
+    avisos.push({
+      tipo: 'contrato-flojo',
+      gravedad: 'aviso',
+      personId: person.id,
+      personLabel: person.label,
+      mensaje: `${person.label}${puesto} ${cifras}: ${porQue}`,
+      days: [],
+    })
+  }
+  return avisos
+}
+
+// ─────────────────────────────────────────────────────────────
 // 4. Franjas sin cubrir
 // ─────────────────────────────────────────────────────────────
 
@@ -199,6 +252,7 @@ export function comprobacionesHechas(settings: Settings): { tipo: AvisoTipo; nom
   if (settings.minRestBetweenShifts) hechas.push({ tipo: 'descanso', nombre: 'descanso de 12 h entre turnos' })
   if (settings.consecutiveDaysOff) hechas.push({ tipo: 'libranzas', nombre: 'libranzas seguidas' })
   hechas.push({ tipo: 'horas', nombre: 'horas dentro del contrato' })
+  hechas.push({ tipo: 'contrato-flojo', nombre: 'contratos aprovechados' })
   hechas.push({ tipo: 'sin-cubrir', nombre: 'todas las franjas cubiertas' })
   return hechas
 }
@@ -207,6 +261,7 @@ export function revisarCuadrante(roster: Roster, model: StaffingModel, settings:
   const avisos = [
     ...avisosDescanso(roster, settings),
     ...avisosHoras(roster, model),
+    ...avisosContratoFlojo(roster, model, settings),
     ...avisosLibranzas(roster, settings),
     ...avisoSinCubrir(roster),
   ]

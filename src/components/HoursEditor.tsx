@@ -151,6 +151,15 @@ export function HoursEditor({
     </>
   ),
   subtitle = 'Arrastra las barras para ajustar cada día. Un día sin barras es un día cerrado.',
+  ayuda = (
+    <>
+      Es el <strong>horario de apertura del centro</strong>: desde que abres al público hasta que
+      cierras, día a día. Fuera de él no se calcula plantilla, y eso recorta el ruido del
+      histórico: si el fichero trae comensales a las 06:00 de un martes que estás cerrado, aquí se
+      descartan. El montaje de antes de abrir y el cierre se añaden aparte, en los minutos de
+      preparación.
+    </>
+  ),
 }: {
   hours: OpeningHours
   onChange: (h: OpeningHours) => void
@@ -160,6 +169,9 @@ export function HoursEditor({
   eyebrow?: string
   title?: React.ReactNode
   subtitle?: string
+  /** El texto de la ayuda. Se cambia para el horario de cocina, que no es una
+   *  apertura al público sino la ventana en la que cocina trabaja. */
+  ayuda?: React.ReactNode
 }) {
   // Normalizamos siempre para pintar: el editor nunca debe dibujar solapes,
   // vengan de donde vengan.
@@ -393,10 +405,7 @@ export function HoursEditor({
         title={title}
         subtitle={subtitle}
         info={
-          <InfoTip title="Para qué sirve el horario">
-            Fuera del horario no se calcula plantilla. Recorta el ruido del histórico: si el fichero
-            trae comensales a las 06:00 de un martes que estás cerrado, aquí se descartan.
-          </InfoTip>
+          <InfoTip title="Qué horario es este">{ayuda}</InfoTip>
         }
         action={
           <div className="text-right whitespace-nowrap">

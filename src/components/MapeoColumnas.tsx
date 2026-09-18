@@ -14,9 +14,10 @@
  * ahí es una ESTIMA a partir de tickets, nunca un dato del fichero.
  */
 
-import { TriangleAlert } from 'lucide-react'
+import { CalendarDays, TriangleAlert } from 'lucide-react'
 import { CONFIANZA_MINIMA, mapeoSuficiente } from '@/lib/mapeo'
 import type { ColumnaDetectada, DestinoColumna } from '@/lib/mapeo'
+import type { FormatoFecha } from '@/lib/parseFichero'
 import { Badge, Card, CardHeader, Field, InfoTip, Note, NumberInput, cn } from './ui'
 
 // El tipo, el umbral y la condición de "se puede seguir" viven en `lib/mapeo.ts`:
@@ -40,12 +41,28 @@ export function MapeoColumnas({
   onChange,
   comensalesPorTicket,
   onComensalesPorTicket,
+  formatoFecha,
+  formatoDudoso = false,
+  formatoElegido = null,
+  onFormatoFecha,
 }: {
   columnas: ColumnaDetectada[]
   onChange: (columnas: ColumnaDetectada[]) => void
   /** Solo se usa si NINGUNA columna es 'comensales'. */
   comensalesPorTicket: number
   onComensalesPorTicket: (v: number) => void
+  /** El orden con el que se están leyendo las fechas ahora mismo. */
+  formatoFecha?: FormatoFecha
+  /**
+   * El lector no ha podido deducir el orden, o ha encontrado filas que se
+   * contradicen. Solo entonces se pregunta: en un fichero donde algún día pasa
+   * de 12 la respuesta es segura, y preguntarla sería sembrar una duda que no
+   * existe y dar la ocasión de elegir mal.
+   */
+  formatoDudoso?: boolean
+  /** Lo que ya eligió el usuario, si eligió algo. */
+  formatoElegido?: FormatoFecha | null
+  onFormatoFecha?: (f: FormatoFecha) => void
 }) {
   const tieneFecha = columnas.some((c) => c.destino === 'fecha')
   const tieneComensales = columnas.some((c) => c.destino === 'comensales')
@@ -110,26 +127,24 @@ export function MapeoColumnas({
                       )}
                     </div>
 
+                    {/* Un solo ejemplo y no tres: los tres decían lo mismo (el
+                        formato de la columna, que es lo único que hay que
+                        reconocer) y llenaban la fila de cajas. */}
                     {c.ejemplos.length > 0 && (
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                         <span className="text-[0.68rem] font-bold tracking-wide text-content-muted uppercase">
-                          Así viene
+                          Ejemplo
                         </span>
-                        {c.ejemplos.map((ej, i) => (
-                          <span
-                            key={i}
-                            className="rounded-md border border-border-soft bg-surface-elevated px-1.5 py-0.5 font-mono text-[0.75rem] text-content-secondary"
-                          >
-                            {ej}
-                          </span>
-                        ))}
+                        <span className="rounded-md border border-border-soft bg-surface-elevated px-1.5 py-0.5 font-mono text-[0.75rem] text-content-secondary">
+                          {c.ejemplos[0]}
+                        </span>
                       </div>
                     )}
 
                     {dudosa && (
                       <p className="mt-1.5 text-[0.78rem] leading-snug font-semibold text-warning">
-                        No estamos seguros de esta columna: mira los ejemplos de arriba y, si no es
-                        lo que dice el desplegable, corrígelo.
+                        No estamos seguros de esta columna: mira el ejemplo de arriba y, si no es lo
+                        que dice el desplegable, corrígelo.
                       </p>
                     )}
                   </div>
@@ -152,6 +167,57 @@ export function MapeoColumnas({
           })}
         </ul>
       </div>
+
+      {/* EL ORDEN DE LA FECHA, SOLO CUANDO NO SE PUEDE SABER.
+          Con 03/02/2026 y ninguna fila que pase de 12 en todo el fichero, día/mes
+          y mes/día son las dos posibles y la herramienta elige la española. Si
+          acierta, bien; si no, las semanas se colocan en el mes equivocado y el
+          año sale descuadrado sin un solo error. Es la única pregunta que no se
+          puede contestar leyendo el fichero, así que se hace aquí. */}
+      {formatoDudoso && onFormatoFecha && (
+        <div className="border-t border-border-soft px-4 py-5 sm:px-6">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+            <div className="min-w-[220px] flex-1">
+              <span className="flex items-center gap-1.5 text-[0.9rem] font-bold text-content-primary">
+                <CalendarDays size={15} strokeWidth={2.3} />
+                ¿Cómo se leen tus fechas?
+              </span>
+              <p className="mt-1 text-[0.82rem] leading-relaxed text-content-secondary">
+                En tu fichero ningún número pasa de 12, así que no hay forma de saberlo. Estamos
+                leyendo <strong>{formatoFecha === 'mm/dd' ? 'mes/día' : 'día/mes'}</strong>. Si es
+                al revés, dilo aquí.
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              {(
+                [
+                  { valor: 'dd/mm' as FormatoFecha, label: 'Día/mes', pie: '31/12/2026' },
+                  { valor: 'mm/dd' as FormatoFecha, label: 'Mes/día', pie: '12/31/2026' },
+                ]
+              ).map((o) => {
+                const activo = (formatoElegido ?? formatoFecha) === o.valor
+                return (
+                  <button
+                    key={o.valor}
+                    type="button"
+                    onClick={() => onFormatoFecha(o.valor)}
+                    aria-pressed={activo}
+                    className={cn(
+                      'rounded-lg border px-3 py-2 text-left transition-colors',
+                      activo
+                        ? 'border-brand bg-brand-light text-brand'
+                        : 'border-border-soft bg-surface text-content-secondary hover:border-border',
+                    )}
+                  >
+                    <span className="block text-[0.85rem] font-bold">{o.label}</span>
+                    <span className="block font-mono text-[0.72rem] opacity-80">{o.pie}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* El caso de siempre en TPV español: ninguna columna trae comensales.
           Se usa el nº de tickets como referencia, y la cifra que salga de ahí

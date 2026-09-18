@@ -119,8 +119,8 @@ export function RoleCatalog({
         }
         subtitle={
           calcularCostes
-            ? 'Pon el coste real de una hora de cada puesto y verás lo que cuesta tu plantilla a la semana y al año.'
-            : 'Las categorías con las que trabajas. Si además quieres saber lo que cuesta la plantilla, enciende los costes aquí abajo.'
+            ? 'Todos los de la lista son puestos que tienes; para quitar uno, la papelera. Pon el coste real de una hora de cada uno y verás lo que cuesta tu plantilla.'
+            : 'Todos los de la lista son puestos que tienes; para quitar uno, la papelera. Si además quieres saber lo que cuesta la plantilla, enciende los costes aquí abajo.'
         }
         info={
           <InfoTip title="Qué coste poner">
@@ -196,7 +196,9 @@ export function RoleCatalog({
                       'flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border-soft bg-surface px-3 py-2.5',
                     )}
                   >
-                    <span className="min-w-0 flex-1">
+                    {/* En móvil el nombre se queda con su propia línea: con el
+                        coste al lado, "Responsable de turno" y el € se tocaban. */}
+                    <span className="w-full min-w-0 sm:w-auto sm:flex-1">
                       <InlineName
                         value={role.name}
                         onCommit={(v) => patch(role.id, { name: v })}
@@ -229,11 +231,36 @@ export function RoleCatalog({
                       </span>
                     )}
 
-                    <Toggle
-                      checked={role.fullTimeOnly}
-                      onChange={(v) => patch(role.id, { fullTimeOnly: v })}
-                      label="Solo jornada completa"
-                    />
+                    {/* UN DESPLEGABLE Y NO UN INTERRUPTOR, Y NO ES UN CAPRICHO.
+                        Esta pantalla se titula "qué puestos tienes", así que una
+                        fila por puesto con un interruptor a la derecha se lee
+                        como "este puesto lo tengo" / "no lo tengo" — y encendido
+                        además sale en morado, que remata el engaño. Tres puestos
+                        vienen de serie con esto encendido (encargado,
+                        responsable de turno y jefe de cocina), o sea que el
+                        usuario veía tres puestos "activados" y seis "apagados"
+                        cuando en realidad tenía los nueve.
+
+                        Con un desplegable las DOS opciones llevan su nombre, no
+                        hay estado apagado que interpretar, y la palabra
+                        "contrato" dice de qué va la pregunta. Quitar un puesto
+                        es la papelera, que es lo único que lo quita. */}
+                    <span className="flex shrink-0 items-center gap-2">
+                      <span className="text-[0.7rem] font-bold tracking-wide text-content-muted uppercase">
+                        Contrato
+                      </span>
+                      <select
+                        aria-label={`Qué contrato admite el puesto ${role.name}`}
+                        value={role.fullTimeOnly ? 'completa' : 'cualquiera'}
+                        onChange={(e) =>
+                          patch(role.id, { fullTimeOnly: e.target.value === 'completa' })
+                        }
+                        className="h-9 rounded-md border border-border bg-surface-elevated px-2.5 text-[0.8rem] font-semibold text-content-primary transition-colors focus:border-border-focus focus:outline-none"
+                      >
+                        <option value="cualquiera">Completa o parcial</option>
+                        <option value="completa">Solo jornada completa</option>
+                      </select>
+                    </span>
 
                     {/* "Qué puestos tienes" tiene que dejar decir que NO tienes
                         uno. Antes solo se podía en la tabla de tramos, poniendo
@@ -382,19 +409,22 @@ export function RoleCatalog({
           />
         </div>
 
-        <Note tone="neutral" icon={<BadgeEuro size={15} strokeWidth={2.3} />}>
-          Los puestos marcados como <strong>solo jornada completa</strong> no bajan nunca a un
-          contrato parcial en el cuadrante, aunque sus horas quepan en uno. Es lo normal en los
-          puestos de mando. En el paso de equipo es donde dices cuánta gente de cada puesto hace
-          falta en cada tramo de comensales.
-          {calcularCostes && (
-            <>
-              {' '}
-              Y si un coste baja de {eur.format(SMI_HORA_EUR)} la hora te avisamos: es el mínimo
-              legal de 2026.
-            </>
-          )}
-        </Note>
+        <div className="mt-3">
+          <Note tone="neutral" icon={<BadgeEuro size={15} strokeWidth={2.3} />}>
+            El contrato de cada puesto decide una sola cosa: los de{' '}
+            <strong>solo jornada completa</strong> no bajan nunca a un contrato parcial en el
+            cuadrante, aunque sus horas quepan en uno, así que les pagas la jornada entera. Es lo
+            normal en los puestos de mando. En el paso de equipo es donde dices cuánta gente de
+            cada puesto hace falta en cada tramo de comensales.
+            {calcularCostes && (
+              <>
+                {' '}
+                Y si un coste baja de {eur.format(SMI_HORA_EUR)} la hora te avisamos: es el mínimo
+                legal de 2026.
+              </>
+            )}
+          </Note>
+        </div>
       </div>
     </Card>
   )
