@@ -753,6 +753,16 @@ function PersonView({
                           </span>
                         </span>
                         <OccupancyBar assigned={person.assignedHours} contracted={person.contractHours} />
+                        {/* POR QUÉ UN 40h CON 9 h ASIGNADAS NO ES UN ERROR.
+                            Un puesto de mando no baja a contrato parcial (ver
+                            `fullTimeOnly` en roster.ts). Sin esta línea, la fila
+                            se lee como un fallo de cálculo, y es la primera cosa
+                            que se mira de un cuadrante. */}
+                        {role?.fullTimeOnly && (
+                          <span className="mt-1 block text-[0.68rem] leading-tight font-bold text-content-muted">
+                            solo jornada completa
+                          </span>
+                        )}
                       </td>
                     </tr>
                   )
@@ -802,6 +812,11 @@ function PersonView({
                       <p className="mt-1 text-[0.76rem] font-bold text-content-primary tabular-nums">
                         {fmtHours(person.assignedHours)}
                       </p>
+                      {role?.fullTimeOnly && (
+                        <p className="mt-0.5 text-[0.68rem] leading-tight font-bold text-content-muted">
+                          solo jornada completa
+                        </p>
+                      )}
                     </div>
                   </div>
                   <OccupancyBar assigned={person.assignedHours} contracted={person.contractHours} />
