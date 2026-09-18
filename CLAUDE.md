@@ -180,9 +180,21 @@ que no tenerla, porque da permiso para desplegar.
 
 ## Una lógica, un sitio
 
-La misma regla vive hoy en muchos sitios a la vez: la comisión en 46 funciones, la detección del
-actor en 158, la guarda `is_test` en 145. **Si se cambia una copia y no las otras, el sistema
-contesta cosas distintas según por dónde entres, sin dar ningún error.**
+La misma regla vive hoy en muchos sitios a la vez: la detección del actor en **148 funciones**, la
+guarda `is_test` en **82**, el distintivo Gold en **12**. **Si se cambia una copia y no las otras, el
+sistema contesta cosas distintas según por dónde entres, sin dar ningún error.**
+
+**El olor no es "código repetido", es la misma pregunta contestada desde fuentes distintas.** Las dos
+parecen razonables leyéndolas sueltas, y por eso nadie las ve: no fallan, contestan otra cosa. Los
+tres casos del 2026-09-18, todos reales:
+
+- **Quién paga a esta persona**: se resolvía desde el turno en un sitio y desde el centro de coste en
+  otro. 30 turnos de pago directo se le contaban al trabajador como si fueran de la ETT.
+  Ver `features/quien-paga-y-quien-da-el-alta.md`.
+- **Qué cuesta cancelar**: cuatro funciones, tres escaleras. La pantalla que avisa decía 0 puntos y la
+  que ejecuta quitaba 3. Ver `features/cancelar-un-turno-que-cuesta.md`.
+- **Quién es Gold**: 12 copias de la misma regla, pero unas comparan la nota redondeada y otras la
+  cruda. **15 personas salen Gold en una pantalla y no en otra.** Sin arreglar.
 
 - **Antes de escribir una comprobación, busca el helper.** Existen y casi nadie los usa.
 - **A la tercera vez que escribas lo mismo, se extrae.**
@@ -236,6 +248,8 @@ push**, aunque sus ficheros digan lo contrario. Hay que ejecutarlo a mano o se s
 | **Crear una tabla, dar permisos, tocar RLS o revisar quién puede ver qué** | skill **`shifty-seguridad`** |
 | **Guardar, mover o enseñar un dato de una persona** (NIF, IBAN, teléfono, foto, ubicación, salud) | skill **`shifty-seguridad`** §7, y `security/PRIVACIDAD-DATOS-PERSONALES.md` |
 | Tocar un importe, comisión, tarifa, factura o plazo de pago | skill **`shifty-dinero`** |
+| **Tocar pagadores, altas en la Seguridad Social, o lo que se le dice al trabajador de su dinero** | `features/quien-paga-y-quien-da-el-alta.md` |
+| **Tocar penalizaciones por cancelar** | `features/cancelar-un-turno-que-cuesta.md` |
 | Responder a un trabajador, revisar incidencias, cuadrar horas | skill **`shifty-soporte-trabajador`** |
 | Escribir copy, un post, un correo, una landing o una propuesta | skill **`shifty-marca-y-copy`** |
 | Añadir, mover o borrar una regla, o crear una skill | skill **`shifty-mantener-las-reglas`** |
