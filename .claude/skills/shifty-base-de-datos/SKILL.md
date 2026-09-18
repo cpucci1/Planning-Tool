@@ -168,6 +168,29 @@ guiones**.
 **Excepción reconocida:** las 66 tablas `crm_*` del sales-tool están en castellano. Es anterior y no
 se migra. Si tocas ese mundo, castellano; si tocas producto, inglés. Nunca mezclar dentro de una tabla.
 
+### Los tipos, que no son cosmética
+
+Estas cinco no son estilo: cada una evita una clase de error que ya ha costado dinero en otros
+sitios. Medido contra producción el 2026-09-18.
+
+| Qué | Regla | Cómo está hoy |
+|---|---|---|
+| **Dinero** | `numeric`, **nunca `float`**. La coma flotante redondea mal por diseño, y el redondeo acaba en la nómina de alguien | ✅ 0 columnas de importe en coma flotante |
+| **Fechas** | `timestamptz` siempre. España cambia de hora dos veces al año, y un instante sin zona desplaza los turnos de madrugada | ✅ 0 columnas sin zona |
+| **Porcentajes** | Una sola escala en toda la base, y el nombre lo dice. Un coeficiente (el multiplicador de la ETT) **no es un porcentaje** y no lleva `_pct` | Mirar antes de crear uno: convivir dos escalas hace que el motor multiplique por 100 de más |
+| **Claves ajenas** | Índice en **toda** clave ajena. Postgres no lo crea solo, y sin él cada borrado en la tabla padre recorre la hija entera | ⚠️ **402 de 880 no lo tienen** |
+| **Comentarios** | Cada tabla, columna y función nace con su `COMMENT`. Es la única documentación que no se puede desfasar sin tocar el esquema | ⚠️ **344 tablas de 472, 4.536 columnas y 1.011 funciones de 1.440 sin comentario** |
+
+Las tres primeras están bien y hay que mantenerlas así; comprobarlo cuesta una consulta. Las dos
+últimas están mal y **no se arreglan de golpe**: se arregla la tabla que estés tocando, y cuando
+esté, la siguiente. La consulta que mide las cinco es `scripts/auditar-orden.sql`, y la pasa la
+skill `auditar-orden`.
+
+**Un apunte sobre las claves ajenas sin índice:** 402 suena a catástrofe y no lo es. Muchas son de
+tablas del CRM y de experimentos que nadie borra en cascada. Lo que sí importa es que **ninguna
+tabla operativa** (turnos, candidaturas, jornadas, facturas) se quede sin él, porque ahí sí hay
+borrados y ahí sí hay volumen.
+
 ---
 
 ## 6. Trampas verificadas

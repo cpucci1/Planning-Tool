@@ -95,6 +95,15 @@ hay dos malentendidos que hacen perder el tiempo.
   proyecto abajo, y ante una contradicción manda lo de abajo salvo en las inquebrantables. Eso
   funciona porque está dicho en el texto, no porque el orden lo decida.
 
+### Antes de subir una skill, pásale el validador
+
+`Docs/scripts/comprobar-skills.sh`. Comprueba lo mismo que el sync: nombre en minúsculas y
+guiones, descripción de menos de 1.024 caracteres, **sin `<` ni `>`** (Codex no los admite), y que
+dos skills con el mismo nombre tengan exactamente el mismo contenido.
+
+Si falla el sync, **no se actualiza ninguno de los seis repos**, y el push a `Docs` sale en verde
+igual: solo se entera quien mire las Actions.
+
 ### El campo `paths` de una skill
 
 Una skill puede declarar `paths` en su cabecera. Entonces se carga **de forma determinista** cuando

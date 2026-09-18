@@ -239,6 +239,20 @@ Website: en React Native no existe.
 `npm run build`. Y ojo: **Client-App, Website, sales-tool y Planning no tienen ningún candado de
 push**, aunque sus ficheros digan lo contrario. Hay que ejecutarlo a mano o se sube roto.
 
+### Tres guardias que saltan solos
+
+Vigilan reglas que ya estaban escritas aquí y aun así se rompían. **No sustituyen a comprobar: son
+la última red.**
+
+- **El candado de rama** frena cualquier edición de un archivo cuyo repo esté en `main`, y dice cómo
+  abrir la carpeta del tema. Mira el archivo, no dónde esté abierta la sesión.
+- **El guardia de base** corta toda llamada que vaya a una base que no sea Shifty, y **pregunta
+  antes de cualquier escritura o cambio de esquema** en producción. Los `SELECT` pasan sin molestar.
+- **El detector de correcciones** obliga a apuntar el aprendizaje en el momento en que Crescente
+  corrige, con la skill `aprender`.
+
+Si alguno molesta, se afina; no se desactiva. Viven en `Docs/hooks/`, con su explicación.
+
 ---
 
 ## Si vas a tocar X, lee antes Y
@@ -254,6 +268,10 @@ push**, aunque sus ficheros digan lo contrario. Hay que ejecutarlo a mano o se s
 | Responder a un trabajador, revisar incidencias, cuadrar horas | skill **`shifty-soporte-trabajador`** |
 | Escribir copy, un post, un correo, una landing o una propuesta | skill **`shifty-marca-y-copy`** |
 | Añadir, mover o borrar una regla, o crear una skill | skill **`shifty-mantener-las-reglas`** |
+| **Escribir o modificar código en cualquiera de las apps** | skill **`shifty-codigo-limpio`** |
+| **Saber qué se está duplicando o desordenando** | skill **`auditar-orden`** |
+| **Empezar un tema, o cerrarlo** | skills **`rama`** y **`subir`** |
+| **Apuntar una corrección para que no vuelva a pasar** | skill **`aprender`** |
 | Trabajar dentro de un repo concreto | su `CLAUDE.md`; el cargador del agente obliga a leerlo |
 | Cualquier cosa que afecte a más de una app | `shared/SOURCE_OF_TRUTH.md` **primero** |
 | Crear una RPC | `shared/rpc-functions.md`, para no duplicar una que ya existe |

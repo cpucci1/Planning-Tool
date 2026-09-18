@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/candado-rama.sh\"",
+            "timeout": 15,
+            "statusMessage": "Comprobando que no estas en main..."
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*__(execute_sql|apply_migration|deploy_edge_function|get_edge_function|list_edge_functions|list_tables|list_migrations|list_extensions|get_advisors|query_logs|generate_typescript_types|get_project_url|get_publishable_keys|create_branch|delete_branch|merge_branch|rebase_branch|reset_branch|list_branches|pause_project|restore_project)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/solo-base-shifty.sh\"",
+            "timeout": 15,
+            "statusMessage": "Comprobando a que base va esto..."
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/detectar-correccion.sh\"",
+            "timeout": 10,
+            "statusMessage": "Detectando correcciones..."
+          }
+        ]
+      }
+    ]
+  }
+}
