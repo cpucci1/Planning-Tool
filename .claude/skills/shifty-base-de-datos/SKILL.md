@@ -29,7 +29,8 @@ Medido contra producción el 2026-09-02. La misma regla de negocio vive hoy en m
 
 | Lógica | En cuántas funciones está escrita |
 |---|---|
-| La comisión | **46** (y 26 usan el coeficiente) |
+| La comisión | ✅ **una sola**, `fn_commission_pct` (2026-09-18) |
+| La tarifa con recargo de noche o festivo | ✅ **una sola**, `fn_effective_hourly_rate` (2026-09-18) |
 | Detectar quién actúa (interno o usuario de empresa) | **158** |
 | La guarda `is_test` | **145** |
 | Estados de jornada | **55** |
@@ -45,6 +46,14 @@ sin dar ningún error**. Ya ha pasado: ver el punto 6.
    `assert_company_user_can` (22 usos), `check_company_user_can` (12), `_require_internal_user` (8),
    `assert_can_edit_job_day` (12), `assert_is_company_member` (2), `_chat_identify_caller` (23),
    `feature_flag_enabled_for_worker`, `feature_flag_enabled_for_company`.
+   **Para el dinero y las reglas ya centralizadas:** `fn_commission_pct` y `fn_commission_source`
+   (la cascada de la comisión y de dónde sale), **`fn_effective_hourly_rate`** (la tarifa de una hora
+   con recargo de noche o festivo: el plus sube el piso del convenio, no se suma a la tarifa),
+   `fn_payer_for_worker` y `fn_shifty_tramita_alta` (quién paga y quién da el alta),
+   `fn_cancellation_penalty_points` (los puntos por cancelar), `fn_worker_offer_block` (si alguien
+   está bloqueado para un anuncio), `calcular_horas_casuisticas` y `get_night_rate_for_job_day`
+   (horas y tarifa de noche).
+   **Ninguna de estas se vuelve a escribir a mano, ni en la base ni en una pantalla.**
 2. **A la tercera, se extrae.** Escribir la misma comprobación por tercera vez significa que es un
    helper. Y crear una función necesita permiso escrito.
 3. **Añadir un parámetro NO es crear una función nueva.** Hay **28 familias con varias firmas, 57

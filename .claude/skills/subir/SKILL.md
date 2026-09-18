@@ -22,24 +22,45 @@ del responsable.
 
 ## Pasos
 1. **Mirar qué hay para subir** (`git status`, `git diff --stat`). Si no hay cambios, decirlo y
-   parar. Si la persona está sobre `main`, NO commitear ahí: se crea rama igualmente (paso 3).
-2. **Verificar que está listo (no subir roto).** Según el repo:
+   parar. Si la persona está sobre `main`, NO commitear ahí: se crea rama igualmente (paso 4).
+2. **Comprobar que no vas a pisar nada.** Este paso no se salta: ya ha pasado que se
+   sobreescribió trabajo y se retrocedió. Cuatro comprobaciones, en este orden:
+
+   - **¿Desde dónde parte la rama?** `git rev-list --left-right --count origin/main...HEAD`. Si el
+     número de la izquierda no es cero, la rama está **por detrás de main** y subirla así arriesga
+     devolver el repo a un estado viejo. Se parte de `origin/main` actualizado, nunca de una rama
+     rezagada.
+   - **¿Los ficheros que vas a subir han cambiado en main?** `git diff --stat HEAD origin/main -- <fichero>`
+     por cada uno. Si alguno sale con cambios, **tu copia local es vieja**: hay que traer lo de main
+     antes de subir, o te llevas por delante lo que hizo otro.
+   - **¿Hay trabajo que no es tuyo mezclado?** Mirar `git status` y, fichero a fichero,
+     `git diff origin/main -- <fichero>`. Es normal encontrar cambios de otra sesión en el mismo
+     fichero, sin commitear. **Subes solo lo tuyo**: lo demás se queda donde está, intacto y sin
+     commitear, para que lo suba quien lo hizo.
+   - **Si el sitio de trabajo está revuelto, no lo ordenes: trabaja al lado.** Se crea un árbol de
+     trabajo aparte a partir de `origin/main`, se ponen ahí solo tus cambios y se sube desde ahí.
+     El directorio de la persona no se toca, así que no puede perderse nada suyo.
+
+   **Nunca `git push --force`, ni `git checkout` que descarte cambios, ni `git stash` del trabajo
+   de otro.** Ante la duda, parar y preguntar: retroceder trabajo cuesta mucho más que esperar.
+
+3. **Verificar que está listo (no subir roto).** Según el repo:
    - Panel/Web (TypeScript): `npx tsc --noEmit` y `npm run lint`. Para apps Expo, además
      comprobar que empaqueta si tocó pantallas (`npx expo export` si aplica) — un OTA/merge roto
      llega a todos. Si algo falla, **NO subir**: explicar en lenguaje normal qué está roto y
      ofrecer arreglarlo primero. Nunca `--no-verify` ni `biome --unsafe`.
-3. **Crear una rama propia** con nombre claro a partir de lo que se hizo: `feature/<algo>` para
+4. **Crear una rama propia** con nombre claro a partir de lo que se hizo: `feature/<algo>` para
    cosas nuevas, `fix/<algo>` para arreglos. Nunca trabajar sobre main.
-4. **Commitear con mensaje claro.** Preguntar a la persona en una frase qué hizo (o deducirlo de
+5. **Commitear con mensaje claro.** Preguntar a la persona en una frase qué hizo (o deducirlo de
    los cambios) y escribir un mensaje descriptivo en formato `tipo(alcance): descripción`. Si el
    commit arregla una incidencia con ticket, añadir el trailer `Ticket: <id>`.
-5. **Subir la rama** a GitHub (`git push -u origin <rama>`). Si el pre-push (tsc) falla, LEER el
+6. **Subir la rama** a GitHub (`git push -u origin <rama>`). Si el pre-push (tsc) falla, LEER el
    error y arreglarlo — nunca saltárselo.
-6. **Abrir la PR** con `gh pr create`: título claro (lo que hace, en cristiano), cuerpo con un
+7. **Abrir la PR** con `gh pr create`: título claro (lo que hace, en cristiano), cuerpo con un
    resumen de 2-3 líneas de qué cambia y por qué, y poner como revisor al responsable del repo.
    Si no hay `gh` disponible o no está logueado, avisar y dar las instrucciones para abrir la PR
    desde la web, con el enlace.
-7. **Devolver el enlace de la PR** y decir en lenguaje natural: "Listo, está subido y esperando
+8. **Devolver el enlace de la PR** y decir en lenguaje natural: "Listo, está subido y esperando
    revisión de [responsable]. Cuando la apruebe, entra en producción." Recordar que su trabajo
    local sigue intacto.
 
@@ -58,5 +79,7 @@ explicarlo claro y ofrecer arreglarlo.
 2. **No subir roto.** Verificar (tsc/lint/build según repo) antes de subir; si falla, arreglar
    primero, nunca saltarse los hooks.
 3. **No perder el trabajo local** de la persona: solo se empaqueta y sube, no se borra nada.
+   Y tampoco el de los demás: **antes de subir, comprobar que la rama no está por detrás de main y
+   que ningún fichero que subes ha avanzado allí** (paso 2). Nunca `--force`.
 4. **No marcar como desplegado** lo que solo está en PR; las apps necesitan OTA/build aparte.
 5. Hablar siempre en lenguaje natural — quien la usa puede no saber git.

@@ -31,9 +31,26 @@ Las cuatro vistas de precio son zona crítica: ver la skill `shifty-base-de-dato
 Las dos salen con la misma cuenta, `cost_personnel × coefficient`, porque en directo el coeficiente
 es 1,0 y el coste total coincide con el bruto.
 
-**El porcentaje de base es el 25 %.** Está puesto como valor por defecto en las vistas. Los clientes
-con condiciones negociadas tienen el suyo, que se busca primero en la jornada, luego en la oferta y
-luego en la empresa.
+**El porcentaje de base es el 25 %.** Los clientes con condiciones negociadas tienen el suyo, que se
+busca primero en la jornada, luego en la oferta y luego en la empresa.
+
+### Esa cadena vive en un solo sitio: `fn_commission_pct`
+
+Desde el 2026-09-18, el orden **jornada → anuncio → empresa → 25 de reserva** está escrito una sola
+vez, en `fn_commission_pct(jornada, anuncio, empresa)`. **El 25 tampoco vive en ningún otro sitio.**
+La llaman las cuatro vistas de precio, los dos disparadores que congelan la comisión al crear el
+anuncio y la jornada, el incentivo de primer turno, la pantalla del anuncio y
+`get_offer_commission_pct`, que es por donde pregunta la app.
+
+- **Para cambiar el orden o el 25, se cambia ahí y en ningún otro sitio.** Y se cambia también su
+  hermana `fn_commission_source`, que dice de dónde salió el número (jornada, anuncio, empresa o
+  reserva) y tiene que seguir el mismo orden.
+- **Nunca volver a escribir el `coalesce` a mano**, ni en la base ni en una pantalla. Antes estaba
+  copiado en seis sitios y ya discrepaban: la pantalla del anuncio se saltaba la jornada y enseñaba
+  8 % en nueve anuncios de Restaurante Bebola que se facturaron al 10 %.
+- La función **no tiene `search_path` fijo a propósito**: no referencia ningún objeto, y ponérselo
+  impediría que Postgres la incruste en las vistas. El analizador la marca; es un falso positivo
+  conocido.
 
 - **Ejemplo ETT:** 10 €/h × 8 h = 80 € de bruto. Coeficiente 1,505 → coste ETT 120,40 €. Comisión
   del 25 % = 30,10 €. Total empresa = 150,50 €.
@@ -115,6 +132,35 @@ coeficiente, la comisión y la factura.
 
 Las vistas aplican el mínimo del convenio **como suelo** al calcular el pago, así que una tarifa baja
 guardada no baja el importe facturado. Lo que queda mal es la tarifa guardada, que es la que se ve.
+
+### La nocturnidad y el festivo SUBEN EL PISO, no se suman
+
+**Regla de Crescente, 2026-09-18.** El plus se calcula **sobre el salario del convenio**, nunca sobre
+la tarifa que paga el cliente. Lo que hace es levantar el suelo de esa hora:
+
+- Convenio a 9,81 €/h y plus del 25 % → el suelo de la hora nocturna es 12,26 €/h.
+- Si el cliente paga **11**, esa hora sube a **12,26**.
+- Si el cliente paga **13**, no sube nada: se queda en **13**.
+
+Vale igual para el recargo de festivo, y cuando coinciden noche y festivo los dos porcentajes se
+suman **sobre el convenio**, no sobre la tarifa.
+
+**La regla vive en un solo sitio: `fn_effective_hourly_rate`.** Se le pasa la tarifa, el mínimo del
+convenio y el porcentaje de recargo, y devuelve lo que se cobra esa hora. La llaman las cuatro vistas
+de precio, las dos funciones de pago, la que cuadra el turno, la tarifa nocturna que ve el
+trabajador, el desglose de la jornada, la previsualización y el disparador que guarda la tarifa de
+noche: **doce sitios, ninguna copia**.
+
+Para cambiar la regla se cambia ahí y en ningún otro lado. **Nunca volver a escribir ese `greatest` a
+mano.**
+
+⚠️ **El importe se multiplica por la tarifa SIN redondear**; solo se redondea al mostrarla.
+Redondear antes de multiplicar desviaba dos céntimos por turno.
+
+Hasta ese día las dos funciones de pago sumaban el plus sobre la tarifa del cliente, así que **el
+anuncio prometía más de lo que se paga**: 21 jornadas vivas, hasta 10,30 € por persona en Vega
+Members Club. Se corrigieron las funciones y se recalcularon esas jornadas. Ninguna factura ni ningún
+pago se movió, porque eso sale de las vistas, que ya aplicaban la regla buena.
 
 ---
 
