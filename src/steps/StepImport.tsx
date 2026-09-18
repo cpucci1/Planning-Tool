@@ -629,6 +629,17 @@ export function StepImport() {
           shifty.es
           <ArrowRight size={14} />
         </a>
+        <p className="mx-auto mt-6 max-w-md text-[0.78rem] leading-relaxed text-content-tertiary">
+          Hecho con la colaboración de{' '}
+          <a
+            href="https://www.linkedin.com/in/fernando-del-valle-herrera-a0250917/"
+            target="_blank"
+            rel="noreferrer"
+            className="font-bold text-content-secondary underline decoration-border-soft underline-offset-2 transition-colors hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+          >
+            Fernando del Valle Herrera
+          </a>
+        </p>
       </footer>
     </div>
   )
