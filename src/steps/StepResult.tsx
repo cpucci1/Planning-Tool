@@ -73,6 +73,7 @@ const RESULT_SUBSTEPS = [
   { id: 'porque', label: 'Por qué' },
   { id: 'cuadrante', label: 'El cuadrante' },
   { id: 'picos', label: 'Los picos' },
+  { id: 'shifty', label: 'Con Shifty' },
   { id: 'llevatelo', label: 'Llévatelo' },
 ]
 
@@ -82,6 +83,18 @@ const MAX_PCT = 98
 
 function plural(n: number, one: string, many: string): string {
   return n === 1 ? one : many
+}
+
+/**
+ * La etiqueta del "Siguiente:" va en minúscula porque va dentro de una frase,
+ * pero Shifty es una marca y en minúscula queda como una errata. Se baja todo
+ * menos las palabras que ya venían en mayúscula dentro de la etiqueta.
+ */
+function etiquetaSiguiente(label: string): string {
+  return label
+    .split(' ')
+    .map((w, i) => (i > 0 && w[0] === w[0]?.toUpperCase() ? w : w.toLowerCase()))
+    .join(' ')
 }
 
 /**
@@ -1176,9 +1189,8 @@ export function StepResult() {
             )}
 
             <p className="mt-4 max-w-2xl text-[1rem] leading-relaxed font-medium text-content-inverted/85">
-              Por eso estas semanas no se contratan, se cubren con extras. Y para eso existe
-              Shifty: gente de hostelería con experiencia, ya verificada, el día que la necesitas
-              y solo ese día. Sin proceso de selección y sin nadie de más en nómina.
+              Por eso estas semanas no se contratan, se cubren con extras: gente con experiencia
+              solo los días que aprietan. Cómo se hace y qué cuesta, en la pantalla de al lado.
             </p>
           </>
         ) : (
@@ -1196,64 +1208,56 @@ export function StepResult() {
           </>
         )}
 
-        {/* ── Cómo funciona, con la pantalla de verdad ────────────
-            Hasta aquí Shifty era una frase ("personal por horas") y una
-            promesa. Quien no nos conoce no sabe qué compra: si le mandan
-            gente, si firma algo, si tiene que dar de alta a alguien. Por eso
-            van los cuatro pasos y, debajo, la pantalla real de un turno
-            publicado: una captura contesta en dos segundos lo que un párrafo
-            no contesta en diez líneas.
-            La captura sale de la web (dashboard-web-nuevo.png) con el nombre
-            del cliente real tapado: es material de marketing ya publicado,
-            pero ese local no está en la lista de clientes citables. */}
-        <div className="mt-10 rounded-card bg-surface-elevated p-6 sm:p-8">
-          <h3 className="text-[1.1rem] font-extrabold tracking-[-0.02em] text-content-primary">
-            Así se cubre una de esas semanas
-          </h3>
-          <p className="mt-1.5 text-[0.9rem] leading-relaxed text-content-secondary">
-            Ni selección, ni entrevistas, ni papeleo. Cuatro pasos y el turno está cubierto.
+        {/* El remate de esta pantalla es el "Siguiente" del pie. Lo que
+            Shifty hace, cuánto cuesta y cómo se pide vive en la pantalla de
+            al lado: aquí se acaba de contar un problema y meter la venta
+            encima es lo que hacía que esta pantalla diera la chapa. */}
+      </section>
+
+      </div>
+      )}
+
+      {/* ══ sub-paso 4: con Shifty ══ */}
+      {/* Pantalla propia, a peticion de Crescente (2026-09-18). Todo esto vivia
+          pegado debajo de los picos y la pantalla daba la chapa: se acababa de
+          contar un problema y encima venia la venta entera. Partido en dos, la
+          de picos es el diagnostico con sus numeros y esta es la comercial.
+          El lenguaje visual sale de la propuesta comercial de cadenas
+          (Sales/assets/decks/Shifty_Cadena_Restauracion_Comercialv8.html): el
+          titular a dos lineas con la segunda en cursiva, las dos columnas de
+          cuatro pasos comparando el antes y el con Shifty, y la banda de
+          metricas con su fuente escrita debajo. Las cifras son las de ese
+          deck, con su fuente literal: no se inventa ninguna aqui. */}
+      {sub === 4 && (
+      <div className="space-y-6">
+
+        <section className="rounded-card bg-brand px-6 py-10 shadow-lg sm:px-10 sm:py-12">
+          <EyebrowInverted>Con Shifty</EyebrowInverted>
+
+          <h2 className="mt-4 max-w-3xl text-[1.7rem] leading-[1.12] font-extrabold tracking-[-0.028em] text-content-inverted sm:text-[2.2rem]">
+            Esas semanas no se contratan.{' '}
+            <span className="text-content-inverted/70 italic">
+              Se cubren, y con quien ya te ha funcionado.
+            </span>
+          </h2>
+
+          <p className="mt-6 max-w-2xl text-[1rem] leading-relaxed font-medium text-content-inverted/85">
+            {peakWeekCount > 0
+              ? `${plural(peakWeekCount, 'La', 'Las')} ${peakWeekCount} ${plural(peakWeekCount, 'semana', 'semanas')} en ${plural(peakWeekCount, 'la que te falta', 'las que te falta')} gente no ${plural(peakWeekCount, 'pide', 'piden')} una nómina más: ${plural(peakWeekCount, 'pide', 'piden')} gente los días concretos en los que de verdad aprieta.`
+              : 'Aunque hoy lo cubras todo con plantilla fija, el día que alguien falte o el día que se llene sin avisar, el turno hay que taparlo igual.'}{' '}
+            Publicas el turno, eliges entre profesionales verificados y el papeleo lo lleva la ETT
+            colaboradora.
           </p>
 
-          <ol className="mt-6 grid gap-5 sm:grid-cols-2">
-            {[
-              {
-                t: 'Publicas el turno',
-                d: 'Día, horas y puesto. Se tarda dos minutos y publicar no cuesta nada.',
-              },
-              {
-                t: 'Te llegan profesionales verificados',
-                d: 'Con sus turnos hechos y las reseñas de las empresas para las que ya han trabajado.',
-              },
-              {
-                t: 'Eliges tú',
-                d: 'Nadie te asigna a nadie: ves quién es cada uno antes de decir que sí, y repites con los que te funcionan.',
-              },
-              {
-                t: 'El papeleo no lo tocas',
-                d: 'El contrato, el alta en la Seguridad Social y la nómina los hace la ETT colaboradora. Tú recibes una factura.',
-              },
-            ].map((paso, i) => (
-              <li key={paso.t} className="flex gap-3.5">
-                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-pill bg-brand-light text-[0.85rem] font-black text-brand tnum">
-                  {i + 1}
-                </span>
-                <div className="min-w-0">
-                  <div className="text-[0.95rem] font-bold text-content-primary">{paso.t}</div>
-                  <p className="mt-0.5 text-[0.88rem] leading-relaxed text-content-body">{paso.d}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
-
-          {/* La captura se puede abrir a tamaño completo: en un móvil de 375 px
-              una pantalla de escritorio entera no se lee, y ahí es justo donde
-              más gente abre esto. */}
-          <figure className="mt-7">
+          {/* La captura manda en esta pantalla: contesta en dos segundos lo que
+              un párrafo no contesta en diez líneas. Se puede abrir a tamaño
+              completo porque en un móvil de 375 px no se lee. */}
+          <figure className="mt-8">
             <a
               href="/shifty-turno.webp"
               target="_blank"
               rel="noopener noreferrer"
-              className="block cursor-zoom-in rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              className="block cursor-zoom-in rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-content-inverted"
             >
               <img
                 src="/shifty-turno.webp"
@@ -1262,66 +1266,196 @@ export function StepResult() {
                 height={929}
                 loading="lazy"
                 decoding="async"
-                className="w-full rounded-lg border border-border shadow-md"
+                className="w-full rounded-lg shadow-lg"
               />
             </a>
-            <figcaption className="mt-3 text-[0.82rem] leading-relaxed text-content-secondary">
+            <figcaption className="mt-3 text-[0.82rem] leading-relaxed font-semibold text-content-inverted/70">
               Un turno publicado, por dentro: quién viene, a qué hora y con qué valoración de
               otras empresas. Toca la imagen para verla a tamaño completo.
             </figcaption>
           </figure>
+        </section>
 
-          <p className="mt-6 text-[0.9rem] leading-relaxed text-content-body">
-            <strong className="font-bold text-content-primary">Desde 18,80 €/hora, todo incluido</strong>{' '}
-            — el salario del profesional, el contrato y el alta que hace la ETT colaboradora, y
-            nuestra comisión. Sin cuota mensual y sin permanencia. Si el turno no se cubre, no
-            pagas nada.
+        {/* Las dos columnas de la propuesta de cadenas. El argumento no es que
+            seamos más rápidos: es que la información de a quién cogiste y qué
+            tal fue se queda guardada, y la siguiente vez se elige mejor. */}
+        <Card className="p-6 sm:p-8">
+          <h3 className="text-[1.1rem] font-extrabold tracking-[-0.02em] text-content-primary">
+            Cómo se cubre un turno hoy, y cómo con Shifty
+          </h3>
+
+          <div className="mt-6 grid gap-5 md:grid-cols-2">
+            {[
+              {
+                titulo: 'Como se hace hoy',
+                pie: 'Cada turno vuelve a empezar',
+                destacado: false,
+                pasos: [
+                  ['Pides gente', 'Por teléfono, por WhatsApp o tirando de conocidos.'],
+                  ['Esperas respuesta', 'No ves quién está libre ese día.'],
+                  ['Te llega un nombre', 'Con poco más que el nombre para decidir.'],
+                  ['La próxima vez, otra vez', 'Lo que aprendiste no queda en ningún sitio.'],
+                ],
+              },
+              {
+                titulo: 'Con Shifty',
+                pie: 'El historial se queda guardado',
+                destacado: true,
+                pasos: [
+                  ['Publicas el turno', 'Día, horas, puesto y condiciones. Publicar no cuesta nada.'],
+                  ['Ves quién se apunta', 'Los candidatos van entrando en el momento.'],
+                  ['Eliges tú, con información', 'Experiencia, reseñas de otras empresas y su historial contigo.'],
+                  ['Repites con los que funcionan', 'Los marcas como favoritos y a ellos les llega antes.'],
+                ],
+              },
+            ].map((col) => (
+              <div
+                key={col.titulo}
+                className={cn(
+                  'rounded-card border p-5',
+                  col.destacado ? 'border-brand/30 bg-brand-light' : 'border-border bg-surface-alt',
+                )}
+              >
+                <div className="flex items-baseline justify-between gap-3 border-b border-border pb-3">
+                  <b
+                    className={cn(
+                      'text-[0.95rem] font-extrabold',
+                      col.destacado ? 'text-brand' : 'text-content-primary',
+                    )}
+                  >
+                    {col.titulo}
+                  </b>
+                  <span className="text-[0.75rem] font-semibold text-content-secondary">
+                    {col.pie}
+                  </span>
+                </div>
+
+                <ol className="mt-4 space-y-3.5">
+                  {col.pasos.map(([titulo, detalle], i) => (
+                    <li key={titulo} className="flex gap-3">
+                      <span
+                        className={cn(
+                          'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-pill text-[0.72rem] font-black tnum',
+                          col.destacado
+                            ? 'bg-brand text-content-inverted'
+                            : 'bg-surface-elevated text-content-tertiary',
+                        )}
+                      >
+                        {i + 1}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-[0.9rem] font-bold text-content-primary">{titulo}</div>
+                        <p className="mt-0.5 text-[0.85rem] leading-relaxed text-content-body">
+                          {detalle}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 flex gap-3 rounded-card bg-surface-alt px-4 py-3.5">
+            <span className="mt-1.5 h-2 w-2 shrink-0 rounded-pill bg-brand" />
+            <p className="text-[0.85rem] leading-relaxed text-content-body">
+              Tú eliges a la persona; la ETT colaboradora le hace el contrato, la da de alta en la
+              Seguridad Social y le paga la nómina. Tú no tramitas nada y recibes una sola factura.
+            </p>
+          </div>
+        </Card>
+
+        {/* Las tres cifras y el precio, juntos: son la misma pregunta
+            ("¿funciona y cuánto cuesta?") y separarlos alarga la pantalla. */}
+        <Card className="p-6 sm:p-8">
+          <div className="grid gap-6 sm:grid-cols-3">
+            {[
+              ['9 min', 'hasta el primer candidato, de mediana'],
+              ['81 %', 'de los turnos pedidos con menos de 24 h se cubren'],
+              ['4,89', 'de valoración media de los profesionales, sobre 5'],
+            ].map(([cifra, texto]) => (
+              <div key={cifra}>
+                <div className="text-[2.1rem] leading-none font-black tracking-tight text-brand tnum">
+                  {cifra}
+                </div>
+                <div className="mt-1.5 text-[0.85rem] leading-snug font-semibold text-content-body">
+                  {texto}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p className="mt-5 text-[0.75rem] leading-relaxed text-content-tertiary">
+            Mediana sobre 701 anuncios y cobertura de junio a agosto de 2026. Valoración media de
+            2.806 valoraciones desde marzo de 2026.
           </p>
-        </div>
 
-        {/* Dos salidas, y la de hablar con alguien va primera: quien acaba de
-            ver que le faltan diez semanas quiere preguntar por su caso, no
-            leerse otra web. El enlace lleva las etiquetas de campaña, que el
-            formulario de shifty.es sí guarda, para saber cuántos leads salen
-            de aquí. */}
-        <div className="mt-8 flex flex-wrap items-center gap-3">
-          <a
-            href="https://shifty.es/contacto?utm_source=planificador&utm_medium=herramienta&utm_campaign=picos"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={cn(
-              'inline-flex h-12 items-center justify-center gap-2 rounded-pill bg-surface-elevated px-7',
-              'text-[0.95rem] font-bold text-brand transition-transform duration-150 hover:scale-[1.02] active:scale-[.98]',
-              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-content-inverted',
-            )}
-          >
-            Solicitar más información
-            <ArrowUpRight size={17} strokeWidth={2.6} />
-          </a>
-          <a
-            href="https://shifty.es"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={cn(
-              'inline-flex h-12 items-center justify-center gap-2 rounded-pill border border-content-inverted/35 px-7',
-              'text-[0.95rem] font-bold text-content-inverted transition-colors duration-150 hover:bg-content-inverted/10',
-              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-content-inverted',
-            )}
-          >
-            Ver cómo funciona Shifty
-            <ArrowUpRight size={17} strokeWidth={2.6} />
-          </a>
-          <span className="text-[0.82rem] font-semibold text-content-inverted/70">
-            Sin cuota fija. Pagas las horas que cubres.
-          </span>
-        </div>
-      </section>
+          <div className="mt-6 border-t border-border pt-6">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="text-[1.6rem] leading-none font-black tracking-tight text-content-primary">
+                Desde 18,80 €/hora
+              </span>
+              <span className="text-[0.95rem] font-bold text-brand">todo incluido</span>
+            </div>
+            <p className="mt-2.5 max-w-2xl text-[0.9rem] leading-relaxed text-content-body">
+              El salario del profesional, el contrato y el alta que hace la ETT colaboradora, y
+              nuestra comisión. Sin cuota mensual y sin permanencia. Si el turno no se cubre, no
+              pagas nada.
+            </p>
+          </div>
+        </Card>
+
+        {/* La llamada a la acción, sola y en morado: quien llega hasta aquí ya
+            ha visto el problema, la solución y el precio. El enlace lleva las
+            etiquetas de campaña, que el formulario de shifty.es sí guarda,
+            para saber cuántos leads salen de la herramienta. */}
+        <section className="rounded-card bg-brand px-6 py-8 shadow-lg sm:px-10">
+          <h3 className="max-w-2xl text-[1.3rem] leading-tight font-extrabold tracking-[-0.025em] text-content-inverted">
+            ¿Lo vemos con tus números?
+          </h3>
+          <p className="mt-2 max-w-2xl text-[0.95rem] leading-relaxed font-medium text-content-inverted/85">
+            Cuéntanos cómo es tu semana y te decimos qué te costaría cubrir esas horas, sin
+            compromiso.
+          </p>
+
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <a
+              href="https://shifty.es/contacto?utm_source=planificador&utm_medium=herramienta&utm_campaign=picos"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                'inline-flex h-12 items-center justify-center gap-2 rounded-pill bg-surface-elevated px-7',
+                'text-[0.95rem] font-bold text-brand transition-transform duration-150 hover:scale-[1.02] active:scale-[.98]',
+                'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-content-inverted',
+              )}
+            >
+              Solicitar más información
+              <ArrowUpRight size={17} strokeWidth={2.6} />
+            </a>
+            <a
+              href="https://shifty.es"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                'inline-flex h-12 items-center justify-center gap-2 rounded-pill border border-content-inverted/35 px-7',
+                'text-[0.95rem] font-bold text-content-inverted transition-colors duration-150 hover:bg-content-inverted/10',
+                'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-content-inverted',
+              )}
+            >
+              Ver cómo funciona Shifty
+              <ArrowUpRight size={17} strokeWidth={2.6} />
+            </a>
+            <span className="text-[0.82rem] font-semibold text-content-inverted/70">
+              Sin cuota fija. Pagas las horas que cubres.
+            </span>
+          </div>
+        </section>
 
       </div>
       )}
 
-      {/* ══ sub-paso 4: llevatelo ══ */}
-      {sub === 4 && (
+      {/* ══ sub-paso 5: llevatelo ══ */}
+      {sub === 5 && (
       <div className="space-y-6">
       {/* ── 7. Llevárselo ─────────────────────────────────────── */}
       {/* Cinco botones iguales en fila no dejaban ver cuál era el importante.
@@ -1430,7 +1564,7 @@ export function StepResult() {
         onNext={() => setSub((v) => Math.min(RESULT_SUBSTEPS.length - 1, v + 1))}
         nextLabel={
           sub < RESULT_SUBSTEPS.length - 1
-            ? `Siguiente: ${RESULT_SUBSTEPS[sub + 1].label.toLowerCase()}`
+            ? `Siguiente: ${etiquetaSiguiente(RESULT_SUBSTEPS[sub + 1].label)}`
             : 'Ya está'
         }
         nextDisabled={sub === RESULT_SUBSTEPS.length - 1}
