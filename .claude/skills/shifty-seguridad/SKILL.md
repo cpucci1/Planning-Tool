@@ -216,7 +216,7 @@ No hay quinta pregunta y no se salta ninguna:
 4. **¿Qué pasa con esto cuando la persona se da de baja?** Se borra, se anonimiza o se queda por una
    obligación legal concreta. Si se queda, se dice cuál.
 
-### Las cinco trampas de esta base, que ya han mordido
+### Las seis trampas de esta base, que ya han mordido
 
 1. **Los permisos son por fila, no por columna.** Dejar que una empresa vea a un trabajador es
    dejarle ver **la fila entera**, con su IBAN dentro. Cuando el que mira no es el dueño del dato,
@@ -233,6 +233,15 @@ No hay quinta pregunta y no se salta ninguna:
    alguna empresa tuya" deja leer las filas de las otras 447 empresas. La condición tiene que
    **comparar la empresa de la fila con la del que pregunta**. Es el fallo del registro de actividad
    y el más caro, porque la pantalla funciona igual y no se nota.
+6. **Una función `SECURITY DEFINER` otorgada a `authenticated` es una puerta del mismo tamaño que
+   una tabla sin RLS.** Hay 1.106 así. Cerrar la tabla no sirve de nada si una función la lee por ti
+   y contesta a cualquiera: `get_shift_detail_view` devolvía NIF, teléfono y fecha de nacimiento del
+   equipo de **cualquier** turno a **cualquiera con sesión**, incluidos los trabajadores, y los
+   identificadores de turno los puede listar todo el mundo. La pregunta no es qué tabla lee la
+   función, es **qué pasa si la llama alguien que no debería con un identificador que sí puede ver**.
+   Y ojo al patrón de las dos gemelas: cuando existen `x` y `x_for_company_user`, la buena suele ser
+   la segunda y casi nadie la usa.
+
 5. **Borrar la fila no borra el fichero.** El borrado de cuenta anonimiza bien la base y deja 332
    documentos de identidad en el almacén. Lo que se guarde en un almacén se apunta en la lista de lo
    que hay que borrar al darse de baja, el mismo día que se crea.
