@@ -31,6 +31,7 @@ import { HoursEditor } from '@/components/HoursEditor'
 import { SubNav, SubProgress } from '@/components/SubSteps'
 import { RoleCatalog } from '@/components/RoleCatalog'
 import { DESTINO_POR_ETIQUETA } from '@/lib/parseFichero'
+import type { FormatoFecha } from '@/lib/parseFichero'
 import {
   MapeoColumnas,
   mapeoSuficiente,
@@ -107,6 +108,21 @@ function deviationText(d: number): string {
  * detrás, y calca el estilo del `Progress` del shell para que no parezca un
  * flujo aparte.
  */
+/**
+ * Avisos que cambian lo que significa el resultado, no solo lo matizan.
+ *
+ * Los tres tocan la base del calculo: de donde salen los comensales, en que
+ * mes caen las semanas y como se reparte el dia. Van en amarillo y con su
+ * triangulo; el resto de avisos son informativos y van en azul.
+ */
+const AVISOS_QUE_PESAN = new Set<string>([
+  'fichero-agrupado',
+  'comensales-estimados',
+  'fecha-ambigua',
+  'fecha-en-conflicto',
+  'sin-detalle-horario',
+])
+
 const DEMAND_SUBSTEPS: { id: string; label: string }[] = [
   { id: 'lectura', label: 'Lectura' },
   { id: 'ano', label: 'Tu año' },
@@ -202,14 +218,27 @@ export function StepDemand() {
   const recalcular = p.recalcularConMapeo
   const pendiente = useRef<ReturnType<typeof setTimeout> | null>(null)
   const aplicarMapeo = useCallback(
-    (columnas: ColumnaDetectada[], porTicket: number) => {
+    (columnas: ColumnaDetectada[], porTicket: number, formato?: FormatoFecha) => {
       setMapeo(columnas)
       setComensalesPorTicket(porTicket)
       if (pendiente.current) clearTimeout(pendiente.current)
-      pendiente.current = setTimeout(() => recalcular(columnas, porTicket), 350)
+      pendiente.current = setTimeout(() => recalcular(columnas, porTicket, formato), 350)
     },
     [recalcular],
   )
+
+  /**
+   * El orden de la fecha solo se pregunta cuando el lector no ha podido
+   * decidirlo, o cuando ya lo ha tocado el usuario (para que pueda volver
+   * atrás). En cualquier otro caso la respuesta es segura y preguntarla sería
+   * darle la ocasión de romper algo que está bien.
+   */
+  const formatoDudoso =
+    (p.lectura?.advertencias.some(
+      (a) => a.codigo === 'fecha-ambigua' || a.codigo === 'fecha-en-conflicto',
+    ) ??
+      false) ||
+    p.lectura?.formatoFechaElegido != null
   useEffect(() => () => {
     if (pendiente.current) clearTimeout(pendiente.current)
   }, [])
@@ -417,8 +446,20 @@ export function StepDemand() {
                 </div>
               </Note>
             )}
+            {/* No todos los avisos pesan igual. Que el fichero venga agrupado o
+                que los comensales sean una estima cambia lo que significa el
+                numero de abajo, y eso no puede tener el mismo color que "tu
+                historico son 30 semanas". */}
             {p.lectura.advertencias.map((a) => (
-              <Note key={a.codigo} tone="info">
+              <Note
+                key={a.codigo}
+                tone={AVISOS_QUE_PESAN.has(a.codigo) ? 'warning' : 'info'}
+                icon={
+                  AVISOS_QUE_PESAN.has(a.codigo) ? (
+                    <TriangleAlert size={16} strokeWidth={2.4} />
+                  ) : undefined
+                }
+              >
                 {a.mensaje}
               </Note>
             ))}
@@ -431,6 +472,12 @@ export function StepDemand() {
             onChange={(cols) => aplicarMapeo(cols, comensalesPorTicket)}
             comensalesPorTicket={comensalesPorTicket}
             onComensalesPorTicket={(n) => aplicarMapeo(mapeo, n)}
+            formatoFecha={p.lectura?.formatoFecha}
+            formatoDudoso={formatoDudoso}
+            formatoElegido={p.lectura?.formatoFechaElegido ?? null}
+            onFormatoFecha={
+              p.lectura ? (f) => aplicarMapeo(mapeo, comensalesPorTicket, f) : undefined
+            }
           />
         </div>
       </Card>

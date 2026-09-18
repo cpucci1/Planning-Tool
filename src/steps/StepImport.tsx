@@ -233,6 +233,19 @@ export function StepImport() {
         throw new Error(principal ? `sin_filas_utiles:${principal.mensaje}` : 'sin_filas_utiles')
       }
 
+      // UN FICHERO SIN DETALLE DENTRO DEL DÍA NO SIRVE, Y SE DICE AQUÍ.
+      //
+      // Un total por día (o por servicio) se lee perfectamente y da una cifra
+      // anual correcta, así que sin esto el usuario llegaría a la pantalla
+      // siguiente con un año bonito y un cuadrante inventado: la herramienta
+      // dimensiona por el PICO simultáneo, y un total diario no dice a qué hora
+      // ocurre. Repartirlo a ojo sería dibujarle la forma de su servicio.
+      // Ver `detectarPasoHorario`.
+      if (r.sinDetalleHorario) {
+        const porQue = r.advertencias.find((a) => a.codigo === 'sin-detalle-horario')
+        throw new Error(`sin_detalle_horario:${porQue?.mensaje ?? ''}`)
+      }
+
       setCurrent(4)
       await respirar()
       setCurrent(5)
@@ -250,6 +263,9 @@ export function StepImport() {
         filas: fichero.filas,
         mapeo: mapeoFinal,
         comensalesPorTicket: 2,
+        formatoFecha: r.formatoFecha,
+        // Nadie ha elegido nada todavía: manda lo que diga el fichero.
+        formatoFechaElegido: null,
         filasLeidas: r.filasLeidas,
         filasUsadas: r.filasUsadas,
         descartes: r.descartes,
@@ -262,7 +278,12 @@ export function StepImport() {
       setCurrent(-1)
       setSource(null)
       const mensaje = (e as Error)?.message ?? ''
-      if (mensaje.startsWith('sin_filas_utiles')) {
+      if (mensaje.startsWith('sin_detalle_horario')) {
+        setError(
+          mensaje.slice('sin_detalle_horario:'.length) ||
+            'Tu fichero no trae la hora de cada venta, y sin eso no se pueden dimensionar los turnos.',
+        )
+      } else if (mensaje.startsWith('sin_filas_utiles')) {
         const porQue = mensaje.slice('sin_filas_utiles:'.length)
         setError(
           'Hemos abierto el fichero pero no ha entrado ni una fila en el cálculo.' +
