@@ -180,8 +180,8 @@ que no tenerla, porque da permiso para desplegar.
 
 ## Una lógica, un sitio
 
-La misma regla vive hoy en muchos sitios a la vez: la detección del actor en **148 funciones**, la
-guarda `is_test` en **82**, el distintivo Gold en **12**. **Si se cambia una copia y no las otras, el
+La misma regla vive hoy en muchos sitios a la vez: la detección del actor en **148 funciones** y la
+guarda `is_test` en **82**. **Si se cambia una copia y no las otras, el
 sistema contesta cosas distintas según por dónde entres, sin dar ningún error.**
 
 **El olor no es "código repetido", es la misma pregunta contestada desde fuentes distintas.** Las dos
@@ -193,8 +193,9 @@ tres casos del 2026-09-18, todos reales:
   Ver `features/quien-paga-y-quien-da-el-alta.md`.
 - **Qué cuesta cancelar**: cuatro funciones, tres escaleras. La pantalla que avisa decía 0 puntos y la
   que ejecuta quitaba 3. Ver `features/cancelar-un-turno-que-cuesta.md`.
-- **Quién es Gold**: 12 copias de la misma regla, pero unas comparan la nota redondeada y otras la
-  cruda. **15 personas salen Gold en una pantalla y no en otra.** Sin arreglar.
+- **Quién es Gold**: 12 copias de la misma regla, pero unas comparaban la nota redondeada y otras la
+  cruda, así que **15 personas salían Gold en una pantalla y no en otra**. Ahora lo decide
+  `fn_is_gold`, que redondea por dentro: da igual cómo le pases la nota, las doce contestan lo mismo.
 
 - **Antes de escribir una comprobación, busca el helper.** Existen y casi nadie los usa.
 - **A la tercera vez que escribas lo mismo, se extrae.**
