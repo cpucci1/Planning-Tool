@@ -382,19 +382,21 @@ export function RoleCatalog({
           />
         </div>
 
-        <Note tone="neutral" icon={<BadgeEuro size={15} strokeWidth={2.3} />}>
-          Los puestos marcados como <strong>solo jornada completa</strong> no bajan nunca a un
-          contrato parcial en el cuadrante, aunque sus horas quepan en uno. Es lo normal en los
-          puestos de mando. En el paso de equipo es donde dices cuánta gente de cada puesto hace
-          falta en cada tramo de comensales.
-          {calcularCostes && (
-            <>
-              {' '}
-              Y si un coste baja de {eur.format(SMI_HORA_EUR)} la hora te avisamos: es el mínimo
-              legal de 2026.
-            </>
-          )}
-        </Note>
+        <div className="mt-3">
+          <Note tone="neutral" icon={<BadgeEuro size={15} strokeWidth={2.3} />}>
+            Los puestos marcados como <strong>solo jornada completa</strong> no bajan nunca a un
+            contrato parcial en el cuadrante, aunque sus horas quepan en uno. Es lo normal en los
+            puestos de mando. En el paso de equipo es donde dices cuánta gente de cada puesto hace
+            falta en cada tramo de comensales.
+            {calcularCostes && (
+              <>
+                {' '}
+                Y si un coste baja de {eur.format(SMI_HORA_EUR)} la hora te avisamos: es el mínimo
+                legal de 2026.
+              </>
+            )}
+          </Note>
+        </div>
       </div>
     </Card>
   )
