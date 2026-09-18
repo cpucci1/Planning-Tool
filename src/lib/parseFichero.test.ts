@@ -29,12 +29,15 @@ import {
   construirDatasetConDiagnostico,
   decodificarTexto,
   detectarFormatoFecha,
+  detectarPasoHorario,
   detectarSeparador,
+  franjasPorFila,
   leerFichero,
   leerYConstruir,
   parsearCSV,
   parsearHora,
   parsearNumero,
+  redondearConservandoTotal,
   type Advertencia,
   type Descarte,
   type MotivoDescarte,
@@ -546,6 +549,149 @@ async function pruebaTicketsPorCodigo() {
   comprobar('y ahi no salta el aviso nuevo', !tieneAviso(n.advertencias, 'tickets-son-codigo'))
 }
 
+
+// ─────────────────────────────────────────────────────────────
+// 11. Ficheros que vienen AGRUPADOS
+// ─────────────────────────────────────────────────────────────
+// El error mas caro posible: un export por horas metia las 80 comidas de la
+// una en la franja de las 13:00 y dejaba la de las 13:30 a cero. El pico
+// simultaneo, que es lo que marca cuanta gente hace falta, salia al doble.
+
+/** Un ano entero de un fichero agrupado cada `paso` minutos, 20 comensales por bloque. */
+function csvAgrupado(paso: number, comensalesPorBloque = 20): string {
+  const filas = ['FECHA;HORA;COMENSALES']
+  const inicio = Date.UTC(2025, 0, 6) // lunes
+  for (let d = 0; d < 350; d++) {
+    const t = new Date(inicio + d * 86400000)
+    const f = `${String(t.getUTCDate()).padStart(2, '0')}/${String(t.getUTCMonth() + 1).padStart(2, '0')}/${t.getUTCFullYear()}`
+    // De 13:00 a 16:00 y de 20:00 a 23:00, en bloques de `paso` minutos.
+    for (const desde of [13 * 60, 20 * 60]) {
+      for (let m = desde; m < desde + 180; m += paso) {
+        const hh = String(Math.floor(m / 60)).padStart(2, '0')
+        const mm = String(m % 60).padStart(2, '0')
+        filas.push(`${f};${hh}:${mm};${comensalesPorBloque}`)
+      }
+    }
+  }
+  return filas.join('\n')
+}
+
+/** El máximo de comensales de una sola franja en todo el dataset. */
+function picoDe(weeks: { days: number[][] }[]): number {
+  let max = 0
+  for (const w of weeks) for (const d of w.days) for (const v of d) if (v > max) max = v
+  return max
+}
+
+function pruebaPasoHorario() {
+  titulo('11 · Detectar cada cuanto trae horas el fichero')
+
+  igual('tickets a la hora y al minuto → 1 minuto', detectarPasoHorario([780, 781, 795, 802]).paso, 1)
+  igual('cuartos de hora → 15', detectarPasoHorario([780, 795, 810, 1260, 1275]).paso, 15)
+  igual('medias horas → 30', detectarPasoHorario([780, 810, 840, 1260]).paso, 30)
+  igual('horas en punto → 60', detectarPasoHorario([780, 840, 900, 1260, 1320]).paso, 60)
+  igual('bloques de dos horas → 120', detectarPasoHorario([780, 900, 1020, 1260]).paso, 120)
+  igual('una sola hora en todo el fichero → 1.440', detectarPasoHorario([0, 0, 0, 0]).paso, 1440)
+  igual('un total por servicio → 480', detectarPasoHorario([780, 1260]).paso, 480)
+
+  // Una fila sucia no convierte un fichero por horas en uno de tickets: por eso
+  // se tiran las horas que no llegan al 0,5% de las filas.
+  const porHoras = [...Array(300)].map((_, i) => 780 + (i % 5) * 60)
+  igual('una fila a las 13:37 entre 300 no cambia el paso', detectarPasoHorario([...porHoras, 817]).paso, 60)
+
+  // La proteccion de verdad: un fichero de tickets con mucho volumen cuyas
+  // puntas caen en las horas en punto. Al tirar las horas flojas quedarian solo
+  // esas puntas y saldria un paso de 60 que el fichero no tiene; repartir ahi
+  // partiria los picos y sacaria MENOS gente de la que hace falta.
+  const conPuntas: number[] = []
+  for (let i = 0; i < 40; i++) for (const h of [780, 840, 1260, 1320]) conPuntas.push(h) // puntas
+  for (let m = 781; m < 900; m++) conPuntas.push(m) // y la cola de tickets sueltos
+  igual('tickets con puntas en hora en punto NO se toman por agrupados', detectarPasoHorario(conPuntas).paso, 1)
+
+  igual('media hora no se reparte', franjasPorFila(30), 1)
+  igual('una hora se reparte en dos', franjasPorFila(60), 2)
+  igual('dos horas, en cuatro', franjasPorFila(120), 4)
+  igual('un total diario no se reparte: se rechaza', franjasPorFila(1440), 1)
+
+  // El redondeo no puede inventar comensales.
+  const dia = [2.5, 2.5, 1.5, 1.5, 0]
+  igual('repartir y redondear conserva el total', redondearConservandoTotal(dia).reduce((a, b) => a + b, 0), 8)
+  comprobar('y no deja decimales', redondearConservandoTotal(dia).every((v) => Number.isInteger(v)))
+  const enteros = [4, 0, 7]
+  comprobar(
+    'un dia que ya venia en enteros sale identico',
+    redondearConservandoTotal(enteros).join(',') === '4,0,7',
+  )
+}
+
+async function pruebaFicheroPorHoras() {
+  titulo('12 · Un fichero agrupado por horas no dispara el pico')
+
+  const r = await leerYConstruir(ficheroDe(aUtf8(csvAgrupado(60)), 'por-horas.csv'))
+  igual('el paso detectado es una hora', r.paso, 60)
+  comprobar('se dice que viene agrupado', tieneAviso(r.advertencias, 'fichero-agrupado'))
+  comprobar('y no se rechaza', !r.sinDetalleHorario)
+  // 6 bloques de 20 al dia, 350 dias: el total es intocable.
+  igual('el total de comensales es exactamente el del fichero', totalDe(r.dataset.weeks), 350 * 6 * 20)
+  igual('el pico de una franja es la mitad del bloque', picoDe(r.dataset.weeks), 10)
+
+  // Y el control: el mismo fichero en medias horas no se reparte ni avisa.
+  const m = await leerYConstruir(ficheroDe(aUtf8(csvAgrupado(30, 10)), 'por-medias.csv'))
+  igual('en medias horas el paso es 30', m.paso, 30)
+  comprobar('no hace falta avisar de nada', !tieneAviso(m.advertencias, 'fichero-agrupado'))
+  igual('y cada franja se queda con lo suyo', picoDe(m.dataset.weeks), 10)
+}
+
+async function pruebaFicheroPorDia() {
+  titulo('13 · Un fichero con un total por dia se rechaza')
+
+  const filas = ['FECHA;COMENSALES']
+  const inicio = Date.UTC(2025, 0, 6)
+  for (let d = 0; d < 300; d++) {
+    const t = new Date(inicio + d * 86400000)
+    const f = `${String(t.getUTCDate()).padStart(2, '0')}/${String(t.getUTCMonth() + 1).padStart(2, '0')}/${t.getUTCFullYear()} 00:00`
+    filas.push(`${f};120`)
+  }
+  const r = await leerYConstruir(ficheroDe(aUtf8(filas.join('\n')), 'por-dia.csv'))
+
+  comprobar('se marca como sin detalle horario', r.sinDetalleHorario)
+  comprobar('y se explica por que', tieneAviso(r.advertencias, 'sin-detalle-horario'))
+  comprobar('no se reparte a ojo por las 48 franjas', !tieneAviso(r.advertencias, 'fichero-agrupado'))
+
+  // Con cuatro filas no se rechaza ni se reparte nada: dos horas separadas no
+  // prueban que el fichero venga agrupado.
+  const pocas = ['FECHA;HORA;COMENSALES', '14/06/2025;13:00;30', '14/06/2025;21:00;40'].join('\n')
+  const p2 = await leerYConstruir(ficheroDe(aUtf8(pocas), 'dos-filas.csv'))
+  comprobar('con dos filas se avisa pero no se rechaza', !p2.sinDetalleHorario)
+}
+
+async function pruebaFormatoALaFuerza() {
+  titulo('14 · El usuario dice como se leen sus fechas')
+
+  // Fechas donde ningun numero pasa de 12: dd/mm y mm/dd son las dos posibles.
+  const csv = [
+    'FECHA;HORA;COMENSALES',
+    '03/02/2025;13:30;10',
+    '03/02/2025;14:00;12',
+    '04/02/2025;13:30;8',
+  ].join('\n')
+  const f = await leerFichero(ficheroDe(aUtf8(csv), 'ambigua.csv'))
+
+  const auto = construirDatasetConDiagnostico(f.filas, f.columnas, { fileName: 'a.csv' })
+  igual('sin decir nada se lee dia/mes', auto.formatoFecha, 'dd/mm')
+  comprobar('y se avisa de que no se sabe', tieneAviso(auto.advertencias, 'fecha-ambigua'))
+  igual('3 de febrero cae en la semana 6', auto.dataset.weeks[0].isoWeek, 6)
+
+  const forzado = construirDatasetConDiagnostico(f.filas, f.columnas, {
+    fileName: 'a.csv',
+    formatoFecha: 'mm/dd',
+  })
+  igual('diciendolo se lee mes/dia', forzado.formatoFecha, 'mm/dd')
+  comprobar('y ya no se avisa de nada', !tieneAviso(forzado.advertencias, 'fecha-ambigua'))
+  igual('2 de marzo cae en la semana 9', forzado.dataset.weeks[0].isoWeek, 9)
+  igual('y no se pierde ni un comensal', totalDe(forzado.dataset.weeks), 30)
+}
+
 // ─────────────────────────────────────────────────────────────
 
 async function main() {
@@ -559,6 +705,10 @@ async function main() {
   await pruebaExcel()
   await pruebaAmbigua()
   await pruebaTicketsPorCodigo()
+  pruebaPasoHorario()
+  await pruebaFicheroPorHoras()
+  await pruebaFicheroPorDia()
+  await pruebaFormatoALaFuerza()
 
   console.log(`\n\x1b[1m${pasadas} comprobaciones pasadas, ${fallos.length} fallidas\x1b[0m`)
   if (fallos.length > 0) {

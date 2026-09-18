@@ -43,7 +43,7 @@ import { buildRoster } from '@/lib/roster'
 import { analyzePeaks, summarizePlan } from '@/lib/contracts'
 import { decodificarPlan, type PlanCompartido } from '@/lib/compartir'
 import { construirDatasetConDiagnostico } from '@/lib/parseFichero'
-import type { Descarte, FilaCruda, ResultadoDataset } from '@/lib/parseFichero'
+import type { Descarte, FilaCruda, FormatoFecha, ResultadoDataset } from '@/lib/parseFichero'
 import type { ColumnaDetectada } from '@/lib/mapeo'
 import {
   SNAPSHOT_SOURCE,
@@ -104,6 +104,17 @@ export interface LecturaFichero {
   descartes: Descarte[]
   advertencias: ResultadoDataset['advertencias']
   semanas: number
+  /** El orden de fecha que se está usando: el detectado o el que dijo el usuario. */
+  formatoFecha: FormatoFecha
+  /**
+   * El orden que ha elegido el usuario a mano, si lo ha hecho. `null` = lo
+   * decide el lector mirando el fichero.
+   *
+   * Vive aparte del anterior a propósito: si solo se guardara el formato en uso,
+   * al rehacer el cálculo por cualquier otro motivo (corregir una columna) se
+   * volvería a detectar y la elección de la persona se perdería sin avisar.
+   */
+  formatoFechaElegido: FormatoFecha | null
 }
 
 export function usePlannerState() {
@@ -337,11 +348,21 @@ export function usePlannerState() {
    * todavía no lo ha tocado: si el mapeo estaba mal, el horario que se dedujo de
    * él también lo estaba, pero si ya lo ha editado a mano, manda él.
    */
-  function recalcularConMapeo(mapeo: ColumnaDetectada[], comensalesPorTicket: number) {
+  function recalcularConMapeo(
+    mapeo: ColumnaDetectada[],
+    comensalesPorTicket: number,
+    /**
+     * El orden de fecha que manda. Si no se pasa, se mantiene el que ya hubiera
+     * elegido el usuario: rehacer el cálculo por corregir una columna no puede
+     * deshacerle la elección.
+     */
+    formatoFechaElegido: FormatoFecha | null = lectura?.formatoFechaElegido ?? null,
+  ) {
     if (!lectura) return
     const r = construirDatasetConDiagnostico(lectura.filas, mapeo, {
       fileName: lectura.nombre,
       comensalesPorTicket,
+      formatoFecha: formatoFechaElegido ?? undefined,
     })
     // Con ese mapeo no entra ni una fila: se guarda el diagnóstico para poder
     // DECIRLO, pero NO se sustituye el histórico. Dejar el dataset vacío
@@ -358,6 +379,8 @@ export function usePlannerState() {
         descartes: r.descartes,
         advertencias: r.advertencias,
         semanas: 0,
+        formatoFecha: r.formatoFecha,
+        formatoFechaElegido,
       })
       return
     }
@@ -370,6 +393,8 @@ export function usePlannerState() {
       descartes: r.descartes,
       advertencias: r.advertencias,
       semanas: r.semanas,
+      formatoFecha: r.formatoFecha,
+      formatoFechaElegido,
     })
     setDataset(r.dataset)
     if (!horarioTocado.current) setHours(r.dataset.source.detectedHours)
@@ -380,6 +405,7 @@ export function usePlannerState() {
       filas: lectura.filas,
       mapeo,
       comensalesPorTicket,
+      formatoFechaElegido,
     })
   }
 
@@ -628,6 +654,11 @@ export function usePlannerState() {
         descartes: [],
         advertencias: [],
         semanas: snap.dataset.weeks.length,
+        // Igual que el diagnostico: el formato en uso se vuelve a detectar en
+        // cuanto se rehaga el calculo. Lo que si se recupera es la ELECCION del
+        // usuario, que es lo unico que no se puede volver a deducir.
+        formatoFecha: f.formatoFechaElegido ?? 'dd/mm',
+        formatoFechaElegido: f.formatoFechaElegido ?? null,
       })
     })
     setHours(snap.hours)

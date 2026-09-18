@@ -15,6 +15,7 @@ import {
   ArrowUpRight,
   Clock,
   Download,
+  FileText,
   Gauge,
   Layers,
   Link as LinkIcon,
@@ -41,7 +42,8 @@ import { comprobacionesHechas, revisarCuadrante } from '@/lib/avisos'
 import { calcularMetricas } from '@/lib/metricas'
 import { urlDelPlan } from '@/lib/compartir'
 import { downloadPlanCsv } from '@/lib/export'
-import { downloadReport } from '@/lib/report'
+import { descargarInforme } from '@/lib/informe'
+import type { InformeInput } from '@/lib/informe'
 import { DAYS, DAYS_SHORT, formatSlot } from '@/lib/time'
 import type { DayIndex } from '@/lib/types'
 
@@ -293,6 +295,17 @@ export function StepResult() {
     { label: 'Dos libranzas seguidas', value: settings.consecutiveDaysOff ? 'Sí' : 'No', step: 'team', where: 'Equipo, ajustes avanzados' },
     { label: '12 h de descanso', value: settings.minRestBetweenShifts ? 'Sí' : 'No', step: 'team', where: 'Equipo, ajustes avanzados' },
     { label: 'Contratos activos', value: settings.contracts.filter((c) => c.enabled).map((c) => c.label).join(', '), step: 'team', where: 'Equipo, ajustes avanzados' },
+    // Entra en la lista porque explica el caso que más parece un error del
+    // cálculo: un contrato de 40 h con nueve horas de turnos.
+    {
+      label: 'Solo jornada completa',
+      value:
+        model.roles.filter((r) => r.fullTimeOnly).length > 0
+          ? model.roles.filter((r) => r.fullTimeOnly).map((r) => r.name).join(', ')
+          : 'ningún puesto',
+      step: 'demand',
+      where: 'Demanda, catálogo de puestos',
+    },
     ...model.blocks
       .filter((b) => (settings.minStaffByBlock[b.id] ?? 0) > 0)
       .map((b) => ({
@@ -335,36 +348,39 @@ export function StepResult() {
   }
 
   /**
-   * El PDF es un one-pager independiente, dibujado con jsPDF: no una captura
-   * de esta pantalla, sino los mismos números ya calculados aquí. Se arma el
-   * objeto en el cuerpo del componente (no dentro del handler) para que
-   * TypeScript siga viendo `plan`, `coverage`, etc. como no-nulos: dentro de
-   * una función anidada esa comprobación ya no se conserva.
+   * Lo que se lleva el informe descargable, en cualquiera de sus dos versiones.
+   *
+   * Son los mismos objetos que ya pinta esta pantalla: el informe no recalcula
+   * nada, así que el PDF y la pantalla no pueden contar cosas distintas. Se
+   * arma en el cuerpo del componente y no dentro del handler para que
+   * TypeScript siga viendo `plan`, `coverage` y compañía como no-nulos: dentro
+   * de una función anidada esa comprobación ya no se conserva.
    */
-  const reportInput = {
-    totalPeople: plan.totalPeople,
-    mix,
-    fte,
-    contractedHours: plan.contractedHours,
-    neededHours: plan.neededHours,
+  const informeInput: InformeInput = {
+    fileName: p.dataset?.source.fileName ?? null,
+    year: p.dataset?.year ?? new Date().getFullYear(),
+    plan,
+    roster,
+    model,
+    settings,
+    needSummary,
+    personNames: p.personNames,
+    weeks,
+    typical: lagged,
+    hours: hours ?? null,
+    kitchenHours: p.kitchenHours,
+    specials,
     coveragePct: settings.coveragePct,
     weeksCovered: coverage.weeksCovered,
-    totalWeeks: weeks.length,
-    fteFromHours: plan.drivers.fteFromHours,
-    peakDayLabel: DAYS[needSummary.peak.day].toLowerCase(),
-    peakSlotLabel: formatSlot(needSummary.peak.slot),
-    peakPeople: needSummary.peak.people,
-    topPeakRoleName:
-      topPeakRole && topPeakRole.peak > 0 ? (roleName.get(topPeakRole.roleId) ?? null) : null,
-    topPeakCount: topPeakRole?.peak ?? 0,
-    peakWeekCount,
-    peakHoursPerYear: peaks.peakHoursPerYear,
+    peaks,
     extraPeopleIfHired,
-    hourlyCostEur: avgHourlyCost,
-    weeklyCostEur,
-    annualCostEur,
-    peakHiredAnnualCostEur,
-    peakOnlyAnnualCostEur,
+    cost,
+    ratioPersonal,
+    weeklySalesEur: settings.weeklySalesEur ?? null,
+    avisos,
+    comprobaciones,
+    metricas,
+    criterios: criteria.map((c) => ({ label: c.label, value: c.value })),
   }
   /**
    * Copia el enlace de este plan. Hay dos, y se prefiere el corto.
@@ -421,10 +437,6 @@ export function StepResult() {
     }
   }
 
-  function handleDownloadReport() {
-    void downloadReport(reportInput)
-  }
-
   return (
     <div className="space-y-6">
       <SubProgress steps={RESULT_SUBSTEPS} index={sub} onGo={setSub} />
@@ -472,19 +484,12 @@ export function StepResult() {
           )}
         </p>
 
-        {/* El mismo botón está abajo del todo, en "Llévatelo". Se repite a
-            propósito: la página mide casi 5.000 px y quien solo quiere el PDF
-            no tiene por qué recorrerla entera. Lo que no puede pasar es que se
-            llamen distinto, que es lo que hacía dudar de si eran dos cosas. */}
-        <div className="mt-5">
-          <Button
-            variant="secondary"
-            icon={<Download size={17} strokeWidth={2.3} />}
-            onClick={handleDownloadReport}
-          >
-            Descargar el informe
-          </Button>
-        </div>
+        {/* AQUÍ NO HAY BOTÓN DE DESCARGA, Y ES A PROPÓSITO.
+            Estuvo aquí arriba desde el 2026-09-05 para no obligar a recorrer
+            una pantalla de 5.000 px. Crescente lo retiró el 2026-09-18: el
+            informe se baja SOLO en el último sub-paso, "Llévatelo". Un botón de
+            descarga en la primera pantalla invita a llevarse el plan antes de
+            haber mirado de dónde sale, y quien se lo lleva así no vuelve. */}
       </section>
 
       {/* ── 2 bis. La plantilla, puesto por jornada ───────────── */}
@@ -676,6 +681,15 @@ export function StepResult() {
                 turnos no se cortan al minuto y nadie entra a las 13:20 para salir a las 15:40. Si
                 se dispara, baja la duración mínima de turno o activa la jornada partida en el paso
                 anterior.
+                {/* Lo que pidió Crescente: estas horas no son horas perdidas.
+                    Sin esta frase, la holgura se lee como un defecto del
+                    cálculo y la reacción es apretarla hasta dejar el local sin
+                    nadie para montar ni para cerrar. */}
+                <br />
+                <br />
+                Y no es tiempo perdido: es lo que puedes destinar a las tareas auxiliares que el
+                cuadrante no dibuja pero el local necesita, como el montaje, la limpieza, los
+                pedidos, el inventario o formar a alguien nuevo.
               </InfoTip>
             }
             label="Holgura"
@@ -977,6 +991,10 @@ export function StepResult() {
                   razonable y de que la gente entre y salga a horas de persona. Las tres
                   cifras cuadran: las horas que pide la curva más estas de más son las horas
                   que la gente pasa en el local. Abajo tienes dónde se concentran.
+                  <br />
+                  <br />
+                  Y son las horas que puedes destinar a las tareas auxiliares que no salen en el
+                  cuadrante: montaje, limpieza, pedidos, inventario o formar a alguien nuevo.
                 </InfoTip>
               }
               label="Horas de más"
@@ -1508,9 +1526,24 @@ export function StepResult() {
           )}
         </p>
 
+        {/* DOS VERSIONES, Y LA CORTA PRIMERO.
+            El resumen de una página es el que de verdad se manda por WhatsApp o
+            se pega en un correo; el completo es el que se lleva a una reunión y
+            trae el cuadrante, el horario, la revisión y los criterios. Con un
+            solo botón, quien quería enseñar una cifra mandaba seis páginas. */}
         <div className="mt-5 flex flex-wrap gap-2.5">
-          <Button icon={<Download size={16} />} onClick={handleDownloadReport}>
-            Descargar el informe
+          <Button
+            icon={<Download size={16} />}
+            onClick={() => void descargarInforme(informeInput, 'resumen')}
+          >
+            Resumen en una página
+          </Button>
+          <Button
+            variant="secondary"
+            icon={<FileText size={16} />}
+            onClick={() => void descargarInforme(informeInput, 'completo')}
+          >
+            Informe completo
           </Button>
           <Button
             variant="secondary"

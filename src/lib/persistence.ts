@@ -203,6 +203,12 @@ export interface FilasGuardadas {
   /** El mapeo que se estaba usando, y lo que se estimo por ticket. */
   mapeo: unknown[]
   comensalesPorTicket: number
+  /**
+   * El orden de fecha que eligio el usuario a mano, si lo eligio. Opcional a
+   * proposito: los guardados de antes de que existiera no lo traen, y eso se
+   * lee como "lo decide el lector", que es lo que pasaba entonces.
+   */
+  formatoFechaElegido?: 'dd/mm' | 'mm/dd' | null
 }
 
 export async function guardarFilas(v: FilasGuardadas): Promise<void> {

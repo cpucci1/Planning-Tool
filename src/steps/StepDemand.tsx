@@ -18,6 +18,7 @@ import {
   CalendarRange,
   Check,
   FileSpreadsheet,
+  MoveVertical,
   Rows3,
   Sparkles,
   TriangleAlert,
@@ -31,6 +32,7 @@ import { HoursEditor } from '@/components/HoursEditor'
 import { SubNav, SubProgress } from '@/components/SubSteps'
 import { RoleCatalog } from '@/components/RoleCatalog'
 import { DESTINO_POR_ETIQUETA } from '@/lib/parseFichero'
+import type { FormatoFecha } from '@/lib/parseFichero'
 import {
   MapeoColumnas,
   mapeoSuficiente,
@@ -107,6 +109,21 @@ function deviationText(d: number): string {
  * detrás, y calca el estilo del `Progress` del shell para que no parezca un
  * flujo aparte.
  */
+/**
+ * Avisos que cambian lo que significa el resultado, no solo lo matizan.
+ *
+ * Los tres tocan la base del calculo: de donde salen los comensales, en que
+ * mes caen las semanas y como se reparte el dia. Van en amarillo y con su
+ * triangulo; el resto de avisos son informativos y van en azul.
+ */
+const AVISOS_QUE_PESAN = new Set<string>([
+  'fichero-agrupado',
+  'comensales-estimados',
+  'fecha-ambigua',
+  'fecha-en-conflicto',
+  'sin-detalle-horario',
+])
+
 const DEMAND_SUBSTEPS: { id: string; label: string }[] = [
   { id: 'lectura', label: 'Lectura' },
   { id: 'ano', label: 'Tu año' },
@@ -202,14 +219,27 @@ export function StepDemand() {
   const recalcular = p.recalcularConMapeo
   const pendiente = useRef<ReturnType<typeof setTimeout> | null>(null)
   const aplicarMapeo = useCallback(
-    (columnas: ColumnaDetectada[], porTicket: number) => {
+    (columnas: ColumnaDetectada[], porTicket: number, formato?: FormatoFecha) => {
       setMapeo(columnas)
       setComensalesPorTicket(porTicket)
       if (pendiente.current) clearTimeout(pendiente.current)
-      pendiente.current = setTimeout(() => recalcular(columnas, porTicket), 350)
+      pendiente.current = setTimeout(() => recalcular(columnas, porTicket, formato), 350)
     },
     [recalcular],
   )
+
+  /**
+   * El orden de la fecha solo se pregunta cuando el lector no ha podido
+   * decidirlo, o cuando ya lo ha tocado el usuario (para que pueda volver
+   * atrás). En cualquier otro caso la respuesta es segura y preguntarla sería
+   * darle la ocasión de romper algo que está bien.
+   */
+  const formatoDudoso =
+    (p.lectura?.advertencias.some(
+      (a) => a.codigo === 'fecha-ambigua' || a.codigo === 'fecha-en-conflicto',
+    ) ??
+      false) ||
+    p.lectura?.formatoFechaElegido != null
   useEffect(() => () => {
     if (pendiente.current) clearTimeout(pendiente.current)
   }, [])
@@ -417,8 +447,20 @@ export function StepDemand() {
                 </div>
               </Note>
             )}
+            {/* No todos los avisos pesan igual. Que el fichero venga agrupado o
+                que los comensales sean una estima cambia lo que significa el
+                numero de abajo, y eso no puede tener el mismo color que "tu
+                historico son 30 semanas". */}
             {p.lectura.advertencias.map((a) => (
-              <Note key={a.codigo} tone="info">
+              <Note
+                key={a.codigo}
+                tone={AVISOS_QUE_PESAN.has(a.codigo) ? 'warning' : 'info'}
+                icon={
+                  AVISOS_QUE_PESAN.has(a.codigo) ? (
+                    <TriangleAlert size={16} strokeWidth={2.4} />
+                  ) : undefined
+                }
+              >
                 {a.mensaje}
               </Note>
             ))}
@@ -431,6 +473,12 @@ export function StepDemand() {
             onChange={(cols) => aplicarMapeo(cols, comensalesPorTicket)}
             comensalesPorTicket={comensalesPorTicket}
             onComensalesPorTicket={(n) => aplicarMapeo(mapeo, n)}
+            formatoFecha={p.lectura?.formatoFecha}
+            formatoDudoso={formatoDudoso}
+            formatoElegido={p.lectura?.formatoFechaElegido ?? null}
+            onFormatoFecha={
+              p.lectura ? (f) => aplicarMapeo(mapeo, comensalesPorTicket, f) : undefined
+            }
           />
         </div>
       </Card>
@@ -475,6 +523,22 @@ export function StepDemand() {
           }
         />
         <div className="px-4 pb-5 sm:px-6">
+          {/* LO QUE HAY QUE HACER AQUÍ, ANTES DEL GRÁFICO Y EN GRANDE.
+              La línea es la única decisión de esta pantalla y se explicaba en
+              gris debajo del gráfico, después de tres cifras: se leía tarde o no
+              se leía, y quien no la mueve se lleva la plantilla de la peor
+              semana del año sin saber que podía elegir. */}
+          <p className="mb-4 flex items-start gap-2 rounded-lg border border-brand/15 bg-brand-light px-3 py-2.5 text-[0.88rem] leading-relaxed font-semibold text-content-primary">
+            <MoveVertical size={16} strokeWidth={2.4} className="mt-0.5 shrink-0 text-brand" />
+            <span>
+              Arrastra la línea morada:{' '}
+              <span className="text-brand">
+                marca hasta dónde quieres que llegue tu plantilla fija.
+              </span>{' '}
+              Las semanas que asomen por encima son picos, y esos se cubren con extras en vez de
+              contratando de más.
+            </span>
+          </p>
           <YearChart
             weeks={dataset.weeks}
             threshold={p.coverage?.threshold ?? 0}
@@ -489,8 +553,8 @@ export function StepDemand() {
             height={260}
           />
           <p className="mt-3 text-[0.82rem] leading-relaxed text-content-secondary">
-            La línea marca hasta dónde llegaría tu plantilla fija. Aquí solo te sitúa: dónde la
-            dejas se decide al final, cuando ya se vea lo que cuesta cada centímetro.
+            Aquí solo te sitúas: dónde la dejas del todo se decide al final, cuando ya se vea lo
+            que cuesta cada centímetro.
           </p>
 
           {over && (
@@ -618,6 +682,13 @@ export function StepDemand() {
                   </>
                 }
                 subtitle="Independiente del horario general. Arrastra las barras igual que arriba."
+                ayuda={
+                  <>
+                    Es la ventana en la que <strong>cocina está en marcha</strong>, no la apertura
+                    al público: fuera de ella cocina deja de pedir personal aunque la sala siga
+                    abierta. Solo recorta, nunca añade gente antes de que haya comensales.
+                  </>
+                }
               />
             )}
           </div>
@@ -1067,13 +1138,20 @@ export function StepDemand() {
               explica qué es esta pantalla y, de paso, para qué existe Shifty.
               Sin ella el usuario ve una rejilla de números sin saber qué
               decisión está tomando. */}
-          <Note tone="brand" icon={<Sparkles size={15} strokeWidth={2.3} />}>
-            La semana tipo recoge la actividad del{' '}
-            <strong>{p.settings.coveragePct}% de las semanas del año</strong>: es con la que se
-            planifica tu <strong>plantilla estable</strong>. Las{' '}
-            {Math.max(0, p.weeks.length - (p.coverage?.weeksCovered ?? 0))} semanas que se salen
-            piden gente puntual, y eso se cubre con extras en vez de contratando de más.
-          </Note>
+          {/* Acotado y con aire por debajo. En una pantalla de escritorio de
+              verdad este aviso salía en UNA línea de punta a punta de la tarjeta
+              (unos 200 caracteres), pegado al título de la rejilla: ni se lee
+              como una frase ni deja respirar a lo que viene detrás. El texto
+              corrido de esta herramienta ronda los 65 caracteres por línea. */}
+          <div className="mb-5 max-w-[78ch]">
+            <Note tone="brand" icon={<Sparkles size={15} strokeWidth={2.3} />}>
+              La semana tipo recoge la actividad del{' '}
+              <strong>{p.settings.coveragePct}% de las semanas del año</strong>: es con la que se
+              planifica tu <strong>plantilla estable</strong>. Las{' '}
+              {Math.max(0, p.weeks.length - (p.coverage?.weeksCovered ?? 0))} semanas que se salen
+              piden gente puntual, y eso se cubre con extras en vez de contratando de más.
+            </Note>
+          </div>
 
           {/* Las celdas que el usuario corrige entran en la cadena completa
               (desfase → necesidad → cuadrante) a través de `overrides` en
