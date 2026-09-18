@@ -113,6 +113,18 @@ Aplican **en todos los proyectos**, porque la base de datos es una sola.
 16. **12 horas de descanso mínimo entre turnos de la misma persona** (Art. 34.3 ET). Es un mínimo
     legal. La comprobación cruza también el fin de semana.
 
+17. **Nada que toque datos de una persona nace sin decidir quién lo ve y cuándo se borra.** Vale para
+    una tabla, una columna, una vista, una función, un almacén de ficheros o un volcado. Las cuatro
+    respuestas se escriben **antes**, en la propuesta, no después: qué dato personal lleva, quién
+    tiene que verlo, cuánto tiempo se guarda y qué pasa con él cuando la persona se da de baja. Sin
+    las cuatro, no se crea. El detalle está en la skill `shifty-seguridad`.
+
+18. **Lo que promete la política de privacidad manda sobre lo que permita la base.** Está publicada y
+    firmada: si un permiso deja ver más de lo que el documento dice, el permiso está mal, no el
+    documento. El 2026-09-17 se encontró que las empresas podían leer el IBAN y el NIF de sus
+    candidatos cuando lo que prometemos es "el perfil profesional", y que la residencia probable de
+    15.212 trabajadores se leía sin tener cuenta. Ver `security/PRIVACIDAD-DATOS-PERSONALES.md`.
+
 Se puede sin preguntar: `SELECT` y lectura de catálogos. Necesita permiso: cualquier DDL, cualquier
 mutación de producción, RLS, triggers y crons.
 
@@ -222,6 +234,7 @@ push**, aunque sus ficheros digan lo contrario. Hay que ejecutarlo a mano o se s
 |---|---|
 | Escribir una consulta, crear una función o una vista, cambiar el esquema | skill **`shifty-base-de-datos`** |
 | **Crear una tabla, dar permisos, tocar RLS o revisar quién puede ver qué** | skill **`shifty-seguridad`** |
+| **Guardar, mover o enseñar un dato de una persona** (NIF, IBAN, teléfono, foto, ubicación, salud) | skill **`shifty-seguridad`** §7, y `security/PRIVACIDAD-DATOS-PERSONALES.md` |
 | Tocar un importe, comisión, tarifa, factura o plazo de pago | skill **`shifty-dinero`** |
 | Responder a un trabajador, revisar incidencias, cuadrar horas | skill **`shifty-soporte-trabajador`** |
 | Escribir copy, un post, un correo, una landing o una propuesta | skill **`shifty-marca-y-copy`** |

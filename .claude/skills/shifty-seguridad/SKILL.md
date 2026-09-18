@@ -94,19 +94,22 @@ usa el panel, se otorga a `authenticated` y se comprueba internamente que es int
 
 ---
 
-## 4. El estado real, medido el 2026-09-02
-
-El analizador de Supabase da **1.519 avisos de seguridad**:
+## 4. El estado real, medido el 2026-09-17
 
 | Nivel | Cuántos | Qué es |
 |---|---|---|
-| **ERROR** | **14** | Tablas en `public` **sin RLS** |
-| **ERROR** | **6** | Vistas con `SECURITY DEFINER` |
-| WARN | 1.106 | Funciones `SECURITY DEFINER` ejecutables por autenticados |
-| WARN | 189 | Funciones `SECURITY DEFINER` ejecutables por **anónimos** |
-| WARN | 124 | Funciones sin `search_path` fijo |
+| **ERROR** | **1** | Tabla en `public` **sin RLS**: `spatial_ref_sys`, que es de PostGIS y no lleva nada nuestro |
+| **WARN** | **3** | **Vistas materializadas legibles por las apps.** No obedecen a la RLS: ver §7 |
+| WARN | 1.097 | Funciones `SECURITY DEFINER` ejecutables por autenticados |
+| WARN | 158 | Funciones `SECURITY DEFINER` ejecutables por **anónimos** |
+| WARN | 4 | Extensiones instaladas en `public` |
 | WARN | 1 | Protección de contraseñas filtradas **desactivada** |
-| INFO | 72 | Tablas con RLS pero sin ninguna política |
+| INFO | 84 | Tablas con RLS pero sin ninguna política |
+
+Las vistas con `SECURITY DEFINER` que había el 2026-09-02 ya no salen. **Pero el analizador no
+mira lo que de verdad se escapa hoy**: los almacenes de ficheros marcados como públicos y los
+permisos que comprueban que eres *alguien* en vez de comprobar que eres *el dueño de esa fila*. Eso
+está en `security/PRIVACIDAD-DATOS-PERSONALES.md`.
 
 ### ✅ El agujero que había, y cómo se cerró (2026-09-02)
 
@@ -177,3 +180,86 @@ un patrón que se defiende por dentro.
   cero políticas, que es lo correcto: nadie la lee desde el cliente.
 - **Commitear un `.env`** ni enseñarlo por pantalla.
 - **Desactivar RLS "un momento para probar".** Se prueba con `service_role`, que ya la salta.
+
+---
+
+## 7. Datos personales: lo que se decide antes de crear nada
+
+Escrito el 2026-09-17, después de la revisión de privacidad que encontró la residencia probable de
+15.212 trabajadores legible sin tener cuenta y los partes médicos de bajas colgados en abierto.
+El informe entero está en `security/PRIVACIDAD-DATOS-PERSONALES.md`.
+
+**Un dato personal no es solo el nombre.** En Shifty lo son el NIF, el IBAN, el número de la
+Seguridad Social, la fecha de nacimiento, el sexo, el teléfono, el correo, la dirección y sus
+coordenadas, la foto, el vídeo de entrevista, el CV, las ubicaciones, los comentarios que escribe una
+persona, y **cualquier cosa calculada a partir de eso**: dónde vive probablemente, dónde suele
+trabajar, su puntuación de fiabilidad. Lo calculado es dato personal igual que lo declarado, y se
+protege igual. Del lado del cliente lo son el correo y el teléfono del contacto, y su IBAN.
+
+**Y hay uno que juega en otra liga: los justificantes médicos.** Son datos de salud. La ley los
+protege más que a los demás y nuestra propia política dice que se tratan solo con consentimiento
+explícito. Nunca van a un sitio donde los vea alguien que no sea interno.
+
+### Las cuatro preguntas
+
+Se responden **en la propuesta, antes de crear**, y se escriben en el comentario de lo que se crea.
+No hay quinta pregunta y no se salta ninguna:
+
+1. **¿Qué dato de una persona lleva esto, y hace falta de verdad?** Si una pantalla necesita saber si
+   el trabajador tiene IBAN, la columna que se guarda es *tiene IBAN*, no el IBAN. Si lo que hace
+   falta es la distancia a un centro, se guarda la distancia, no las coordenadas de su casa.
+2. **¿Quién tiene que verlo?** Y se escribe la lista corta: el propio trabajador, la empresa con la
+   que tiene relación, un interno activo, nadie. **"Cualquiera con cuenta" no es una respuesta.**
+   Es lo que dicen hoy los permisos que dejan a un trabajador bajarse los contratos de los clientes.
+3. **¿Cuánto tiempo se guarda?** Con un número. Si la respuesta es "para siempre", hay que poder
+   decir por qué, y casi nunca se puede. Lo que no caduca solo, no caduca.
+4. **¿Qué pasa con esto cuando la persona se da de baja?** Se borra, se anonimiza o se queda por una
+   obligación legal concreta. Si se queda, se dice cuál.
+
+### Las cinco trampas de esta base, que ya han mordido
+
+1. **Los permisos son por fila, no por columna.** Dejar que una empresa vea a un trabajador es
+   dejarle ver **la fila entera**, con su IBAN dentro. Cuando el que mira no es el dueño del dato,
+   **no se le da la tabla: se le da una vista con las columnas que le tocan**, con
+   `security_invoker` y su `grant` reaplicados.
+2. **Las vistas materializadas se saltan la RLS.** Son una foto guardada: quien puede leerlas las lee
+   enteras. **Una vista materializada con datos de personas no se otorga nunca a `anon` ni a
+   `authenticated`.** Si la necesita una app, se sirve por una función que filtre.
+3. **Un almacén de ficheros marcado como público no tiene ningún permiso: es internet.** El enlace no
+   caduca, no pide cuenta y no se puede retirar. **Los ficheros de personas van en almacén privado y
+   se sirven con enlace firmado.** Y al crear un almacén se mira también quién puede **subir**: un
+   permiso de subida que solo comprueba el nombre del almacén deja a cualquiera dejar ficheros ahí.
+4. **Comprobar que eres alguien no es comprobar que eres el dueño.** Una condición que dice "existe
+   alguna empresa tuya" deja leer las filas de las otras 447 empresas. La condición tiene que
+   **comparar la empresa de la fila con la del que pregunta**. Es el fallo del registro de actividad
+   y el más caro, porque la pantalla funciona igual y no se nota.
+5. **Borrar la fila no borra el fichero.** El borrado de cuenta anonimiza bien la base y deja 332
+   documentos de identidad en el almacén. Lo que se guarde en un almacén se apunta en la lista de lo
+   que hay que borrar al darse de baja, el mismo día que se crea.
+
+### Antes de quitarle un permiso a una función: comprobar bien si se usa
+
+Escrito el 2026-09-17, el mismo día que costó una pantalla caída en producción. Se cerraron 22
+funciones a las apps dando por buena una búsqueda de `rpc('nombre'` en el código. **Cuatro sí se
+usaban**, escritas envolviendo el cliente para saltarse los tipos, que ese patrón no ve, y una más
+la llamaba el sales-tool aunque en el código solo apareciera en un documento de plan. La ficha del
+candidato dejó de cargar y nadie se enteró hasta que lo vio Crescente.
+
+1. **Busca el nombre pelado entrecomillado**, no `rpc(` delante. En los cuatro repos de producto, en
+   el sales-tool y en las funciones edge.
+2. **Mira con qué clave llama cada función edge.** Con la de servicio, los permisos no le afectan.
+3. **Después de quitarlo, mira los logs**: `permission denied for function` en `postgres_logs`. Es
+   la única comprobación que no se puede engañar, porque la hace el tráfico de verdad. Si aparece
+   algo, se devuelve el permiso en el momento y se mira por qué se escapó.
+
+### Cómo se comprueba que ha quedado bien
+
+No vale mirar el código: **se pregunta desde fuera con la clave pública que va dentro de las apps**,
+que es exactamente lo que haría cualquiera. Tres preguntas, y las tres tienen que dar vacío o error:
+
+1. Pedir la tabla o la vista nueva **sin cuenta**.
+2. Pedirla con la cuenta de un trabajador cualquiera, buscando filas que no sean suyas.
+3. Pedirla con la cuenta de un usuario de empresa, buscando filas de otra empresa.
+
+Y si hay ficheros, pedir uno **sin ninguna credencial**. Si contesta, el almacén es público, diga lo
+que diga el código.
