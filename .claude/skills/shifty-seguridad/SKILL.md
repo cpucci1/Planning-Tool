@@ -62,6 +62,17 @@ defiende por dentro**.
    propio pagador**, ignorando el que pida por parámetro. Si una función acepta un `company_id` por
    parámetro y no comprueba que quien llama pertenece a esa empresa, cualquiera puede leer los datos
    de cualquier empresa.
+3 bis. **"De alguna empresa" no es "de esta empresa", y "es de la empresa" no es "sigue dentro".**
+   Este es el error más repetido de la casa, escrito tres veces en sitios distintos: el registro de
+   actividad, la agenda del trabajador y siete funciones más que no miraban `is_active`. La pregunta
+   correcta tiene **dos mitades**: ¿es tuya *esta* empresa, y sigues activo en ella? Escribirla a mano
+   invita a dejarse una. Hay 95 usuarios de empresa desactivados y 8 conservan cuenta viva.
+
+   **Los tres ayudantes ya existen y casi nadie los usa**: `is_internal_user()`,
+   `get_my_company_ids()` y `assert_is_company_member(company_id)`. Los tres traen el filtro de
+   activo puesto. De 247 funciones que miran `company_users`, solo 2 llaman al segundo. **Antes de
+   escribir la comprobación, usa el ayudante.**
+
 4. **Fijar el `search_path`** (`SET search_path = public, pg_temp`). Sin eso, alguien que pueda crear
    objetos en un esquema anterior en el camino puede secuestrar lo que la función llama. Hoy hay
    **124 funciones sin fijarlo**.
