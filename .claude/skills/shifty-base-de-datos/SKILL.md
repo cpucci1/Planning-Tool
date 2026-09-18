@@ -192,7 +192,7 @@ sitios. Medido contra producción el 2026-09-18.
 
 Las tres primeras están bien y hay que mantenerlas así; comprobarlo cuesta una consulta. Las dos
 últimas están mal y **no se arreglan de golpe**: se arregla la tabla que estés tocando, y cuando
-esté, la siguiente. La consulta que mide las cinco es `scripts/auditar-orden.sql`, y la pasa la
+esté, la siguiente. La consulta que mide las cinco es `shared/auditar-orden.sql`, y la pasa la
 skill `auditar-orden`.
 
 **Un apunte sobre las claves ajenas sin índice:** 402 suena a catástrofe y no lo es. Muchas son de

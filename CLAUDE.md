@@ -40,6 +40,11 @@ estas reglas son las mismas en todos: **un cambio de base afecta a los seis a la
 Los ocho viven en una misma carpeta en el ordenador, `~/Desktop/Shifty/Github/`, que **no es un
 repositorio**: solo los contiene.
 
+**Lo que hay aquí, en orden:** cómo hablarle a Crescente · lo que nunca se hace · cómo se construye
+(sin duplicar, y seguro) · cómo se trabaja · dónde está cada cosa. **El detalle no está aquí: está en
+las skills**, que solo se cargan cuando hacen falta. La tabla de qué leer antes de tocar qué está
+más abajo.
+
 **Debajo de estas reglas comunes va lo especifico de cada proyecto**, y eso manda sobre su propio
 terreno. Si algo de aqui y algo de abajo se contradicen, gana lo de abajo, salvo en las reglas
 inquebrantables, que no las pisa nadie. Claude carga las reglas al entrar en cada proyecto; el
@@ -66,6 +71,11 @@ mensajes traen erratas: interpreta la intención.
 7. **Ante la duda, preguntar.** Él lo ha pedido expresamente: *"no quiero romper todo"*.
 8. **Si le ves equivocado, díselo.** No dar la razón por defecto.
 9. **Entrega completa y lista para pegar.** El output es el material, sin preámbulos ni despedidas.
+
+10. **Pregúntale solo si hay DOS opciones defendibles.** Si solo hay una salida razonable, esa se
+    toma y se cuenta lo que se ha hecho. Preguntar lo que solo tiene una respuesta le pasa a él un
+    trabajo que es tuyo. Y si de verdad hay dos, se presentan las dos con una recomendación, nunca
+    en abierto.
 
 Cuando te corrija, **persiste el aprendizaje en el momento**, en su sitio (ver
 `shifty-mantener-las-reglas`), y confirma dónde lo has escrito.
@@ -113,6 +123,8 @@ Aplican **en todos los proyectos**, porque la base de datos es una sola.
 16. **12 horas de descanso mínimo entre turnos de la misma persona** (Art. 34.3 ET). Es un mínimo
     legal. La comprobación cruza también el fin de semana.
 
+**Seguridad y datos personales**
+
 17. **Nada que toque datos de una persona nace sin decidir quién lo ve y cuándo se borra.** Vale para
     una tabla, una columna, una vista, una función, un almacén de ficheros o un volcado. Las cuatro
     respuestas se escriben **antes**, en la propuesta, no después: qué dato personal lleva, quién
@@ -124,6 +136,22 @@ Aplican **en todos los proyectos**, porque la base de datos es una sola.
     documento. El 2026-09-17 se encontró que las empresas podían leer el IBAN y el NIF de sus
     candidatos cuando lo que prometemos es "el perfil profesional", y que la residencia probable de
     15.212 trabajadores se leía sin tener cuenta. Ver `security/PRIVACIDAD-DATOS-PERSONALES.md`.
+
+19. **Ninguna función nueva se publica a quien no tenga que llamarla, y toda función fija su
+    `search_path`.** Una función `SECURITY DEFINER` se salta a propósito la RLS de las tablas que
+    toca: si además la puede llamar cualquiera desde internet sin cuenta, lo único que protege es lo
+    que ella compruebe por dentro. Por defecto `anon` no la llama. Y si recibe un identificador de
+    empresa o de trabajador por parámetro, **comprueba que quien llama tiene derecho a él**: si no,
+    el parámetro es la puerta.
+
+20. **Un dato de una persona no viaja nunca en una dirección web, en un registro de actividad ni en
+    un mensaje de error.** Ahí no hay permisos que valgan: queda escrito en sitios que nadie protege
+    y de los que no se puede retirar.
+
+21. **Nada decide solo sobre una persona sin que un humano pueda revisarlo.** Si un cálculo decide
+    por su cuenta que a alguien no se le avisa, no se le selecciona o se le suspende, tiene que
+    poder explicarse en una frase, quedar registrado el porqué, y existir una vía para que lo mire
+    una persona. Es un derecho, no una cortesía. El detalle está en la skill `shifty-seguridad` §8.
 
 Se puede sin preguntar: `SELECT` y lectura de catálogos. Necesita permiso: cualquier DDL, cualquier
 mutación de producción, RLS, triggers y crons.
@@ -156,63 +184,81 @@ verdad, se lea con desconfianza. El detalle y los casos están en la skill `shif
 
 ## Al desplegar una función: comprobar que no se ha duplicado
 
-Regla de Crescente, 2026-09-03. **Nunca se crea una sobrecarga de una función que ya existe.**
-Si hace falta un parámetro nuevo, se le pone un valor por defecto y se modifica la función
-existente. Dejar dos versiones vivas con los mismos argumentos obligatorios hace que **toda
-llamada con la lista corta falle**, y el front se traga ese error, así que la pantalla parece
-funcionar y no funciona.
+Regla de Crescente, 2026-09-03. **Nunca se crea una sobrecarga de una función que ya existe.** Si
+hace falta un parámetro nuevo, se le pone un valor por defecto y se modifica la que hay. Dejar dos
+versiones vivas con los mismos argumentos obligatorios hace que **toda llamada con la lista corta
+falle**, y el front se traga ese error: la pantalla parece funcionar y no funciona. Había 19 familias
+así, y una tenía rota la comprobación de disponibilidad al invitar.
 
-Había 19 familias así. Una tenía rota la comprobación de disponibilidad al invitar: la lista de
-candidatos salía sin avisos y se ofrecía gente ya invitada o con turno ese día.
-
-**Después de crear o desplegar cualquier función, hay que pasar la comprobación de ambigüedad**
-(la consulta está en la skill `shifty-base-de-datos`, §7 regla 1 bis) y `plpgsql_check`. Cero
-filas en las dos. Y al retirar una versión duplicada, mirar antes qué hará la que se queda con
-sus valores por defecto: hay casos donde desambiguar activaría un borrado de datos.
-
-⚠️ **Copia la consulta de la skill, no la escribas de memoria.** El 2026-09-03 se escribió mal
-y dio 7 familias cuando había 10: comparaba los tipos en el número de argumentos más grande de
-los dos, y la ambigüedad salta en el más pequeño. Se escapaban tres, entre ellas las de crear y
-editar ofertas del portal de empleo. Una consulta de comprobación que falla en silencio es peor
-que no tenerla, porque da permiso para desplegar.
+**Después de crear o desplegar cualquier función se pasa la comprobación de ambigüedad y
+`plpgsql_check`. Cero filas en las dos.** ⚠️ **La consulta se copia de la skill
+`shifty-base-de-datos`, §7 regla 1 bis; no se escribe de memoria** — el 2026-09-03 se escribió mal y
+se escaparon tres familias rotas. Una comprobación que falla en silencio es peor que no tenerla,
+porque da permiso para desplegar. Ahí están también las tres trampas al escribirla y qué mirar antes
+de retirar una versión duplicada.
 
 ---
 
 ## Una lógica, un sitio
 
-La misma regla vive hoy en muchos sitios a la vez: la detección del actor en **148 funciones** y la
-guarda `is_test` en **82**. **Si se cambia una copia y no las otras, el
-sistema contesta cosas distintas según por dónde entres, sin dar ningún error.**
+La misma regla vive hoy en muchos sitios: la detección del actor en **158 funciones**, la guarda
+`is_test` en **145**. **Si se cambia una copia y no las otras, el sistema contesta cosas distintas
+según por dónde entres, sin dar ningún error.**
 
-**El olor no es "código repetido", es la misma pregunta contestada desde fuentes distintas.** Las dos
-parecen razonables leyéndolas sueltas, y por eso nadie las ve: no fallan, contestan otra cosa. Los
-tres casos del 2026-09-18, todos reales:
+**El olor no es "código repetido": es la misma pregunta contestada desde fuentes distintas.** Las dos
+parecen razonables leyéndolas sueltas, y por eso nadie las ve. Tres casos reales, todos del
+2026-09-18: **quién paga a esta persona** (30 turnos contados a la ETT que eran de pago directo, ver
+`features/quien-paga-y-quien-da-el-alta.md`), **qué cuesta cancelar** (cuatro funciones, tres
+escaleras: la pantalla que avisa decía 0 puntos y la que ejecuta quitaba 3, ver
+`features/cancelar-un-turno-que-cuesta.md`) y **quién es Gold** (12 copias, y 15 personas salían Gold
+en una pantalla y no en otra).
 
-- **Quién paga a esta persona**: se resolvía desde el turno en un sitio y desde el centro de coste en
-  otro. 30 turnos de pago directo se le contaban al trabajador como si fueran de la ETT.
-  Ver `features/quien-paga-y-quien-da-el-alta.md`.
-- **Qué cuesta cancelar**: cuatro funciones, tres escaleras. La pantalla que avisa decía 0 puntos y la
-  que ejecuta quitaba 3. Ver `features/cancelar-un-turno-que-cuesta.md`.
-- **Quién es Gold**: 12 copias de la misma regla, pero unas comparaban la nota redondeada y otras la
-  cruda, así que **15 personas salían Gold en una pantalla y no en otra**. Ahora lo decide
-  `fn_is_gold`, que redondea por dentro: da igual cómo le pases la nota, las doce contestan lo mismo.
-
-- **Antes de escribir una comprobación, busca el helper.** Existen y casi nadie los usa.
+- **Antes de escribir una comprobación, busca el helper.** Existen y casi nadie los usa; la lista
+  está en la skill `shifty-base-de-datos` §1.
 - **A la tercera vez que escribas lo mismo, se extrae.**
 - **Añadir un parámetro no es crear una función nueva.** Se reemplaza; no se deja la vieja viva.
 - **Una acción, una función**, con la fuente como parámetro. El panel y la app no tienen funciones
-  distintas para lo mismo.
-- **Nada de `_v2` conviviendo con la vieja.**
+  distintas para lo mismo. **Nada de `_v2` conviviendo con la vieja.**
 - **Cada columna nueva nace con su comentario.** Hoy solo el 19,5 % lo tiene.
 
 Nombres: inglés, `snake_case`, tablas en plural, claves ajenas en singular + `_id`, booleanos con
-`is_`, fechas con `_at`, vistas con `v_`. **Excepción: las 66 tablas `crm_*` van en castellano.**
+`is_`, fechas con `_at`, vistas con `v_`. Dinero siempre `numeric`, nunca coma flotante; instantes
+siempre con zona horaria. **Excepción: las 66 tablas `crm_*` van en castellano.**
 
 **Stack, acotado a donde de verdad aplica** (`governance.md` §8 lo declara para todo y no puede ser):
 **TanStack Query** para leer datos de Supabase en Web-Panel, Client-App y las dos apps del
 sales-tool, que ya lo usan. No aplica a Worker-App (JavaScript, con sus propios contextos), a Website
 (Next.js, servidor) ni a Planning (no toca Supabase). **Shadcn/ui + Tailwind** solo en Web-Panel y
 Website: en React Native no existe.
+
+---
+
+## Seguridad mientras se construye, no después
+
+Los frentes abiertos de seguridad no se abrieron por descuido: se abrieron porque **la comprobación
+llegaba al final**, cuando ya había pantallas encima. Esto es lo que se mira **en el momento**, y es
+corto a propósito:
+
+- **Al crear una tabla:** RLS encendida y una política decidida, en la misma migración. Y las cuatro
+  preguntas de datos personales contestadas en la propuesta: qué dato lleva, quién tiene que verlo,
+  cuánto se guarda, qué pasa cuando la persona se da de baja.
+- **Al crear una función:** `search_path` fijado, `SECURITY DEFINER` solo si de verdad hace falta
+  saltarse la RLS, comprobación de quién llama si recibe un identificador, y permiso retirado a quien
+  no deba llamarla.
+- **Al enseñar un dato que no es de quien mira:** no se le da la tabla, se le da una vista con las
+  columnas que le tocan. Los permisos son por fila, no por columna: dejar ver a una persona es dejar
+  ver su fila entera, con el IBAN dentro.
+- **Al mandar algo a un tercero** (un correo, un CRM, un modelo de lenguaje): se para y se pregunta
+  qué contrato hay con ellos. Mandar datos de una persona a un proveedor nuevo es una cesión.
+- **Al terminar:** `shared/auditar-seguridad.sql`. Siete consultas de solo lectura, y la primera es
+  la que importa: quién puede llamar a lo que acabas de crear sin haber iniciado sesión.
+
+⚠️ **Y lo que sale de ahí se lee antes de darlo por roto.** El 2026-09-18 el primer barrido marcó 39
+funciones abiertas; al leerlas, la mayoría comprobaban por dentro con un helper que el patrón no
+conocía. Medir, leer, y solo entonces decidir.
+
+La plantilla que trae todo esto puesto es `shared/_plantilla-migracion.sql`. El detalle, y el RGPD
+aplicado a lo que construimos, en la skill `shifty-seguridad`.
 
 ---
 
@@ -269,6 +315,8 @@ Si alguno molesta, se afina; no se desactiva. Viven en `Docs/hooks/`, con su exp
 | Escribir copy, un post, un correo, una landing o una propuesta | skill **`shifty-marca-y-copy`** |
 | Añadir, mover o borrar una regla, o crear una skill | skill **`shifty-mantener-las-reglas`** |
 | **Escribir o modificar código en cualquiera de las apps** | skill **`shifty-codigo-limpio`** |
+| **Crear una tabla o una función** | `shared/_plantilla-migracion.sql`, que ya trae RLS, índices, comentarios y permisos |
+| **Comprobar que no has abierto un agujero** | `shared/auditar-seguridad.sql`, y la skill **`shifty-seguridad`** |
 | **Saber qué se está duplicando o desordenando** | skill **`auditar-orden`** |
 | **Empezar un tema, o cerrarlo** | skills **`rama`** y **`subir`** |
 | **Apuntar una corrección para que no vuelva a pasar** | skill **`aprender`** |
@@ -287,22 +335,22 @@ y dentro del propio repo `Docs`, es `docs/`. El contenido es el mismo.
 
 ## Documentación: `Docs/` manda
 
-`Docs/` es el contrato compartido entre las 4 apps. **Cualquier cambio que toque a más de una app se
+`Docs/` es el contrato compartido entre las apps. **Cualquier cambio que toque a más de una se
 documenta ahí primero**, se deja propagar, y solo después se implementa.
 
 - **`agent_docs/` y `.claude/skills/` de los repos son COPIAS de solo lectura.** Editarlas no sirve:
-  la siguiente sincronización las borra. Todo cambio va en `Docs/`.
-- **El sync llega a los 6 repositorios**, incluidos Sales, el sales-tool y Planning-Tool. Los cuatro
-  de producto reciben además los ~324 documentos en `agent_docs/`; los otros dos solo las reglas y
-  las skills, que es lo que usan.
-- **La cabecera de este `CLAUDE.md` y el cargador `AGENTS.md` se generan solos.** Editarlos en el repo
-  destino no sirve: lo común se escribe en `Docs/docs/shared/REGLAS-COMUNES.md` y lo propio de cada
-  proyecto en `Docs/repos/<proyecto>.md`. `AGENTS.md` manda a Codex a leer ese mismo `CLAUDE.md` sin
-  duplicar ni truncar las reglas.
+  la siguiente sincronización las borra. Ya costó un documento entero. Todo cambio va en `Docs/`, y
+  lo mismo vale para `CLAUDE.md` y `AGENTS.md`, que se generan solos desde
+  `Docs/docs/shared/REGLAS-COMUNES.md` y `Docs/repos/<proyecto>.md`.
+- **Si tocas una skill, pásale `Docs/scripts/comprobar-skills.sh` antes de subir.** Si falla el
+  validador, **no se actualiza ninguno de los seis repos** y el push sale en verde igual.
 - **El `SYNC_TOKEN` caduca y falla en silencio.** Tras tocar documentación importante:
   `gh run list --repo cpucci1/Docs --limit 5`.
 - **Los volcados de esquema se regeneran desde Supabase, no se editan a mano**, y llevan fecha: si
   está lejos, no reflejan producción.
+
+El resto del mecanismo (qué recibe cada repo, cómo se monta, qué hacer si el sync falla) está en el
+`CLAUDE.md` del repo `Docs` y en la skill `shifty-mantener-las-reglas`.
 
 ---
 

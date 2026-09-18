@@ -73,15 +73,18 @@ Pasar también `plpgsql_check`. Cero filas en las dos.
 
 ## Pasada 2 — El orden del esquema
 
-Ejecutar `scripts/auditar-orden.sql` contra producción. Son todo `SELECT`: no escribe nada. Cada
+Ejecutar `shared/auditar-orden.sql` contra producción. Son todo `SELECT`: no escribe nada. Cada
 consulta debe devolver cero filas, y hoy ninguna lo hace. **El objetivo no es llegar a cero este
 mes**, es que la cifra baje y no suba.
 
 Agrupar los resultados por gravedad, no por consulta:
 
-- **Rompe la seguridad, hoy:** tablas sin RLS, tablas con RLS y sin ninguna política, funciones
-  `SECURITY DEFINER` sin `search_path` fijado, funciones que reciben un identificador de empresa o
-  de trabajador por parámetro y no comprueban que quien llama tiene derecho a él.
+- **Rompe la seguridad, hoy:** esto no se mira aquí, se mira con `shared/auditar-seguridad.sql`,
+  que son siete consultas hechas para esto: quién puede llamar a cada función sin haber iniciado
+  sesión, vistas que enseñan con los permisos de quien las creó, funciones sin `search_path`, tablas
+  sin RLS, y qué datos de personas lee la clave anónima. **No dupliques ese trabajo aquí**: pásalo y
+  trae el resultado. ⚠️ Y léelo antes de darlo por roto: el primer barrido marcó 39 funciones
+  abiertas y al leerlas la mayoría comprobaban por dentro.
 - **Rompe los datos, esta semana:** dinero en coma flotante, fechas sin zona horaria, claves ajenas
   sin índice.
 - **Rompe el entendimiento, poco a poco:** columnas y tablas sin comentario (solo el 19,5 % lo
