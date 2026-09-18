@@ -110,26 +110,24 @@ export function MapeoColumnas({
                       )}
                     </div>
 
+                    {/* Un solo ejemplo y no tres: los tres decían lo mismo (el
+                        formato de la columna, que es lo único que hay que
+                        reconocer) y llenaban la fila de cajas. */}
                     {c.ejemplos.length > 0 && (
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                         <span className="text-[0.68rem] font-bold tracking-wide text-content-muted uppercase">
-                          Así viene
+                          Ejemplo
                         </span>
-                        {c.ejemplos.map((ej, i) => (
-                          <span
-                            key={i}
-                            className="rounded-md border border-border-soft bg-surface-elevated px-1.5 py-0.5 font-mono text-[0.75rem] text-content-secondary"
-                          >
-                            {ej}
-                          </span>
-                        ))}
+                        <span className="rounded-md border border-border-soft bg-surface-elevated px-1.5 py-0.5 font-mono text-[0.75rem] text-content-secondary">
+                          {c.ejemplos[0]}
+                        </span>
                       </div>
                     )}
 
                     {dudosa && (
                       <p className="mt-1.5 text-[0.78rem] leading-snug font-semibold text-warning">
-                        No estamos seguros de esta columna: mira los ejemplos de arriba y, si no es
-                        lo que dice el desplegable, corrígelo.
+                        No estamos seguros de esta columna: mira el ejemplo de arriba y, si no es lo
+                        que dice el desplegable, corrígelo.
                       </p>
                     )}
                   </div>
