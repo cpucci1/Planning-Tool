@@ -1,0 +1,28 @@
+# Comprobaciones automaticas en cada propuesta de cambio.
+#
+# POR QUE EXISTE: este repositorio ya tenia las pruebas escritas y no las ejecutaba nadie, asi que
+# un cambio que rompiera algo se mergeaba sin que saltara nada. Medido el 2026-09-19: las pruebas
+# pasaban en verde y no las corria ningun sitio.
+#
+# QUE BLOQUEA Y QUE NO: bloquea lo que hoy esta en verde, para que siga estandolo. El linter va
+# aparte y NO bloquea, porque hoy tiene deuda acumulada; asi se ve sin frenar el trabajo. Cuando
+# esa deuda se limpie, se pasa al trabajo que bloquea.
+
+name: Comprobaciones
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  compila:
+    name: Compila
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm ci
+      - name: Compila
+        run: npm run build
