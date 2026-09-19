@@ -220,6 +220,10 @@ en una pantalla y no en otra).
 - **Una acción, una función**, con la fuente como parámetro. El panel y la app no tienen funciones
   distintas para lo mismo. **Nada de `_v2` conviviendo con la vieja.**
 - **Cada columna nueva nace con su comentario.** Hoy solo el 19,5 % lo tiene.
+- **Si te cruzas con una copia mientras haces otra cosa, no la arregles a la brava: anótala.**
+  Cambiar una de las 158 copias de la detección del actor y no las otras es exactamente cómo el
+  sistema empieza a contestar cosas distintas. Se apunta en `shared/PENDIENTE.md` y se unifican
+  juntas, con la skill `auditar-orden`.
 
 Nombres: inglés, `snake_case`, tablas en plural, claves ajenas en singular + `_id`, booleanos con
 `is_`, fechas con `_at`, vistas con `v_`. Dinero siempre `numeric`, nunca coma flotante; instantes
@@ -260,6 +264,27 @@ conocía. Medir, leer, y solo entonces decidir.
 La plantilla que trae todo esto puesto es `shared/_plantilla-migracion.sql`. El detalle, y el RGPD
 aplicado a lo que construimos, en la skill `shifty-seguridad`.
 
+### Lo que te encuentras de paso no se deja pasar
+
+Trabajando en una cosa se ve otra. **Eso no se calla, y no se queda solo en la conversación**: lo que
+solo vive en un chat se pierde en cuanto se cierra. Tres respuestas según lo que sea, y solo tres:
+
+1. **Si se está escapando algo AHORA** —un dato de una persona que ve quien no debe, algo que mueve
+   dinero y lo puede llamar cualquiera, una puerta abierta a producción— **se para y se dice en ese
+   mensaje**, antes de seguir con lo que estabas haciendo. No se termina la tarea primero.
+2. **Si es barato y no cambia el alcance** —un permiso que sobra, un `search_path` sin fijar, una
+   columna sin comentario en la tabla que ya estás tocando— **se arregla en el momento y se cuenta**
+   en el mismo mensaje. No se pide permiso para cerrar una puerta que no debía estar abierta.
+3. **Si es caro, o cambia el alcance, o toca decidir** —una tabla entera mal protegida, un flujo que
+   habría que rehacer— **se apunta y se sigue**. La ficha va a `shared/PENDIENTE.md` diciendo qué
+   pasa, a quién afecta y qué costaría; y si es un dato de una persona, además a
+   `security/PRIVACIDAD-DATOS-PERSONALES.md`, que es donde está la lista ordenada.
+
+⚠️ **Y antes de nada, comprueba si de verdad pasa.** Casi siempre hay más de un camino y lo roto es
+uno de ellos. Mira si el resultado existe en los datos, busca los otros caminos y delimita a cuánta
+gente afecta. Marcar como agujero algo que no lo es quema la credibilidad de la siguiente alarma, y
+la siguiente puede ser de verdad.
+
 ---
 
 ## Flujo de trabajo
@@ -296,6 +321,10 @@ la última red.**
   antes de cualquier escritura o cambio de esquema** en producción. Los `SELECT` pasan sin molestar.
 - **El detector de correcciones** obliga a apuntar el aprendizaje en el momento en que Crescente
   corrige, con la skill `aprender`.
+- **El candado de commit** mira lo que va a entrar y frena lo que no tiene ninguna lectura buena: un
+  fichero de entorno, una clave de servicio, un nombre de fichero temporal. Y pregunta por lo que
+  huele mal pero puede tener explicación: una ficha sin estado, una regla ya centralizada escrita
+  otra vez a mano. La clave anónima sí puede ir en el código, y la distingue.
 
 Si alguno molesta, se afina; no se desactiva. Viven en `Docs/hooks/`, con su explicación.
 
@@ -324,6 +353,7 @@ Si alguno molesta, se afina; no se desactiva. Viven en `Docs/hooks/`, con su exp
 | Cualquier cosa que afecte a más de una app | `shared/SOURCE_OF_TRUTH.md` **primero** |
 | Crear una RPC | `shared/rpc-functions.md`, para no duplicar una que ya existe |
 | Entender una feature | su fichero en `features/` |
+| **Saber por qué algo se hizo así, o dejar constancia de una decisión cara de deshacer** | `decisiones/`, y su plantilla |
 | Resolver una incidencia | `incidencias-tecnico/`, y dejar ficha al cerrarla |
 | Saber qué está pendiente de arreglar y de decidir | `shared/PENDIENTE.md` |
 
