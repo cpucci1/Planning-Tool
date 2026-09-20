@@ -236,7 +236,7 @@ export function YearChart({
           viewBox={`0 0 ${width} ${height}`}
           preserveAspectRatio="xMidYMid meet"
           role="group"
-          aria-label={`Comensales por semana del año. ${covered} de ${weeks.length} semanas quedan por debajo del umbral de ${nf.format(threshold)} comensales.`}
+          aria-label={`Comensales por semana del histórico. ${covered} de ${weeks.length} semanas quedan por debajo del límite de ${nf.format(threshold)} comensales.`}
           className="block touch-pan-y overflow-visible"
           onPointerLeave={() => setHover(null)}
         >
@@ -564,7 +564,14 @@ export function YearChart({
           semanas
         </span>
         <span className="text-content-muted">·</span>
-        {peaks > 0 ? (
+        {peaks === 1 ? (
+          <>
+            <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-pill bg-warning" aria-hidden="true" />
+            <span>
+              la otra <strong className="font-extrabold text-warning">{peaks}</strong> es un pico
+            </span>
+          </>
+        ) : peaks > 1 ? (
           <>
             <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-pill bg-warning" aria-hidden="true" />
             <span>
@@ -575,12 +582,12 @@ export function YearChart({
           <span>ni una sola semana se te sale</span>
         )}
         <span className="text-content-muted">·</span>
-        <span className="font-semibold">{Math.round(coveragePct)}% del año</span>
+        <span className="font-semibold">{Math.round(coveragePct)}% del histórico</span>
       </div>
       <p className="mt-1 text-[0.78rem] leading-relaxed font-medium text-content-muted">
         {peaks > 0
-          ? `Contratas hasta ${nf.format(threshold)} comensales por semana. Los ${nf.format(Math.round(excessCovers))} comensales que se salen al año son los que cubres con extras.`
-          : `Contratas para la peor semana del año. Sobra plantilla el resto del tiempo: baja la línea y mira qué pasa.`}
+          ? `Tu plantilla fija llega hasta ${nf.format(threshold)} comensales por semana. Los ${nf.format(Math.round(excessCovers))} comensales que quedan por encima en el histórico se cubren con refuerzos.`
+          : `Tu plantilla fija está dimensionada para la semana más exigente. Baja la línea para ver cuántos refuerzos necesitarías.`}
       </p>
     </div>
   )

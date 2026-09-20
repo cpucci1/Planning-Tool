@@ -102,7 +102,7 @@ export function buildPlanCsv(input: ExportInput): string {
   add('Semanas cubiertas', `${input.weeksCovered} de ${input.totalWeeks}`)
   add('Margen de seguridad', `${input.settings.safetyMarginPct}%`)
   add('Modo de dimensionado', input.settings.sizingMode)
-  add('Desgaste del dato', `${input.settings.lagMinutes} min`)
+  add('Adelanto respecto al cobro', `${input.settings.lagMinutes} min`)
   add('Turno más largo', `${input.settings.maxShiftMinutes / 60} h`)
   add('Turno más corto', `${input.settings.minShiftMinutes / 60} h`)
   add('Jornada partida', input.settings.allowSplitShifts ? 'sí' : 'no')

@@ -63,7 +63,7 @@ const SELLING_POINTS: { icon: ReactNode; title: string; text: string }[] = [
   },
   {
     icon: <Laptop size={17} strokeWidth={2.4} />,
-    title: 'Tus datos no salen de aquí',
+    title: 'Tu fichero no sale de aquí',
     text: 'El fichero se lee en tu navegador. No se sube a ningún servidor.',
   },
 ]
@@ -72,11 +72,11 @@ const HOW_IT_WORKS: { icon: ReactNode; title: string; text: string }[] = [
   {
     icon: <FileSpreadsheet size={18} strokeWidth={2.2} />,
     title: 'Nos das tu histórico de comensales',
-    text: 'Lo que saque tu TPV, tal cual. De ahí sacamos cuánta gente entró por tu puerta cada media hora, día a día, durante un año entero.',
+    text: 'Lo que saque tu TPV, tal cual. De ahí leemos cuántos comensales tuviste en cada franja durante el periodo que hayas exportado.',
   },
   {
     icon: <CalendarRange size={18} strokeWidth={2.2} />,
-    title: 'Te enseñamos tu año y tu semana',
+    title: 'Te enseñamos tu histórico y tu semana',
     text: 'Tu horario, tus semanas raras (Semana Santa, agosto, la fiesta del barrio) y hasta dónde quieres llegar con plantilla fija. Corriges lo que no cuadre: tú conoces tu casa mejor que ningún fichero.',
   },
   {
@@ -87,7 +87,7 @@ const HOW_IT_WORKS: { icon: ReactNode; title: string; text: string }[] = [
   {
     icon: <Users size={18} strokeWidth={2.2} />,
     title: 'Te devolvemos la plantilla y el cuadrante',
-    text: 'Cuántas personas, con qué contratos y en qué turnos. Y, aparte, las horas del año que son pico puro: esas no compensa contratarlas, se cubren con extras.',
+    text: 'Cuántas personas, con qué contratos y en qué turnos. También verás qué horas conviene cubrir con refuerzos puntuales.',
   },
 ]
 
@@ -349,7 +349,7 @@ export function StepImport() {
         </h1>
 
         <p className="mx-auto mt-5 max-w-xl text-[1.02rem] leading-relaxed text-content-body sm:text-[1.08rem]">
-          Súbenos el histórico de comensales de tu TPV y te decimos la plantilla que pide tu
+          Carga el histórico de comensales de tu TPV y te decimos la plantilla que pide tu
           demanda real: cuántas personas, con qué contratos y en qué turnos. Gratis y sin
           registrarte.
         </p>
@@ -459,8 +459,8 @@ export function StepImport() {
                 id={`${inputId}-hint`}
                 className="mt-5 block max-w-sm text-[0.8rem] leading-relaxed text-content-muted"
               >
-                Da igual el formato: el export de tu TPV, un Excel, un CSV, un PDF de listados.
-                Ya nos apañamos nosotros con las columnas.
+                Puedes usar el Excel o CSV que exporta tu TPV. No hace falta ordenar las columnas
+                antes.
               </span>
             </label>
 
@@ -628,8 +628,8 @@ export function StepImport() {
 
         <div className="mt-6">
           <Note tone="neutral" icon={<Laptop size={16} />}>
-            No hay servidor detrás. El cálculo entero ocurre en esta pestaña, así que si la
-            cierras se pierde: descárgate el resultado al terminar.
+            El fichero se lee solo en este navegador. El plan calculado se guarda para que puedas
+            retomarlo y compartirlo.
           </Note>
         </div>
       </Modal>
@@ -638,8 +638,8 @@ export function StepImport() {
       <footer className="mt-16 border-t border-border-soft pt-8 text-center">
         <img src="/shifty-logo.svg" alt="Shifty" className="mx-auto h-6 w-auto" />
         <p className="mx-auto mt-3 max-w-md text-[0.82rem] leading-relaxed text-content-secondary">
-          Shifty es el marketplace de personal de hostelería: extras verificados en tu barra en
-          cuestión de horas, para tapar los picos sin engordar la plantilla todo el año.
+          Shifty ayuda a restaurantes, cadenas y hoteles a cubrir turnos con profesionales
+          verificados, sin sobredimensionar la plantilla fija.
         </p>
         <a
           href="https://shifty.es"
@@ -650,17 +650,6 @@ export function StepImport() {
           shifty.es
           <ArrowRight size={14} />
         </a>
-        <p className="mx-auto mt-6 max-w-md text-[0.78rem] leading-relaxed text-content-tertiary">
-          Hecho con la colaboración de{' '}
-          <a
-            href="https://www.linkedin.com/in/fernando-del-valle-herrera-a0250917/"
-            target="_blank"
-            rel="noreferrer"
-            className="font-bold text-content-secondary underline decoration-border-soft underline-offset-2 transition-colors hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-          >
-            Fernando del Valle Herrera
-          </a>
-        </p>
       </footer>
     </div>
   )

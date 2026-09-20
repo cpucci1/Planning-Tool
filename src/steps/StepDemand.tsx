@@ -126,7 +126,7 @@ const AVISOS_QUE_PESAN = new Set<string>([
 
 const DEMAND_SUBSTEPS: { id: string; label: string }[] = [
   { id: 'lectura', label: 'Lectura' },
-  { id: 'ano', label: 'Tu año' },
+  { id: 'ano', label: 'Tu histórico' },
   { id: 'horario', label: 'Horario' },
   { id: 'especiales', label: 'Semanas raras' },
   { id: 'semana', label: 'Semana tipo' },
@@ -508,13 +508,13 @@ export function StepDemand() {
       {sub === 1 && (
       <Card>
         <CardHeader
-          eyebrow="Tu año"
+          eyebrow="Tu histórico"
           title={
             <>
-              Tu año, <span className="text-brand italic">de un vistazo.</span>
+              Tu histórico, <span className="text-brand italic">de un vistazo.</span>
             </>
           }
-          subtitle="Cada barra es una semana, en orden de calendario. Se ve el verano, se ve diciembre y se ven los picos."
+          subtitle="Cada barra es una semana. Mueve la línea para decidir qué semanas cubrirá tu plantilla fija."
           info={
             <InfoTip title="De dónde sale este gráfico">
               Es la suma de comensales de cada semana del fichero, sin tocar nada. Las semanas
@@ -553,8 +553,8 @@ export function StepDemand() {
             height={260}
           />
           <p className="mt-3 text-[0.82rem] leading-relaxed text-content-secondary">
-            Aquí solo te sitúas: dónde la dejas del todo se decide al final, cuando ya se vea lo
-            que cuesta cada centímetro.
+            Puedes ajustar la línea ahora y volver a cambiarla al final, cuando veas el coste de la
+            plantilla.
           </p>
 
           {over && (
@@ -562,12 +562,10 @@ export function StepDemand() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 text-[0.75rem] font-bold tracking-wide text-content-secondary uppercase">
-                    Sobrecobertura
-                    <InfoTip title="Qué es la sobrecobertura">
-                      La plantilla se dimensiona para la línea, así que en una semana floja sobra
-                      gente. Esto mide cuánto: de media, cuánto queda tu plantilla por encima de lo
-                      que pide cada semana que sí cubre. Subir la línea cubre más semanas y sube
-                      esto; bajarla, al revés.
+                    Holgura en semanas flojas
+                    <InfoTip title="Qué significa esta holgura">
+                      La plantilla fija se calcula para llegar hasta la línea. En las semanas más
+                      flojas necesitarás menos gente; este porcentaje mide esa diferencia media.
                     </InfoTip>
                   </div>
                   <p className="mt-1.5 text-[0.85rem] leading-relaxed text-content-secondary">
@@ -618,7 +616,7 @@ export function StepDemand() {
             <div className="mt-5 grid grid-cols-2 gap-5 border-t border-border-soft pt-5 sm:grid-cols-3">
               <Stat
                 value={nf.format(yearStats.total)}
-                label="Comensales al año"
+                label="Comensales del histórico"
                 hint={`${yearStats.count} semanas de histórico`}
                 tone="brand"
               />
@@ -706,13 +704,13 @@ export function StepDemand() {
                 Quién tiene que estar, <span className="text-brand italic">aunque la sala esté vacía.</span>
               </>
             }
-            subtitle="No lo decide la curva de comensales: pon cuántas personas no pueden faltar en cada área durante todo su horario, porque alguien tiene que abrir, atender una mesa suelta o recoger. Justo debajo alargas esa misma ventana antes de abrir y después de cerrar: es la continuación de este número, no otro aparte."
+            subtitle="Indica cuántas personas deben estar siempre en cada zona, incluso con la sala vacía."
             info={
               <InfoTip title="Cómo se cubre">
                 El primer puesto de cada área (quien la abre) asume este mínimo, para que el
-                cuadrante se lo asigne a una persona en concreto. Si la curva de comensales ya pide
+                cuadrante se lo asigne a una persona en concreto. Si la previsión de comensales ya pide
                 más gente que el mínimo en una franja, este número no suma nada extra: solo entra
-                donde la curva pide menos.
+                donde la previsión necesita menos personal.
               </InfoTip>
             }
           />
@@ -754,8 +752,7 @@ export function StepDemand() {
           <div className="border-t border-border-soft px-4 pt-5 sm:px-6">
             <h4 className="h4">Antes de abrir y después de cerrar</h4>
             <p className="mt-1 text-[0.82rem] leading-relaxed text-content-secondary">
-              Es el mismo mínimo de arriba, solo que más ancho: cuánto antes entra esa misma
-              gente para la mise en place y cuánto se queda después para recoger y cerrar caja.
+              Añade el tiempo que ese equipo necesita antes de abrir y después de cerrar.
             </p>
           </div>
           <div className="grid gap-4 px-4 pt-4 pb-5 sm:grid-cols-2 sm:px-6">
@@ -825,13 +822,13 @@ export function StepDemand() {
           eyebrow="Semanas especiales"
           title={
             <>
-              Las semanas que <span className="text-brand italic">se salen de la norma.</span>
+              Las semanas que <span className="text-brand italic">no se parecen a una normal.</span>
             </>
           }
           subtitle={
             p.specials.length > 0
-              ? `He encontrado ${p.specials.length} ${p.specials.length === 1 ? 'semana rara' : 'semanas raras'} comparando cada semana con la mediana del año. Dime si acerté.`
-              : 'Comparo cada semana con la mediana del año para encontrar las que se disparan o se hunden.'
+              ? `He encontrado ${p.specials.length} ${p.specials.length === 1 ? 'semana que se aleja' : 'semanas que se alejan'} bastante de una semana normal. Revísalas antes de seguir.`
+              : 'Busco semanas que se alejen bastante de una semana normal para que puedas revisarlas.'
           }
           info={
             <InfoTip title="Por qué importa esto">
@@ -846,7 +843,7 @@ export function StepDemand() {
           {p.specials.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border bg-surface px-4 py-8 text-center">
               <p className="text-[0.9rem] font-bold text-content-primary">
-                Tu año es de los tranquilos.
+                No hay semanas que necesiten una revisión especial.
               </p>
               <p className="mx-auto mt-1 max-w-md text-[0.85rem] leading-relaxed text-content-secondary">
                 Ninguna semana se sale lo suficiente de la norma como para tratarla aparte. No hay
@@ -1094,9 +1091,9 @@ export function StepDemand() {
               {remainingWeeks < 8 && (
                 <div className="mt-3">
                   <Note tone="warning" icon={<TriangleAlert size={15} />}>
-                    Has excluido tantas semanas que no queda histórico suficiente para calcular una
-                    semana tipo fiable. Mientras queden menos de 8, sigo calculando con el año
-                    entero.
+                    Hay menos de 8 semanas útiles, así que todavía no hay suficiente histórico
+                    para calcular una semana tipo fiable. Mientras tanto, uso todas las semanas
+                    cargadas.
                   </Note>
                 </div>
               )}
@@ -1146,10 +1143,12 @@ export function StepDemand() {
           <div className="mb-5 max-w-[78ch]">
             <Note tone="brand" icon={<Sparkles size={15} strokeWidth={2.3} />}>
               La semana tipo recoge la actividad del{' '}
-              <strong>{p.settings.coveragePct}% de las semanas del año</strong>: es con la que se
-              planifica tu <strong>plantilla estable</strong>. Las{' '}
-              {Math.max(0, p.weeks.length - (p.coverage?.weeksCovered ?? 0))} semanas que se salen
-              piden gente puntual, y eso se cubre con extras en vez de contratando de más.
+              <strong>{p.settings.coveragePct}% de las semanas del histórico</strong>: es con la que se
+              planifica tu <strong>plantilla estable</strong>.{' '}
+              {Math.max(0, p.weeks.length - (p.coverage?.weeksCovered ?? 0)) === 1
+                ? 'La semana que queda fuera pide'
+                : `Las ${Math.max(0, p.weeks.length - (p.coverage?.weeksCovered ?? 0))} semanas que quedan fuera piden`}{' '}
+              gente puntual, y eso se cubre con refuerzos en vez de contratando de más.
             </Note>
           </div>
 

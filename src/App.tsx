@@ -8,7 +8,7 @@
  * cambio sin tener que llegar al final.
  */
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Users } from 'lucide-react'
 import { PlannerContext, STEPS, usePlannerState, type StepId } from '@/hooks/usePlanner'
 import { StepImport } from '@/steps/StepImport'
@@ -106,6 +106,40 @@ function LiveResult({ people, hours }: { people: number; hours: number }) {
   )
 }
 
+function FernandoCredit() {
+  const [photoAvailable, setPhotoAvailable] = useState(true)
+
+  return (
+    <div className="mt-12 flex items-center justify-center gap-2 border-t border-border-soft pt-6 text-[0.76rem] leading-relaxed text-content-tertiary">
+      {photoAvailable ? (
+        <img
+          src="/fernando-del-valle.jpg"
+          alt="Fernando del Valle Herrera"
+          width={30}
+          height={30}
+          onError={() => setPhotoAvailable(false)}
+          className="h-[30px] w-[30px] shrink-0 rounded-pill object-cover"
+        />
+      ) : (
+        <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-pill bg-brand-light text-[0.65rem] font-black text-brand">
+          FV
+        </span>
+      )}
+      <span>
+        Hecho con la colaboración de{' '}
+        <a
+          href="https://www.linkedin.com/in/fernando-del-valle-herrera-a0250917/"
+          target="_blank"
+          rel="noreferrer"
+          className="font-bold text-content-secondary underline decoration-border-soft underline-offset-2 transition-colors hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        >
+          Fernando del Valle Herrera
+        </a>
+      </span>
+    </div>
+  )
+}
+
 function Inner() {
   const p = usePlannerState()
   const index = STEPS.findIndex((s) => s.id === p.step)
@@ -171,6 +205,7 @@ function Inner() {
 
         <main key={p.step} className="animate-fade-in mx-auto max-w-[1680px] px-4 pt-4 pb-24 sm:px-6">
           {view}
+          <FernandoCredit />
         </main>
 
         {/* En móvil el resultado vivo va abajo, donde no tapa nada. */}
@@ -181,7 +216,7 @@ function Inner() {
               <span className="text-right text-[0.7rem] leading-tight font-semibold text-content-muted">
                 Cubres {p.coverage?.weeksCovered ?? 0} de {p.weeks.length}
                 <br />
-                semanas del año
+                semanas del histórico
               </span>
             </div>
           </div>
