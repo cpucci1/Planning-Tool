@@ -78,3 +78,32 @@ corrección de estilo.
    que salir sin errores.
 5. Deja todo commiteado en esa rama (commits pequeños y con mensaje claro) y **no hagas merge ni
    push a `main` por tu cuenta**. Crescente lo revisa y decide si se sube.
+
+## Tarea aparte: el crédito a Fernando del Valle Herrera
+
+Fernando del Valle Herrera colaboró en el diseño de esta herramienta y hoy se le menciona solo una
+vez, como texto suelto al final de la primera pantalla (el pie de `src/steps/StepImport.tsx`,
+justo antes de `</footer>`, con su enlace a LinkedIn). Crescente quiere que aparezca **al final de
+cada pantalla**, pequeño, con su foto al lado.
+
+Hazlo en un solo sitio, no en cada paso: las cuatro pantallas (`StepImport`, `StepDemand`,
+`StepTeam`, `StepResult`) se renderizan todas dentro del mismo `<main>` en `src/App.tsx`, justo
+donde está `{view}` (línea 173). Añade el bloque de crédito ahí, justo después de `{view}` y
+dentro del propio `<main>` — así hereda el `pb-24` que ya reserva hueco para la barra fija de
+móvil, y no hace falta tocarlo. Después quita el bloque duplicado que hoy vive en el pie de
+`StepImport.tsx`, para que en esa pantalla no salga dos veces.
+
+Que sea discreto: una línea pequeña tipo "Hecho con la colaboración de", el nombre con enlace a su
+LinkedIn (`https://www.linkedin.com/in/fernando-del-valle-herrera-a0250917/`), y al lado un avatar
+circular pequeño (28-32px).
+
+**Sobre la foto: todavía no existe el fichero.** Crescente la va a pegar él mismo más tarde.
+Déjalo preparado así, para que no se rompa mientras tanto:
+
+- Referencia la imagen en `public/fernando-del-valle.jpg` (esa ruta exacta, para que cuando él
+  suba el fichero con ese nombre funcione sin tocar más código).
+- Como ese fichero no existe todavía, el `<img>` tiene que tener un `onError` que oculte la imagen
+  y muestre en su lugar un círculo con las iniciales "FV" sobre un fondo suave del design system
+  (`bg-brand-light`, texto `text-brand`), del mismo tamaño. **Nunca dejes un icono de imagen rota
+  a la vista**: ya pasó una vez en este mismo proyecto con otra imagen (`shifty-turno.webp`) y es
+  justo lo que hay que evitar.
