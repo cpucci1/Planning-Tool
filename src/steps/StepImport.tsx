@@ -87,7 +87,7 @@ const HOW_IT_WORKS: { icon: ReactNode; title: string; text: string }[] = [
   {
     icon: <Users size={18} strokeWidth={2.2} />,
     title: 'Te devolvemos la plantilla y el cuadrante',
-    text: 'Cuántas personas, con qué contratos y en qué turnos. También verás qué horas conviene cubrir con refuerzos puntuales.',
+    text: 'Cuántas personas, con qué contratos y en qué turnos. También verás qué horas conviene cubrir con refuerzos puntuales y cómo resolverlas con Shifty.',
   },
 ]
 

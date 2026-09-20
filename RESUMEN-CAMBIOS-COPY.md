@@ -133,6 +133,9 @@ La pantalla actual explica el proceso, pero no responde con fuerza a las dos alt
 - **Actual:** si falla el guardado, «Nada de esto se guarda en ningún servidor».
   **Problema:** contradice el guardado del plan y mezcla el fichero original con el resultado.
   **Propuesta:** «Tu fichero sigue solo en este navegador. Si el guardado del plan falla, descarga una copia para no perder el trabajo.»
+- **Actual:** la última pantalla termina al descargar o compartir el plan.
+  **Problema:** quien detecta una baja o un pico después no tiene un siguiente paso visible.
+  **Propuesta:** recordar de forma breve que puede cubrir el turno concreto con Shifty, también si gestiona varios centros.
 - **Actual:** el crédito a Fernando del Valle Herrera solo aparece al final de la portada.
   **Problema:** no cumple el reconocimiento acordado en el resto de pantallas.
   **Propuesta:** moverlo a un único bloque compartido, al final de todas las pantallas, con avatar de 30 px. Mientras no exista la foto, se mostrará un círculo con «FV» y nunca un icono roto.

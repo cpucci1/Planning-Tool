@@ -1277,7 +1277,12 @@ export function StepResult() {
               </p>
 
               <div className="mt-6 flex flex-wrap gap-2">
-                {['Sin cuota mensual', 'Tú eliges quién va', 'Historial y favoritos'].map((item) => (
+                {[
+                  'Picos, bajas y vacaciones',
+                  'Sin cuota mensual',
+                  'Tú eliges quién va',
+                  'Historial y favoritos',
+                ].map((item) => (
                   <span
                     key={item}
                     className="rounded-pill border border-content-inverted/25 bg-content-inverted/10 px-3 py-1.5 text-[0.78rem] font-bold text-content-inverted"
@@ -1481,7 +1486,7 @@ export function StepResult() {
                 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-content-inverted',
               )}
             >
-              Solicitar más información
+              Quiero probar Shifty
               <ArrowUpRight size={17} strokeWidth={2.6} />
             </a>
             <a
@@ -1610,6 +1615,27 @@ export function StepResult() {
           </Button>
         </div>
       </Card>
+
+      <section className="rounded-card border border-brand/20 bg-brand-light p-5 sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-6">
+        <div>
+          <h3 className="text-[1.05rem] font-extrabold tracking-[-0.02em] text-content-primary">
+            El plan cubre lo previsible. Shifty cubre lo que cambia.
+          </h3>
+          <p className="mt-1.5 max-w-3xl text-[0.86rem] leading-relaxed text-content-body">
+            Si aparece una baja, una reserva grande o una semana punta en cualquiera de tus
+            centros, publica solo el turno que falta y elige entre profesionales verificados.
+          </p>
+        </div>
+        <a
+          href="https://shifty.es/contacto?utm_source=planificador&utm_medium=herramienta&utm_campaign=resultado"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-4 inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-pill bg-brand px-5 text-[0.88rem] font-bold text-content-inverted transition-transform duration-150 hover:scale-[1.02] active:scale-[.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:mt-0"
+        >
+          Cubrir un turno con Shifty
+          <ArrowUpRight size={16} strokeWidth={2.6} />
+        </a>
+      </section>
 
       <div className="flex justify-end border-t border-border-soft pt-6">
         <Button
