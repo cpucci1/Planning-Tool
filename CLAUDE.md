@@ -220,6 +220,11 @@ en una pantalla y no en otra).
 - **Una acción, una función**, con la fuente como parámetro. El panel y la app no tienen funciones
   distintas para lo mismo. **Nada de `_v2` conviviendo con la vieja.**
 - **Cada columna nueva nace con su comentario.** Hoy solo el 19,5 % lo tiene.
+- **Cada acción nueva de `activity_log` nace con su etiqueta en el historial**, si tiene algo que
+  ver con un anuncio. El historial solo enseña lo que está en una lista escrita a mano: lo que no
+  está no existe para quien mira, y no da ningún error. Son dos sitios, `shiftTimeline.ts` (con su
+  copia en la app) y la configuración del panel de actividad; están en
+  `features/historial-de-actividad.md`, con la consulta para comprobar que no falta ninguna.
 - **Si te cruzas con una copia mientras haces otra cosa, no la arregles a la brava: anótala.**
   Cambiar una de las 158 copias de la detección del actor y no las otras es exactamente cómo el
   sistema empieza a contestar cosas distintas. Se apunta en `shared/PENDIENTE.md` y se unifican
@@ -353,6 +358,7 @@ Si alguno molesta, se afina; no se desactiva. Viven en `Docs/hooks/`, con su exp
 | Cualquier cosa que afecte a más de una app | `shared/SOURCE_OF_TRUTH.md` **primero** |
 | Crear una RPC | `shared/rpc-functions.md`, para no duplicar una que ya existe |
 | Entender una feature | su fichero en `features/` |
+| **Crear un tipo nuevo de `activity_log`, o tocar lo que se ve en un historial** | `features/historial-de-actividad.md` |
 | **Saber por qué algo se hizo así, o dejar constancia de una decisión cara de deshacer** | `decisiones/`, y su plantilla |
 | Resolver una incidencia | `incidencias-tecnico/`, y dejar ficha al cerrarla |
 | Saber qué está pendiente de arreglar y de decidir | `shared/PENDIENTE.md` |
