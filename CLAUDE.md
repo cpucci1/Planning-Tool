@@ -358,6 +358,7 @@ Si alguno molesta, se afina; no se desactiva. Viven en `Docs/hooks/`, con su exp
 | Cualquier cosa que afecte a más de una app | `shared/SOURCE_OF_TRUTH.md` **primero** |
 | Crear una RPC | `shared/rpc-functions.md`, para no duplicar una que ya existe |
 | Entender una feature | su fichero en `features/` |
+| **Tocar quién ve un anuncio en la app de trabajadores** | `features/quien-ve-cada-anuncio.md`, y ojo: es UNA sola puerta que preguntan once funciones |
 | **Crear un tipo nuevo de `activity_log`, o tocar lo que se ve en un historial** | `features/historial-de-actividad.md` |
 | **Saber por qué algo se hizo así, o dejar constancia de una decisión cara de deshacer** | `decisiones/`, y su plantilla |
 | Resolver una incidencia | `incidencias-tecnico/`, y dejar ficha al cerrarla |
