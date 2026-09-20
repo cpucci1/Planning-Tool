@@ -1648,7 +1648,7 @@ export function construirDatasetConDiagnostico(
     advertencias.push({
       codigo: 'historico-corto',
       mensaje:
-        `Tu histórico son ${weeks.length} semanas, no un año entero. El cálculo se hace con lo que hay: ` +
+        `Tu histórico tiene ${weeks.length} semanas. El cálculo se hace con lo que hay: ` +
         'no se inventa lo que falta, pero cuantas más semanas le des, mejor sabrá cuál es tu semana normal.',
     })
   }

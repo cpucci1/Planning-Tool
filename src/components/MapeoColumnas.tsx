@@ -92,9 +92,10 @@ export function MapeoColumnas({
         }
         subtitle="Cada fila es una columna de tu fichero. Si algo no es lo que parece, cámbialo en el desplegable."
         info={
-          <InfoTip title="Qué es la confianza">
-            Cuánto de seguros estamos de haber adivinado bien esa columna. Por debajo del 85% te lo
-            señalamos: suele pasar cuando la cabecera es rara o dos columnas se parecen entre sí.
+          <InfoTip title="Por qué te pedimos revisar una columna">
+            Cuando el nombre de una columna es poco claro o se parece a otro, te la señalamos para
+            que confirmes qué contiene. Lo hacemos cuando la lectura queda por debajo del 85% de
+            seguridad.
           </InfoTip>
         }
       />
@@ -122,7 +123,7 @@ export function MapeoColumnas({
                           cifras que no piden nada: ruido con aspecto de dato. */}
                       {dudosa && (
                         <Badge tone="warning">
-                          {Math.round(c.confianza * 100)}%, échale un ojo
+                          {Math.round(c.confianza * 100)}% · Revísala
                         </Badge>
                       )}
                     </div>
@@ -250,8 +251,8 @@ export function MapeoColumnas({
 
               <p className="mt-3 flex items-start gap-1.5 text-[0.8rem] leading-relaxed font-semibold text-warning">
                 <TriangleAlert size={14} className="mt-0.5 shrink-0" />
-                A partir de aquí, toda cifra de comensales que veas es una estima calculada desde
-                tus tickets — no es un dato que traiga tu TPV.
+                A partir de aquí, los comensales son una estimación calculada desde tus tickets:
+                no es un dato que traiga tu TPV.
               </p>
             </>
           )}

@@ -286,9 +286,9 @@ export function StepResult() {
   /** Todo lo que ha entrado en el cálculo, para el modal de criterios (7.8). */
   const criteria: Criterion[] = [
     { label: 'Cobertura', value: `${settings.coveragePct}%`, step: 'result', where: 'La línea del gráfico de arriba' },
-    { label: 'Margen de seguridad', value: `${settings.safetyMarginPct}%`, step: 'demand', where: 'Demanda, pantalla de tu año' },
-    { label: 'Dimensionado', value: settings.sizingMode === 'calibrado' ? 'Calibrado' : 'Conservador', step: 'team', where: 'Equipo, ajustes avanzados' },
-    { label: 'Desgaste del dato', value: `${settings.lagMinutes} min`, step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: 'Margen de seguridad', value: `${settings.safetyMarginPct}%`, step: 'demand', where: 'Demanda, pantalla de tu histórico' },
+    { label: 'Dimensionado', value: settings.sizingMode === 'calibrado' ? 'Ajustado al histórico' : 'Con más margen', step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: 'Adelanto respecto al cobro', value: `${settings.lagMinutes} min`, step: 'team', where: 'Equipo, ajustes avanzados' },
     { label: 'Turno más largo', value: `${settings.maxShiftMinutes / 60} h`, step: 'team', where: 'Equipo, ajustes avanzados' },
     { label: 'Turno más corto', value: `${settings.minShiftMinutes / 60} h`, step: 'team', where: 'Equipo, ajustes avanzados' },
     { label: 'Jornada partida', value: settings.allowSplitShifts ? 'Sí' : 'No', step: 'team', where: 'Equipo, ajustes avanzados' },
@@ -468,7 +468,7 @@ export function StepResult() {
               <strong className="font-bold text-content-primary">
                 {coverage.weeksCovered} de {weeks.length} semanas
               </strong>{' '}
-              del año con gente tuya.{' '}
+              del histórico con gente tuya.{' '}
               {plural(peakWeekCount, 'En la otra', `En las otras ${peakWeekCount}`)} necesitarás
               más gente, y para eso están los extras.
             </>
@@ -476,10 +476,10 @@ export function StepResult() {
             <>
               Con esta plantilla cubres{' '}
               <strong className="font-bold text-content-primary">
-                las {weeks.length} semanas
+                las {weeks.length} semanas del histórico
               </strong>{' '}
-              del año sin pedir ayuda. Eso también quiere decir que estás pagando el peor mes los
-              doce meses.
+              sin pedir ayuda. Eso también quiere decir que has dimensionado la plantilla para la
+              semana más exigente.
             </>
           )}
         </p>
@@ -504,7 +504,7 @@ export function StepResult() {
             Lo que tendrías que <span className="text-brand italic">contratar.</span>
           </>
         }
-        subtitle="Cada puesto con su desglose de jornada. Es la lista con la que se ficha."
+        subtitle="Cada puesto con su desglose de jornada. Es la lista que necesitas para contratar."
       />
 
       {/* Y la misma partida por bloque: quien contrata sala no contrata
@@ -562,7 +562,7 @@ export function StepResult() {
           eyebrow="Tu semana tipo"
           title={
             <>
-              Tu semana tipo, <span className="text-brand italic">contra el año entero.</span>
+              Tu semana tipo, <span className="text-brand italic">frente al histórico.</span>
             </>
           }
           subtitle="Arrastra la línea. Lo que queda por debajo lo cubre tu plantilla fija; lo que asoma por encima son picos. Todo lo demás de esta pantalla se recalcula solo."
@@ -597,25 +597,24 @@ export function StepResult() {
 
             <Note tone="neutral">
               <span className="flex items-center gap-1.5 font-bold text-content-primary">
-                Qué estás priorizando
-                <InfoTip title="De dónde sale este equilibrio">
-                  Elegir un percentil es elegir un equilibrio entre dos errores: quedarte corto y
-                  que te sobre gente. El percentil {settings.coveragePct} equivale a decir que el
-                  primero te duele {nf1.format(ratio)} veces más que el segundo. Es el cálculo clásico
-                  de cuánto stock pedir cuando la demanda es irregular.
+                Qué cambia al mover la línea
+                <InfoTip title="Cómo leer esta decisión">
+                  Subir la línea reduce el riesgo de quedarte corto, pero aumenta la plantilla
+                  fija. Bajarla hace lo contrario: reduce el coste fijo y deja más horas para
+                  cubrir con refuerzos.
                 </InfoTip>
               </span>
               <p className="mt-1.5">
-                Al {settings.coveragePct}% estás diciendo que{' '}
-                <strong>quedarte corto es {nf1.format(ratio)} veces más grave</strong> que
-                pasarte de gente. Si un servicio flojo te cuesta más caro que una nómina de más,
-                sube la línea; si vas justo de margen, bájala.
+                Al {settings.coveragePct}%, el cálculo da{' '}
+                <strong>{nf1.format(ratio)} veces más peso a quedarte corto</strong> que a tener
+                gente de más. Sube la línea si quieres más cobertura fija; bájala si prefieres
+                cubrir más picos con refuerzos.
               </p>
             </Note>
 
             {settings.sizingMode === 'conservador' && p.inflation && (
               <Note tone="warning">
-                <strong>Estás en modo conservador.</strong> El percentil se aplica a cada media hora
+                <strong>Has elegido más margen.</strong> La referencia se aplica a cada media hora
                 por separado, así que tu semana tipo suma{' '}
                 {nf.format(p.inflation.conservativeTotal)} comensales cuando una semana real de ese
                 percentil son {nf.format(p.inflation.referenceTotal)}: un{' '}
@@ -627,7 +626,7 @@ export function StepResult() {
                     size="sm"
                     onClick={() => p.setSettings((s) => ({ ...s, sizingMode: 'calibrado' }))}
                   >
-                    Pasar a calibrado
+                    Ajustar al histórico
                   </Button>
                 </div>
               </Note>
@@ -645,7 +644,7 @@ export function StepResult() {
               El número, <span className="text-brand italic">y de dónde sale.</span>
             </>
           }
-          subtitle="Personas, jornadas equivalentes y horas. Lo contratado nunca cuadra al minuto con lo necesario: esa diferencia es la holgura."
+            subtitle="Personas y horas contratadas. La diferencia entre lo contratado y lo necesario es el margen que deja el cuadrante."
         />
 
         <div className="grid grid-cols-2 gap-5 border-t border-border-soft px-6 py-5 lg:grid-cols-4">
@@ -658,13 +657,13 @@ export function StepResult() {
           />
           <Stat
             icon={
-              <InfoTip title="Jornadas completas equivalentes">
+              <InfoTip title="Equivalente en jornadas de 40 h">
                 Las horas contratadas divididas entre una jornada de 40 h. Es el número que se
                 compara entre locales, porque "{plan.totalPeople} personas" no dice nada si la mitad
                 son de 15 horas.
               </InfoTip>
             }
-            label="Plantilla equivalente"
+            label="Equivalente en jornadas de 40 h"
             value={nf1.format(fte)}
             hint="A jornada de 40 h: un 20 h cuenta 0,5"
           />
@@ -672,7 +671,7 @@ export function StepResult() {
             icon={<Clock size={13} strokeWidth={2.6} />}
             label="Horas contratadas"
             value={`${nf1.format(plan.contractedHours)} h`}
-            hint={`La curva pide ${nf1.format(plan.neededHours)} h`}
+            hint={`El servicio necesita ${nf1.format(plan.neededHours)} h`}
           />
           <Stat
             icon={
@@ -701,13 +700,13 @@ export function StepResult() {
 
         <div className="border-t border-border-soft px-6 py-5">
           <Note tone="brand">
-            Por horas te bastarían{' '}
+            Si solo dividieras las horas entre jornadas de 40 h, saldrían{' '}
             <strong>
               {nf1.format(plan.drivers.fteFromHours)}{' '}
               {plural(plan.drivers.fteFromHours, 'jornada completa', 'jornadas completas')}
             </strong>
-            . Son {plan.totalPeople} {plural(plan.totalPeople, 'persona', 'personas')} porque manda
-            el pico: el {DAYS[needSummary.peak.day].toLowerCase()} a las{' '}
+            . La plantilla real es de {plan.totalPeople} {plural(plan.totalPeople, 'persona', 'personas')}
+            {' '}porque manda el pico: el {DAYS[needSummary.peak.day].toLowerCase()} a las{' '}
             {formatSlot(needSummary.peak.slot)} necesitas {needSummary.peak.people} a la vez
             {topPeakRole && topPeakRole.peak > 0 ? (
               <>
@@ -764,8 +763,8 @@ export function StepResult() {
                   <span className="text-[0.85rem] font-bold text-content-secondary">€</span>
                 </span>
                 <InfoTip title="Para qué sirve">
-                  Para darte el coste de personal sobre ventas, que es el ratio con el que hablas
-                  con tu asesor. No se guarda en ningún sitio ni sale de tu navegador.
+                  Para calcular qué porcentaje de tus ventas se va en personal y poder compararlo
+                  con otros periodos o centros.
                 </InfoTip>
               </div>
 
@@ -882,7 +881,7 @@ export function StepResult() {
                   ))}
                 </ul>
                 <p className="mt-3 text-[0.8rem] font-medium text-content-muted">
-                  {nf1.format(needSummary.totalHours)} h a la semana que pide la curva de necesidad.
+                  {nf1.format(needSummary.totalHours)} h de trabajo necesarias a la semana.
                 </p>
               </>
             )}
@@ -899,7 +898,7 @@ export function StepResult() {
               La demanda y la gente, <span className="text-brand italic">hora a hora.</span>
             </>
           }
-          subtitle="La curva morada son comensales; los escalones, las personas que piden tus tramos en esa media hora."
+          subtitle="La curva morada muestra los comensales; los escalones, cuántas personas hacen falta en cada franja."
         />
 
         <div className="border-t border-border-soft px-4 pt-4 pb-5 sm:px-6">
@@ -1122,9 +1121,9 @@ export function StepResult() {
                 la línea. Se dice lo que pasa: esas semanas hace falta más
                 gente de la que tiene fija. */}
             <h2 className="mt-4 max-w-3xl text-[1.7rem] leading-[1.12] font-extrabold tracking-[-0.028em] text-content-inverted sm:text-[2.2rem]">
-              {peakWeekCount} {plural(peakWeekCount, 'semana', 'semanas')} al año{' '}
+              Tu plantilla fija se queda corta{' '}
               <span className="text-content-inverted/70 italic">
-                necesitas más gente de la que tienes en plantilla.
+                {peakWeekCount} {plural(peakWeekCount, 'semana', 'semanas')}.
               </span>
             </h2>
 
@@ -1141,8 +1140,8 @@ export function StepResult() {
                   {peakWeekCount}
                 </div>
                 <div className="mt-1.5 text-[0.85rem] leading-snug font-semibold text-content-inverted/70">
-                  {plural(peakWeekCount, 'semana', 'semanas')} de las {weeks.length} del año en{' '}
-                  {plural(peakWeekCount, 'la que te falta', 'las que te falta')} gente
+                  {plural(peakWeekCount, 'semana con falta', 'semanas con falta')} de personal, de
+                  {' '}{weeks.length} analizadas
                 </div>
               </div>
               <div>
@@ -1150,78 +1149,86 @@ export function StepResult() {
                   {nf.format(peaks.peakHoursPerYear)}
                 </div>
                 <div className="mt-1.5 text-[0.85rem] leading-snug font-semibold text-content-inverted/70">
-                  horas de trabajo al año que tendrías que contratar de más
+                  horas de refuerzo en esas semanas
                 </div>
               </div>
             </div>
 
-            <p className="mt-5 max-w-2xl text-[0.85rem] leading-relaxed font-semibold text-content-inverted/60">
-              Contando con que el año que viene se parezca al que ya has vivido. Si vendes más de
-              lo previsto, hacen falta más.
-            </p>
+            <div className="mt-8 grid gap-3 md:grid-cols-2">
+              <div className="rounded-card border border-content-inverted/20 bg-content-inverted/10 p-5">
+                <div className="text-[0.72rem] font-bold tracking-wide text-content-inverted/65 uppercase">
+                  Si contratas para el pico
+                </div>
+                <div className="mt-2 text-[1.55rem] leading-tight font-black text-content-inverted">
+                  {extraPeopleIfHired}{' '}
+                  {plural(extraPeopleIfHired, 'persona fija más', 'personas fijas más')}
+                </div>
+                <p className="mt-2 text-[0.86rem] leading-relaxed font-medium text-content-inverted/75">
+                  Para cubrir la semana más exigente, con nómina durante todo el año.
+                </p>
+                {peakHiredAnnualCostEur !== null && (
+                  <div className="mt-4 text-[1.35rem] font-black text-content-inverted tnum">
+                    {eur.format(peakHiredAnnualCostEur)} al año
+                  </div>
+                )}
+              </div>
 
-            {/* El párrafo de antes metía tres ideas en una frase con un guión
-                en medio, y la última ("ni siquiera van sobradas") comparaba el
-                número consigo mismo, porque `extraPeopleIfHired` SALE de la
-                peor semana. Ahora van separadas: qué pasa si contratas, de
-                dónde sale ese número, que la necesidad es irregular, y qué
-                proponemos. */}
-            <p className="mt-8 max-w-2xl text-[1rem] leading-relaxed font-medium text-content-inverted/85">
-              Para cubrirlas con gente tuya tendrías que contratar a{' '}
-              <strong className="text-content-inverted">
-                {extraPeopleIfHired} {plural(extraPeopleIfHired, 'persona más', 'personas más')}
-              </strong>
-              . Y {plural(extraPeopleIfHired, 'cobraría', 'cobrarían')} las {weeks.length} semanas
-              del año, no solo {plural(peakWeekCount, 'la', 'las')} {peakWeekCount} en{' '}
-              {plural(peakWeekCount, 'la que', 'las que')}{' '}
-              {plural(extraPeopleIfHired, 'hace', 'hacen')} falta: pagas{' '}
-              {peaks.weeksPaidPerWeekWorked}{' '}
-              {plural(peaks.weeksPaidPerWeekWorked, 'semana', 'semanas')} de sueldo por cada semana
-              en la que de verdad {plural(extraPeopleIfHired, 'la necesitas', 'las necesitas')}.
-            </p>
+              <div className="rounded-card bg-surface-elevated p-5 text-content-primary shadow-md">
+                <div className="text-[0.72rem] font-bold tracking-wide text-brand uppercase">
+                  Si cubres solo lo que falta
+                </div>
+                <div className="mt-2 text-[1.55rem] leading-tight font-black text-brand">
+                  {nf.format(peaks.peakHoursPerYear)} horas de refuerzo
+                </div>
+                <p className="mt-2 text-[0.86rem] leading-relaxed font-medium text-content-body">
+                  Durante {peakWeekCount} {plural(peakWeekCount, 'semana', 'semanas')} de las{' '}
+                  {weeks.length} analizadas.
+                </p>
+                {peakOnlyAnnualCostEur !== null && (
+                  <div className="mt-4 text-[1.35rem] font-black text-content-primary tnum">
+                    {eur.format(peakOnlyAnnualCostEur)} con tu coste medio
+                  </div>
+                )}
+              </div>
+            </div>
 
             {peaks.worstWeek && (
-              <p className="mt-4 max-w-2xl text-[1rem] leading-relaxed font-medium text-content-inverted/85">
-                Ese número sale de tu peor semana, la {peaks.worstWeek.isoWeek}: ella sola pide{' '}
-                {nf.format(peaks.worstWeek.extraHours)} horas más de las que cubre tu plantilla.
-              </p>
-            )}
-
-            {avgHourlyCost !== null && peakHiredAnnualCostEur !== null && peakOnlyAnnualCostEur !== null && (
-              <p className="mt-4 max-w-2xl text-[1rem] leading-relaxed font-medium text-content-inverted/85">
-                Al coste medio de tu plantilla, {eur.format(avgHourlyCost)} la hora:{' '}
-                {plural(extraPeopleIfHired, 'tener a esa persona fija', 'tener a esas personas fijas')}{' '}
-                todo el año son{' '}
-                <strong className="text-content-inverted">{eur.format(peakHiredAnnualCostEur)}</strong>
-                . Pagar solo las horas que te faltan son{' '}
-                <strong className="text-content-inverted">{eur.format(peakOnlyAnnualCostEur)}</strong>.
+              <p className="mt-5 max-w-3xl text-[0.88rem] leading-relaxed font-semibold text-content-inverted/75">
+                La referencia es la semana {peaks.worstWeek.isoWeek}, la más exigente: le faltan{' '}
+                {nf.format(peaks.worstWeek.extraHours)} horas. Contratar esa capacidad fija supone
+                pagar {nf1.format(peaks.weeksPaidPerWeekWorked)}{' '}
+                {plural(peaks.weeksPaidPerWeekWorked, 'semana', 'semanas')} de sueldo por cada
+                semana punta cubierta.
               </p>
             )}
 
             {peakWeekCount > 1 && semanasPuntaTexto && (
-              <p className="mt-4 max-w-2xl text-[1rem] leading-relaxed font-medium text-content-inverted/85">
-                Y no van seguidas: son {semanasPuntaTexto}, sueltas por el calendario. Contratar
-                para eso es buscar, entrevistar y dar de alta a{' '}
-                {plural(extraPeopleIfHired, 'alguien', 'gente')} que el resto del año te sobra.
+              <p className="mt-6 max-w-3xl text-[0.9rem] leading-relaxed font-semibold text-content-inverted/75">
+                Además, no van seguidas: son {semanasPuntaTexto}. La necesidad aparece en momentos
+                concretos, no como un puesto estable durante todo el año.
               </p>
             )}
 
-            <p className="mt-4 max-w-2xl text-[1rem] leading-relaxed font-medium text-content-inverted/85">
-              Por eso estas semanas no se contratan, se cubren con extras: gente con experiencia
-              solo los días que aprietan. Cómo se hace y qué cuesta, en la pantalla de al lado.
+            <p className="mt-6 max-w-3xl text-[1rem] leading-relaxed font-bold text-content-inverted">
+              Esto no pide inflar la plantilla fija. Pide refuerzos concretos para los turnos que
+              de verdad se quedan cortos.
+            </p>
+            <p className="mt-2 max-w-3xl text-[0.82rem] leading-relaxed font-medium text-content-inverted/60">
+              {avgHourlyCost !== null
+                ? `La comparación usa el coste medio que has indicado para tu plantilla: ${eur.format(avgHourlyCost)} la hora. El precio de cubrir un turno con Shifty aparece en la siguiente pantalla.`
+                : 'En la siguiente pantalla verás cómo cubrir esos turnos con Shifty y cuánto cuesta.'}
             </p>
           </>
         ) : (
           <>
             <h2 className="mt-4 max-w-3xl text-[1.7rem] leading-[1.12] font-extrabold tracking-[-0.028em] text-content-inverted sm:text-[2.2rem]">
-              No dejas ninguna semana fuera.{' '}
-              <span className="text-content-inverted/70 italic">Y eso también se paga.</span>
+              Has dimensionado la plantilla{' '}
+              <span className="text-content-inverted/70 italic">para la semana más exigente.</span>
             </h2>
             <p className="mt-6 max-w-2xl text-[1rem] leading-relaxed font-medium text-content-inverted/85">
-              Al {settings.coveragePct}% tienes plantilla fija para tu peor semana, y se la pagas
-              las {weeks.length} semanas del año. Baja la línea del gráfico del año y mira cuánta
-              gente te ahorras: las semanas que se queden fuera se cubren con extras, que es justo
-              para lo que existe Shifty.
+              Tu equipo cubre las {weeks.length} semanas del histórico. Eso evita pedir refuerzos,
+              pero también mantiene la capacidad de la semana más fuerte en las semanas normales.
+              Baja la línea para comparar ambas opciones.
             </p>
           </>
         )}
@@ -1250,48 +1257,65 @@ export function StepResult() {
       <div className="space-y-6">
 
         <section className="rounded-card bg-brand px-6 py-10 shadow-lg sm:px-10 sm:py-12">
-          <EyebrowInverted>Con Shifty</EyebrowInverted>
+          <div className="grid items-center gap-8 lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-10">
+            <div>
+              <EyebrowInverted>Con Shifty</EyebrowInverted>
 
-          <h2 className="mt-4 max-w-3xl text-[1.7rem] leading-[1.12] font-extrabold tracking-[-0.028em] text-content-inverted sm:text-[2.2rem]">
-            Esas semanas no se contratan.{' '}
-            <span className="text-content-inverted/70 italic">
-              Se cubren, y con quien ya te ha funcionado.
-            </span>
-          </h2>
+              <h2 className="mt-4 max-w-3xl text-[1.7rem] leading-[1.12] font-extrabold tracking-[-0.028em] text-content-inverted sm:text-[2.2rem]">
+                Cubre los picos{' '}
+                <span className="text-content-inverted/70 italic">
+                  sin inflar la plantilla de cada centro.
+                </span>
+              </h2>
 
-          <p className="mt-6 max-w-2xl text-[1rem] leading-relaxed font-medium text-content-inverted/85">
-            {peakWeekCount > 0
-              ? `${plural(peakWeekCount, 'La', 'Las')} ${peakWeekCount} ${plural(peakWeekCount, 'semana', 'semanas')} en ${plural(peakWeekCount, 'la que te falta', 'las que te falta')} gente no ${plural(peakWeekCount, 'pide', 'piden')} una nómina más: ${plural(peakWeekCount, 'pide', 'piden')} gente los días concretos en los que de verdad aprieta.`
-              : 'Aunque hoy lo cubras todo con plantilla fija, el día que alguien falte o el día que se llene sin avisar, el turno hay que taparlo igual.'}{' '}
-            Publicas el turno, eliges entre profesionales verificados y el papeleo lo lleva la ETT
-            colaboradora.
-          </p>
+              <p className="mt-6 max-w-2xl text-[1rem] leading-relaxed font-medium text-content-inverted/85">
+                {peakWeekCount > 0
+                  ? `Tu plan ya ha localizado ${peakWeekCount} ${plural(peakWeekCount, 'semana', 'semanas')} y ${nf.format(peaks.peakHoursPerYear)} horas de refuerzo.`
+                  : 'Aunque hoy cubras el histórico con plantilla fija, una baja o una reserva inesperada puede dejar un turno corto.'}{' '}
+                En Shifty publicas el turno, eliges profesionales verificados y la ETT colaboradora
+                se ocupa del contrato, el alta y la nómina.
+              </p>
 
-          {/* La captura manda en esta pantalla: contesta en dos segundos lo que
-              un párrafo no contesta en diez líneas. Se puede abrir a tamaño
-              completo porque en un móvil de 375 px no se lee. */}
-          <figure className="mt-8">
-            <a
-              href="/shifty-turno.webp"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block cursor-zoom-in rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-content-inverted"
-            >
-              <img
-                src="/shifty-turno.webp"
-                alt="Pantalla de Shifty con un turno publicado: el puesto, el horario, cuánta gente llevas confirmada y el nombre y la valoración de cada profesional que viene."
-                width={1900}
-                height={929}
-                loading="lazy"
-                decoding="async"
-                className="w-full rounded-lg shadow-lg"
-              />
-            </a>
-            <figcaption className="mt-3 text-[0.82rem] leading-relaxed font-semibold text-content-inverted/70">
-              Un turno publicado, por dentro: quién viene, a qué hora y con qué valoración de
-              otras empresas. Toca la imagen para verla a tamaño completo.
-            </figcaption>
-          </figure>
+              <div className="mt-6 flex flex-wrap gap-2">
+                {[
+                  'Picos, bajas y vacaciones',
+                  'Sin cuota mensual',
+                  'Tú eliges quién va',
+                  'Historial y favoritos',
+                ].map((item) => (
+                  <span
+                    key={item}
+                    className="rounded-pill border border-content-inverted/25 bg-content-inverted/10 px-3 py-1.5 text-[0.78rem] font-bold text-content-inverted"
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <figure className="mx-auto w-full max-w-[420px]">
+              <a
+                href="/shifty-turno.webp"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block cursor-zoom-in rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-content-inverted"
+              >
+                <img
+                  src="/shifty-turno.webp"
+                  alt="Pantalla de Shifty con un turno publicado, las personas confirmadas y la valoración de cada profesional."
+                  width={1900}
+                  height={929}
+                  loading="lazy"
+                  decoding="async"
+                  className="w-full rounded-lg shadow-lg"
+                />
+              </a>
+              <figcaption className="mt-3 text-[0.78rem] leading-relaxed font-semibold text-content-inverted/70">
+                Ves quién viene, a qué hora y con qué valoración. Abre la imagen para verla en
+                grande.
+              </figcaption>
+            </figure>
+          </div>
         </section>
 
         {/* Las dos columnas de la propuesta de cadenas. El argumento no es que
@@ -1299,31 +1323,43 @@ export function StepResult() {
             tal fue se queda guardada, y la siguiente vez se elige mejor. */}
         <Card className="p-6 sm:p-8">
           <h3 className="text-[1.1rem] font-extrabold tracking-[-0.02em] text-content-primary">
-            Cómo se cubre un turno hoy, y cómo con Shifty
+            Tres formas de cubrir el mismo pico
           </h3>
+          <p className="mt-2 max-w-3xl text-[0.9rem] leading-relaxed text-content-secondary">
+            La diferencia no está solo en encontrar a alguien. Está en cuánto pagas, cuánto
+            tarda el equipo y qué información conservas para el siguiente turno.
+          </p>
 
-          <div className="mt-6 grid gap-5 md:grid-cols-2">
+          <div className="mt-6 grid gap-4 lg:grid-cols-3">
             {[
               {
-                titulo: 'Como se hace hoy',
-                pie: 'Cada turno vuelve a empezar',
+                titulo: 'Contratar de más',
+                pie: 'Pagas capacidad fija',
                 destacado: false,
-                pasos: [
-                  ['Pides gente', 'Por teléfono, por WhatsApp o tirando de conocidos.'],
-                  ['Esperas respuesta', 'No ves quién está libre ese día.'],
-                  ['Te llega un nombre', 'Con poco más que el nombre para decidir.'],
-                  ['La próxima vez, otra vez', 'Lo que aprendiste no queda en ningún sitio.'],
+                puntos: [
+                  `${extraPeopleIfHired} ${plural(extraPeopleIfHired, 'persona más', 'personas más')} para llegar a la peor semana.`,
+                  'Nómina durante todo el año, aunque el pico dure mucho menos.',
+                  'Más coste fijo y menos margen para ajustar cada centro.',
+                ],
+              },
+              {
+                titulo: 'Llamadas y WhatsApp',
+                pie: 'Cada turno empieza de cero',
+                destacado: false,
+                puntos: [
+                  'Preguntas uno a uno hasta encontrar a alguien libre.',
+                  'Decides con la información repartida entre chats y contactos.',
+                  'Si cambia el responsable, parte de ese aprendizaje se pierde.',
                 ],
               },
               {
                 titulo: 'Con Shifty',
-                pie: 'El historial se queda guardado',
+                pie: 'Cubres solo lo que falta',
                 destacado: true,
-                pasos: [
-                  ['Publicas el turno', 'Día, horas, puesto y condiciones. Publicar no cuesta nada.'],
-                  ['Ves quién se apunta', 'Los candidatos van entrando en el momento.'],
-                  ['Eliges tú, con información', 'Experiencia, reseñas de otras empresas y su historial contigo.'],
-                  ['Repites con los que funcionan', 'Los marcas como favoritos y a ellos les llega antes.'],
+                puntos: [
+                  'Publicas día, horario, puesto y condiciones.',
+                  'Eliges con experiencia, valoraciones e historial contigo.',
+                  'Guardas favoritos para volver a contar con quien funciona.',
                 ],
               },
             ].map((col) => (
@@ -1348,37 +1384,40 @@ export function StepResult() {
                   </span>
                 </div>
 
-                <ol className="mt-4 space-y-3.5">
-                  {col.pasos.map(([titulo, detalle], i) => (
-                    <li key={titulo} className="flex gap-3">
+                <ul className="mt-4 space-y-3">
+                  {col.puntos.map((punto) => (
+                    <li key={punto} className="flex gap-2.5">
                       <span
                         className={cn(
-                          'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-pill text-[0.72rem] font-black tnum',
+                          'mt-1.5 h-2 w-2 shrink-0 rounded-pill',
                           col.destacado
-                            ? 'bg-brand text-content-inverted'
-                            : 'bg-surface-elevated text-content-tertiary',
+                            ? 'bg-brand'
+                            : 'bg-content-muted',
                         )}
-                      >
-                        {i + 1}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="text-[0.9rem] font-bold text-content-primary">{titulo}</div>
-                        <p className="mt-0.5 text-[0.85rem] leading-relaxed text-content-body">
-                          {detalle}
-                        </p>
-                      </div>
+                      />
+                      <p className="text-[0.85rem] leading-relaxed text-content-body">{punto}</p>
                     </li>
                   ))}
-                </ol>
+                </ul>
               </div>
             ))}
           </div>
 
-          <div className="mt-5 flex gap-3 rounded-card bg-surface-alt px-4 py-3.5">
+          <div className="mt-5 flex gap-3 rounded-card border border-brand/20 bg-brand-light px-4 py-4">
             <span className="mt-1.5 h-2 w-2 shrink-0 rounded-pill bg-brand" />
             <p className="text-[0.85rem] leading-relaxed text-content-body">
-              Tú eliges a la persona; la ETT colaboradora le hace el contrato, la da de alta en la
-              Seguridad Social y le paga la nómina. Tú no tramitas nada y recibes una sola factura.
+              <strong className="text-content-primary">Para cadenas y hoteles:</strong> cada centro
+              sigue el mismo proceso y no depende de la agenda privada de una sola persona. Las
+              valoraciones, los favoritos y el historial quedan disponibles para la siguiente
+              necesidad.
+            </p>
+          </div>
+
+          <div className="mt-3 flex gap-3 rounded-card bg-surface-alt px-4 py-3.5">
+            <span className="mt-1.5 h-2 w-2 shrink-0 rounded-pill bg-brand" />
+            <p className="text-[0.85rem] leading-relaxed text-content-body">
+              Tú eliges a la persona. La ETT colaboradora hace el contrato, el alta en la Seguridad
+              Social y la nómina. Tú recibes una sola factura.
             </p>
           </div>
         </Card>
@@ -1429,11 +1468,11 @@ export function StepResult() {
             para saber cuántos leads salen de la herramienta. */}
         <section className="rounded-card bg-brand px-6 py-8 shadow-lg sm:px-10">
           <h3 className="max-w-2xl text-[1.3rem] leading-tight font-extrabold tracking-[-0.025em] text-content-inverted">
-            ¿Lo vemos con tus números?
+            ¿Quieres probarlo en uno o varios centros?
           </h3>
           <p className="mt-2 max-w-2xl text-[0.95rem] leading-relaxed font-medium text-content-inverted/85">
-            Cuéntanos cómo es tu semana y te decimos qué te costaría cubrir esas horas, sin
-            compromiso.
+            Cuéntanos qué turnos necesitas cubrir en tus restaurantes u hoteles y te ayudamos a
+            calcular el coste, sin compromiso.
           </p>
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -1447,7 +1486,7 @@ export function StepResult() {
                 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-content-inverted',
               )}
             >
-              Solicitar más información
+              Quiero probar Shifty
               <ArrowUpRight size={17} strokeWidth={2.6} />
             </a>
             <a
@@ -1490,8 +1529,8 @@ export function StepResult() {
         {p.falloGuardado && (
           <div className="mt-3">
             <Note tone="warning">
-              No hemos podido guardar este plan en el servidor. Lo tienes igualmente en este
-              navegador y te lo puedes bajar en un fichero aquí abajo.{' '}
+              No hemos podido guardar el plan. Tu fichero sigue solo en este navegador; descarga
+              una copia aquí abajo para no perder el trabajo.{' '}
               <button
                 type="button"
                 onClick={() => void p.guardarEnServidor()}
@@ -1520,8 +1559,8 @@ export function StepResult() {
             </>
           ) : (
             <>
-              Nada de esto se guarda en ningún servidor. El enlace lleva el plan dentro, así que
-              quien lo abra ve exactamente esto.
+              Tu fichero de ventas sigue solo en este navegador. Mientras el plan no tenga un
+              enlace corto, puedes descargar una copia o compartir el enlace completo.
             </>
           )}
         </p>
@@ -1576,6 +1615,27 @@ export function StepResult() {
           </Button>
         </div>
       </Card>
+
+      <section className="rounded-card border border-brand/20 bg-brand-light p-5 sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-6">
+        <div>
+          <h3 className="text-[1.05rem] font-extrabold tracking-[-0.02em] text-content-primary">
+            El plan cubre lo previsible. Shifty cubre lo que cambia.
+          </h3>
+          <p className="mt-1.5 max-w-3xl text-[0.86rem] leading-relaxed text-content-body">
+            Si aparece una baja, una reserva grande o una semana punta en cualquiera de tus
+            centros, publica solo el turno que falta y elige entre profesionales verificados.
+          </p>
+        </div>
+        <a
+          href="https://shifty.es/contacto?utm_source=planificador&utm_medium=herramienta&utm_campaign=resultado"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-4 inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-pill bg-brand px-5 text-[0.88rem] font-bold text-content-inverted transition-transform duration-150 hover:scale-[1.02] active:scale-[.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:mt-0"
+        >
+          Cubrir un turno con Shifty
+          <ArrowUpRight size={16} strokeWidth={2.6} />
+        </a>
+      </section>
 
       <div className="flex justify-end border-t border-border-soft pt-6">
         <Button

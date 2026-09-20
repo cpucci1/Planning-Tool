@@ -614,7 +614,8 @@ export function TiersTable({
           info={
             <InfoTip title="Para qué sirve esta tabla">
               Con tus comensales franja a franja y esta tabla sabemos cuántas personas hacen falta
-              a cada media hora del año. De ahí salen las horas, los contratos y el cuadrante.
+              en cada media hora de la semana tipo. De ahí salen las horas, los contratos y el
+              cuadrante.
             </InfoTip>
           }
           action={

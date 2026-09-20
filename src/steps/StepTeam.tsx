@@ -80,7 +80,7 @@ function BlockBars() {
       <div className="mb-2.5 flex items-center gap-1.5 text-[0.75rem] font-bold tracking-wide text-content-secondary uppercase">
         Horas por bloque
         <InfoTip title="Horas por bloque">
-          Horas-persona a la semana que pide cada área. Es la suma de todos sus puestos, franja
+          Horas de trabajo semanales que necesita cada área. Es la suma de todos sus puestos, franja
           a franja. Si Cocina se dispara, mira sus tramos: normalmente sobra una partida en las
           horas flojas.
         </InfoTip>
@@ -152,7 +152,7 @@ function LiveNumbers() {
               {nf.format(hours)}
             </span>
           }
-          hint="Horas-persona que pide la curva"
+          hint="Horas de trabajo necesarias en total"
         />
         <Stat
           icon={<Coffee size={13} strokeWidth={2.5} />}
@@ -167,10 +167,11 @@ function LiveNumbers() {
       </div>
 
       <Note tone="warning">
-        Esas jornadas son la cuenta de la servilleta. La plantilla real sale más alta: el{' '}
+        Dividir las horas entre 40 es solo una referencia. La plantilla real también depende del
+        pico: el{' '}
         {DAYS[peak.day].toLowerCase()} a las {formatSlot(peak.slot)} necesitas{' '}
         <strong>{peak.people} personas a la vez</strong>, y esa gente tiene que estar en nómina
-        por pocas horas que sume. El número fino lo verás en el paso siguiente.
+        por pocas horas que sume. El resultado completo lo verás en el paso siguiente.
       </Note>
 
       <BlockBars />
@@ -307,7 +308,7 @@ function AdvancedSettings() {
         <span className="min-w-0 flex-1">
           <span className="h4 block">Ajustes avanzados</span>
           <span className="mt-0.5 block text-[0.83rem] leading-snug text-content-secondary">
-            Desgaste del dato, contratos, jornada partida y duración de los turnos. Si no los
+            Hora del cobro, contratos, jornada partida y duración de los turnos. Si no los
             tocas, van con valores sensatos.
           </span>
         </span>
@@ -327,12 +328,12 @@ function AdvancedSettings() {
         >
           {/* ── Desgaste ── */}
           <Field
-            label="Desgaste del dato"
-            hint="El TPV marca la hora del cobro, y se cobra al terminar. Los 60 comensales que aparecen a las 15:00 se atendieron antes: tu gente ya estaba colocada. Por eso adelantamos la curva de personal ese rato. No es un colchón de seguridad, es enderezar un sesgo conocido del fichero."
+            label="Adelantar la necesidad respecto al cobro"
+            hint="El TPV guarda la hora del cobro, pero la mesa se atiende antes. Si 60 comensales aparecen a las 15:00, este ajuste adelanta la necesidad de personal para colocarla en la hora real del servicio."
             info={
-              <InfoTip title="Desgaste del dato">
-                Un desplazamiento limpio de toda la curva, igual para todos los puestos. No
-                usamos un máximo móvil: ensancharía los picos y te haría contratar de más.
+              <InfoTip title="Por qué se adelanta">
+                El mismo adelanto se aplica a todos los puestos. No aumenta el pico: solo lo mueve
+                a la franja en la que el equipo ya estaba atendiendo a esos comensales.
               </InfoTip>
             }
           >
@@ -368,7 +369,7 @@ function AdvancedSettings() {
                 />
                 <p className="mt-1 text-[0.78rem] leading-relaxed text-content-secondary">
                   La discontinua es tu fichero ya corregido; los escalones, la gente que hace
-                  falta. Sube el desgaste y verás cómo el equipo entra antes.
+                  falta. Aumenta el adelanto y verás cómo el equipo entra antes.
                 </p>
               </div>
             )}
@@ -506,17 +507,16 @@ function AdvancedSettings() {
           <div className="border-t border-border-soft pt-6">
             <Field
               label="Cómo dimensionamos la semana tipo"
-              hint="Con la misma cobertura, el conservador te deja más gente en plantilla."
+              hint="Con la misma cobertura, la opción con más margen deja más gente en plantilla."
               info={
-                <InfoTip title="Calibrado o conservador">
+                <InfoTip title="Ajustado al histórico o con más margen">
                   <p className="mb-1.5">
-                    <strong>Calibrado:</strong> la semana tipo suma, en total, lo que sumaría una
-                    semana del percentil que has pedido. Es la lectura honesta del año.
+                    <strong>Ajustado al histórico:</strong> la semana tipo conserva el volumen total
+                    de una semana real con la cobertura que has elegido.
                   </p>
                   <p>
-                    <strong>Conservador:</strong> aplica ese percentil a cada media hora por
-                    separado. Como los picos de cada franja no ocurren el mismo día, la suma sale
-                    más alta y la plantilla también.
+                    <strong>Con más margen:</strong> toma una referencia alta en cada media hora. La
+                    suma sale más alta y la plantilla también.
                   </p>
                 </InfoTip>
               }
@@ -525,8 +525,8 @@ function AdvancedSettings() {
                 value={s.sizingMode}
                 onChange={(v) => patch({ sizingMode: v })}
                 options={[
-                  { value: 'calibrado', label: 'Calibrado' },
-                  { value: 'conservador', label: 'Conservador' },
+                  { value: 'calibrado', label: 'Ajustado al histórico' },
+                  { value: 'conservador', label: 'Con más margen' },
                 ]}
               />
             </Field>

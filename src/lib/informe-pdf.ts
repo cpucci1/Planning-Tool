@@ -459,8 +459,8 @@ export async function construirInforme(
   ink(MUTED)
   const linea =
     peaks.peakWeeks.length > 0
-      ? `Cubre ${input.weeksCovered} de ${totalWeeks} ${plural(totalWeeks, 'semana', 'semanas')} del año. Las otras ${peaks.peakWeeks.length} piden más gente, y eso se cubre con extras.`
-      : `Cubre las ${totalWeeks} semanas del año sin pedir ayuda a nadie.`
+      ? `Cubre ${input.weeksCovered} de ${totalWeeks} ${plural(totalWeeks, 'semana', 'semanas')} del histórico. Quedan ${peaks.peakWeeks.length} ${plural(peaks.peakWeeks.length, 'semana que necesita', 'semanas que necesitan')} refuerzo puntual.`
+      : `Cubre las ${totalWeeks} ${plural(totalWeeks, 'semana', 'semanas')} del histórico sin refuerzos.`
   write(split(linea, CW), M, y, 5)
   y += split(linea, CW).length * 5 + 7
 
@@ -472,7 +472,7 @@ export async function construirInforme(
     [
       'Horas contratadas',
       `${nf1.format(plan.contractedHours)} h`,
-      `La curva pide ${nf1.format(plan.neededHours)} h`,
+      `El servicio necesita ${nf1.format(plan.neededHours)} h`,
     ],
     [
       'Cobertura',
@@ -500,12 +500,12 @@ export async function construirInforme(
   // Los picos, en morado
   const picoTitulo =
     peaks.peakWeeks.length > 0
-      ? `${peaks.peakWeeks.length} ${plural(peaks.peakWeeks.length, 'semana', 'semanas')} al año se te salen de la plantilla`
-      : 'No dejas ninguna semana fuera, y eso también se paga'
+      ? `${peaks.peakWeeks.length} ${plural(peaks.peakWeeks.length, 'semana necesita', 'semanas necesitan')} refuerzo`
+      : 'Tu plantilla cubre incluso la semana más exigente'
   const picoCuerpo =
     peaks.peakWeeks.length > 0
-      ? `${nf.format(peaks.peakHoursPerYear)} horas de trabajo al año que tu plantilla fija no llega a cubrir. Contratarlas son ${input.extraPeopleIfHired} ${plural(input.extraPeopleIfHired, 'persona más', 'personas más')} en nómina las ${WEEKS_PER_YEAR} semanas del año para tapar solo ${peaks.peakWeeks.length}: pagas ${nf1.format(peaks.weeksPaidPerWeekWorked)} semanas de sueldo por cada semana en la que de verdad hacen falta.`
-      : `Al ${input.coveragePct}% tienes plantilla fija para tu peor semana y se la pagas las ${WEEKS_PER_YEAR} semanas del año. Bajar la línea y cubrir las semanas punta con extras suele salir más barato que tener a todo el mundo en nómina todo el año.`
+      ? `${nf.format(peaks.peakHoursPerYear)} horas de refuerzo que tu plantilla fija no llega a cubrir. Contratar para el pico exige ${input.extraPeopleIfHired} ${plural(input.extraPeopleIfHired, 'persona más', 'personas más')} en nómina las ${WEEKS_PER_YEAR} semanas del año para cubrir solo ${peaks.peakWeeks.length} ${plural(peaks.peakWeeks.length, 'semana punta', 'semanas punta')}: pagas ${nf1.format(peaks.weeksPaidPerWeekWorked)} semanas de sueldo por cada semana en la que de verdad hacen falta.`
+      : `Al ${input.coveragePct}% has dimensionado la plantilla para la semana más exigente y la mantienes durante las ${WEEKS_PER_YEAR} semanas del año. Bajar la línea permite comparar esa opción con cubrir los picos mediante refuerzos.`
   font('normal', 9)
   const picoLs = split(picoCuerpo, CW - 14)
   const dineroPico =
@@ -742,7 +742,7 @@ export async function construirInforme(
     titulo(
       'La demanda',
       'Tu semana tipo, hora a hora',
-      `Comensales de la semana con la que se dimensiona la plantilla, que recoge la actividad del ${input.coveragePct}% de las semanas del año. Cada casilla es el máximo de las dos medias horas, ya corregido el desfase del cobro.`,
+      `Comensales de la semana con la que se dimensiona la plantilla, que recoge la actividad del ${input.coveragePct}% de las semanas del histórico. Cada casilla es el máximo de las dos medias horas, ya corregido el desfase del cobro.`,
     )
     /* Solo las horas en las que pasa algo: las 24 no caben y, en un
        restaurante de menú, veinte de ellas están siempre a cero. */

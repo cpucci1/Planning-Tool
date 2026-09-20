@@ -237,19 +237,19 @@ export function QueVasAObtener() {
           </div>
         </Card>
 
-        {/* 4 — Las semanas que se te salen */}
+        {/* 4 — Las semanas que necesitan refuerzo */}
         <Card className="flex h-full flex-col p-5 sm:p-6">
           <MiniHeader
             icon={<BarChart3 size={17} strokeWidth={2.4} />}
-            title="Las semanas que se te salen"
-            text="Los picos que no compensa contratar: se cubren con extras."
+            title="Las semanas que necesitan refuerzo"
+            text="Los picos que conviene cubrir solo cuando aparecen."
           />
           <div className="mt-5 flex flex-1 flex-col justify-center">
             <div className="flex items-baseline gap-2">
               <span className="tnum text-[1.9rem] leading-none font-black tracking-tight text-warning">
                 {WEEKS_OVER}
               </span>
-              <span className="text-[0.8rem] font-bold text-content-secondary">de 52 semanas se salen</span>
+              <span className="text-[0.8rem] font-bold text-content-secondary">de 52 semanas necesitan refuerzo</span>
             </div>
             <div className="relative mt-3.5 flex h-14 items-end gap-[1.5px]" aria-hidden="true">
               <span
@@ -269,7 +269,7 @@ export function QueVasAObtener() {
               ))}
             </div>
             <p className="mt-2 text-[0.72rem] leading-snug text-content-muted">
-              Las 52 semanas del año, en orden. Lo que asoma por encima de la línea es pico.
+              Las 52 semanas del histórico, en orden. Lo que asoma por encima de la línea necesita refuerzo.
             </p>
           </div>
         </Card>
