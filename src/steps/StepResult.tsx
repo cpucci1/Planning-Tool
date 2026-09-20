@@ -1294,11 +1294,14 @@ export function StepResult() {
             </div>
 
             <figure className="mx-auto w-full max-w-[420px]">
+              {/* ⚠️ La captura necesita su propio fondo claro: el menú morado
+                  de Shifty se pierde si vuelve a apoyarse directamente sobre
+                  el morado de esta sección. */}
               <a
                 href="/shifty-turno.webp"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block cursor-zoom-in rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-content-inverted"
+                className="block cursor-zoom-in rounded-[18px] border border-content-inverted/40 bg-surface-elevated p-2 shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-content-inverted sm:p-2.5"
               >
                 <img
                   src="/shifty-turno.webp"
@@ -1307,7 +1310,7 @@ export function StepResult() {
                   height={929}
                   loading="lazy"
                   decoding="async"
-                  className="w-full rounded-lg shadow-lg"
+                  className="w-full rounded-[10px]"
                 />
               </a>
               <figcaption className="mt-3 text-[0.78rem] leading-relaxed font-semibold text-content-inverted/70">
