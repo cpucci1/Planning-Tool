@@ -74,9 +74,16 @@ corrección de estilo.
    trabajes ni hagas commit directo sobre `main`.**
 3. Aplica los cambios de texto directamente en los ficheros de `src/steps/` y `src/components/`
    que toque, y el ajuste de tamaño de imagen en "Con Shifty".
-4. Antes de terminar, comprueba que no has roto nada: `npx tsc --noEmit` y `npm run build` tienen
+4. **Esto no es una pasada, es un bucle.** Con los cambios ya aplicados, vuelve a navegar la
+   herramienta entera desde cero, como si fueras un encargado que la ve por primera vez, y
+   pregúntate otra vez frase por frase si de verdad se entiende. Si algo sigue sin quedar claro
+   —aunque ya lo hayas tocado una vez— reescríbelo y vuelve a repasar. Repite este ciclo (aplicar
+   → releer como usuario nuevo → corregir) al menos dos o tres veces antes de darlo por terminado.
+   El objetivo no es haber pasado una revisión: es poder decir con honestidad que, leyéndolo ahora,
+   se entiende mejor que la vez anterior.
+5. Antes de terminar, comprueba que no has roto nada: `npx tsc --noEmit` y `npm run build` tienen
    que salir sin errores.
-5. Deja todo commiteado en esa rama (commits pequeños y con mensaje claro) y **no hagas merge ni
+6. Deja todo commiteado en esa rama (commits pequeños y con mensaje claro) y **no hagas merge ni
    push a `main` por tu cuenta**. Crescente lo revisa y decide si se sube.
 
 ## Tarea aparte: el crédito a Fernando del Valle Herrera
