@@ -995,6 +995,11 @@ Estos mandan sobre cualquier preferencia técnica:
 - **Clases semánticas siempre**: `bg-brand`, `text-content-primary`, `border-border`.
   Nunca `bg-[#6C0FD8]` ni `bg-purple-600`.
 - **Cards a 22px** (`rounded-card`), **botones pill** (`rounded-pill`), fuente **Onest**.
+- Las capturas del producto tienen que conservar una silueta clara frente a la sección que
+  las contiene. **CORRECTO:** apoyarlas sobre un marco o fondo neutro cuando comparten el color
+  dominante con el bloque. **INCORRECTO:** colocar el menú morado de Shifty directamente sobre
+  un fondo morado, porque ambas superficies se funden y se deja de entender dónde empieza la
+  plataforma. Corrección de Crescente, 2026-09-20.
 - Todo el copy **en castellano**, tuteando, con el vocabulario del sector: turnos,
   plantilla, cobertura, comensales, franja, cuadrante, extras.
 - `prefers-reduced-motion` respetado en `index.css`; no añadir animaciones que lo salten.
