@@ -98,9 +98,19 @@ Detalle completo en `Docs/docs/features/equipo-propio-billing.md`.
 ### La regla
 
 La tarifa **solo se puede subir, nunca bajar**. Y si la empresa tiene **pago fijo por posición**
-activado (`companies.fixed_position_pay_enabled`, hoy **6 empresas reales**), la tarifa **no se
-puede editar en absoluto**: la fija el puesto (`position_types.fixed_hourly_rate`, puesta en 38
-posiciones de 8 empresas) y se copia al crear el anuncio.
+activado (`companies.fixed_position_pay_enabled`, hoy **6 empresas reales**), la fija el puesto
+(`position_types.fixed_hourly_rate`, puesta en 38 posiciones de 8 empresas) y se copia al crear el
+anuncio: **ni la empresa ni el panel la pueden editar**.
+
+**La única excepción, desde el 2026-09-22: un interno puede subirla en una jornada suelta.** Se pide
+con `p_override_fixed_pay` y **exige un motivo escrito** de al menos 10 caracteres, que queda en el
+rastro. No la puede usar un usuario de empresa, y **no levanta ninguna otra guarda**: sigue sin poder
+bajar la tarifa, saltarse el convenio, ni tocar una jornada con alguien seleccionado o con turnos
+vivos. Se creó para cubrir dos turnos de La Martinuca el mismo día subiendo a 12 €/h, con el cliente
+avisado. **Sube lo que se le factura al cliente**, así que no se usa sin que él lo haya aceptado.
+
+⚠️ **No tiene botón en el panel, y es a propósito: decisión de Crescente el 2026-09-22.** Es una
+puerta para el agente, no para la pantalla. No añadirla al panel ni a la app de empresas.
 
 ### Las cuatro puertas, y las dos que no comprueban nada
 
@@ -114,7 +124,8 @@ posiciones de 8 empresas) y se copia al crear el anuncio.
 **`update_job_day_hourly_rate` es la implementación de referencia.** Comprueba la sesión, los
 permisos, bloquea si la empresa tiene pago fijo, exige que la tarifa suba, respeta el mínimo del
 convenio, se niega si ya hay alguien seleccionado o turnos vivos, y deja rastro con quién, cuándo y
-de qué a qué. **Cualquier camino nuevo debe hacer las siete cosas.**
+de qué a qué. **Cualquier camino nuevo debe hacer las siete cosas.** Es también la única que sabe
+levantar el pago fijo, y solo a un interno con motivo escrito.
 
 Por las dos puertas sin guardas se puede bajar la tarifa por debajo de lo pactado con esas 6
 empresas, sin que quede registro. **Pendiente de arreglar.**
