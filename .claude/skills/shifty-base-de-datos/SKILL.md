@@ -242,10 +242,22 @@ Cada una ha costado un incidente real.
 
 - **`unpublished` NO es inactivo.** Cerrado a solicitudes nuevas, pero sus turnos confirmados siguen
   activos. Incluirlo en el monitor en directo.
-- **`hours_reconciliation_status_id = 2` con `billing_time_out` a NULL es NORMAL**: la empresa aceptó
-  las horas y las remesas lo terminan después. Pendientes son **solo** los de estado `1`. **Nunca
-  llamar a `square_shift` sobre los de estado 2 ni presentarlos como dinero sin facturar**: el
-  2026-07-28 se presentaron 99 turnos correctos (≈9.300 €) como un fallo del sistema.
+- **Desde el 2026-10-01, la empresa que acepta las horas sin disputa deja el turno cuadrado en el
+  acto** con sus horas: `reconcile_shift_hours` llama a `square_shift`, sin pisar un cuadre ya hecho
+  ni un turno en remesa. Antes, el estado `2` con `billing_time_out` a NULL lo terminaba
+  `approve_shift_payments` al aprobar el pago, y eso **solo pasa en los turnos de pago directo**. Los
+  de ETT se quedaban sin cuadrar para siempre y Cobros bloqueaba su factura como "Turnos sin
+  cuadrar" (NH Hoteles, septiembre de 2026). Si aparece un estado `2` sin cuadrar, primero se mira
+  **quién paga ese turno**. Si es de pago directo y aún no se ha aprobado el pago, es normal y no es
+  dinero sin facturar: el 2026-07-28 se presentaron 99 turnos así (≈9.300 €) como un fallo del
+  sistema. Si es de ETT, está bloqueando una factura.
+- **El cuadre y la cobranza van juntos.** Regla de Crescente, 2026-10-01: cada vez que se toque el
+  cuadre de horas (cerrar turnos, aceptar horas, `billing_time_*`, `square_shift`, remesas), se
+  comprueba qué le pasa a Cobros. Hay que mirar tres cosas: si deja turnos sin cuadrar que bloqueen
+  una factura, si cambia el importe de un cargo ya emitido, y si trata igual a los turnos de ETT y a
+  los de pago directo. El cargo mensual suma los turnos sin cuadrar con las horas de la empresa
+  (`cost_commission_shifty_best`), así que no se cobran de menos. Pero esas horas no recortan
+  "llegar antes no se paga", y el cargo puede salir unos céntimos más alto.
 - **Jornada partida: `started` se mantiene durante los DOS bloques.** Solo pasa a `over` tras el
   fichaje de salida del segundo. Y al revisar horas hay que mirar los dos tramos.
 - **`cancel_shift` toca dos tablas**: el turno **y** el candidato (a estado 6). Si solo se actualiza
