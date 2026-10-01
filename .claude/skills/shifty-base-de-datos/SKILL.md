@@ -162,6 +162,13 @@ el turno el día que se crea, no después.
   lo están. Igual con `hiring_service_enabled` (apagado en producción, encendido para test) y
   `category_required_documents_gate` (apagado el 2026-09-01).
 - **Antes de proponer borrar o unificar algo, comprueba su flag.**
+- **Siempre encendidas (`is_always_on`, desde el 30-09-2026).** Una bandera cuya funcionalidad ya es
+  permanente se marca así: queda encendida para todos, la base no deja apagarla (CHECK
+  `feature_flags_always_on_enabled` y `set_feature_flag_enabled`) y el panel no la enseña. **La fila no
+  se borra**: las apps ya instaladas la siguen preguntando y, si faltara, la tomarían por apagada. Son
+  16 (fichaje por ubicación, QR, chat, preguntas filtro, verificación por familia, equipo propio,
+  fichaje manual, etc.). Quitar su comprobación del código se puede hacer poco a poco; no es urgente.
+  No se marcan así los interruptores de emergencia (bots, Clara, cobros, avisos, captación).
 - **Si tocas una feature con flag, usa el helper** y **prueba con el flag en las dos posiciones**.
   Un flag tiene además `enabled_for_test`, `target_company_ids` y `target_territory_ids`: encendido
   no significa encendido para todos.
