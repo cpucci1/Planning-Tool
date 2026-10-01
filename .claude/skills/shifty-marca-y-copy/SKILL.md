@@ -70,6 +70,27 @@ qué pasa exactamente, se reescribe.
 - **Nada de gerundios al principio de frase.** "Optimizando tu equipo…" no; "Optimiza tu equipo" sí.
 - **Sin guiones largos.** A Crescente le suenan a texto de IA.
 
+### Al escribir a alguien de fuera, dos errores que Crescente ha corregido
+
+**2026-09-22, sobre un correo a un cliente potencial que llevaba 18 días esperando.**
+
+1. **No abras disculpándote.** Nada de "no tiene excusa", "lo siento", "perdona el retraso" en el
+   primer renglón. Su palabra exacta: *"no partas diciendo soy una mierda"*. Arrancar pidiendo
+   perdón pone al otro en juez y a ti en acusado, y encima habla de nosotros y no de él. Si de
+   verdad hay que reconocer algo, va después y en media frase, nunca de entrada.
+2. **No sueltes el argumentario.** Explicar cómo funciona Shifty, lo que incluye y por qué es
+   mejor, sin que te lo hayan preguntado, **suena a folleto**. Su palabra: *"muy sales pitch de
+   libro"*. El primer correo **no vende**: se pone en contacto, **pregunta qué están buscando** y
+   ofrece ayuda. El producto se cuenta cuando sepas qué necesitan.
+
+**Cómo se escribe entonces:** quién eres, por qué escribes, una pregunta abierta de qué necesitan,
+y una salida fácil (te llamo o me contestas). Cuatro o cinco líneas. Si ocupa más de una pantalla
+de móvil, sobra la mitad.
+
+❌ *"En Shifty publicas el turno y en pocas horas se te apuntan profesionales ya verificados. Tú
+eliges a quién quieres, y el alta la gestionamos nosotros a través de una ETT colaboradora."*
+✅ *"¿Sigues necesitándolo? Cuéntame qué buscas exactamente y te digo si te lo podemos cubrir."*
+
 ---
 
 ## 4. Los claims: hay dos juegos y conviven
