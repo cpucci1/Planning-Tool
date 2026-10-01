@@ -59,6 +59,21 @@ anuncio y la jornada, el incentivo de primer turno, la pantalla del anuncio y
 
 ⚠️ **Hay un texto que dice lo contrario y está mal**, en la parte propia de la app de empresas. Manda esta tabla. Si lo ves, se corrige en `Docs/repos/Client-App.md`, nunca en el fichero del repo: ese lo genera el sync y el arreglo se pierde.
 
+### El coeficiente va exacto: 1,505 es 1,505
+
+**Decidido por Crescente el 2026-09-25: "No redondeemos el 1,505 a 1,51".** Hasta ese día las
+cuatro vistas de precio redondeaban el coeficiente a dos decimales y cobraban medio punto de más.
+
+- **El de la empresa vive en un solo sitio:** `fn_company_base_coefficient`. Exacto, y 1,505 si no
+  tiene. El del turno es el congelado (`shifts.company_coefficient_id`), también exacto.
+- **El de cada día lo decide `fn_pricing_coefficient`:** exacto, salvo que ese día ya esté
+  facturado (factura de la ETT, cargo o factura de comisión que lo cubra) o sea anterior al
+  01-02-2026. Entonces devuelve el redondeado, que es con el que se facturó: **una factura emitida
+  no se mueve ni un céntimo**.
+- Lo usan las cuatro vistas, la cotización del creador y el detalle del anuncio. **Nunca volver a
+  escribir el coeficiente ni su redondeo a mano.** En pantalla se enseña con sus tres decimales.
+- El porqué y lo que se descartó, en `decisiones/D-004-el-coeficiente-de-la-ett-no-se-redondea.md`.
+
 ### El porcentaje no está congelado
 
 Se resuelve en vivo, y al emitir el cargo se guarda el importe pero no el porcentaje usado. Cambiar
@@ -203,10 +218,13 @@ turnos sin forma de cobrarlos.
   cotiza y le cuenta para su vida laboral y el paro.
 - **En pago directo, `payment_status_id = 8` ("Pagado") lo marca la propia empresa** desde su panel.
   Es autodeclarado, no una transferencia verificada: no sirve para afirmarle a nadie que ya cobró.
-- **Los pagos de Lanak NO se registran.** `payment_status_id` nunca pasa de `7` ("Solicitado") para
-  turnos ETT, porque nunca recibimos justificante. Decir "figura como solicitado sin justificante" es
-  cierto para **todos** los pagos de Lanak de la historia: **no prueba nada**. Una reclamación de
-  impago se basa en el reporte del trabajador y en que trabajó ese turno.
+- **El estado de Shifty no acredita la recepción de un pago de Lanak.**
+  `payment_status_id = 8` existe también en turnos ETT; es falso que todos
+  permanezcan en `7`. Antes de afirmar
+  qué pasó en un servicio, consultar su estado actual y el correo o justificante
+  de Lanak; una remesa, un estado 8 y un ingreso recibido no son equivalentes.
+  Una reclamación de impago se toma en serio si el trabajador reporta que no
+  recibió el dinero y consta que trabajó el servicio.
 
 ---
 

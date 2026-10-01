@@ -20,8 +20,9 @@ de rol. Si una tabla no tiene RLS y el rol `anon` tiene permisos, esa tabla est�
 
 ## 1. Al crear una tabla: la lista que no se salta
 
-Una tabla nueva no está terminada hasta que tiene las cinco cosas. **Y crear una tabla necesita
-permiso escrito de Crescente** (regla 1 del maestro), así que se propone todo junto:
+Una tabla nueva no está terminada hasta que tiene las cinco cosas. **Crearla no necesita permiso**
+(regla 1 del maestro: desde el 2026-09-24 solo se pregunta antes de borrar), pero las cinco van en
+la misma migración, y después se cuenta qué se ha creado:
 
 1. **`ALTER TABLE ... ENABLE ROW LEVEL SECURITY`.** Siempre. Sin excepción, ni siquiera "es interna",
    ni "solo la escribe un cron", ni "es temporal".
@@ -274,6 +275,11 @@ No hay quinta pregunta y no se salta ninguna:
 4. **¿Qué pasa con esto cuando la persona se da de baja?** Se borra, se anonimiza o se queda por una
    obligación legal concreta. Si se queda, se dice cuál.
 
+**Todo cambio de datos personales apunta su entrada en `security/POLITICA-PRIVACIDAD-PENDIENTE.md`**,
+en el mismo trabajo: qué cambia, desde cuándo y qué frase de la política habría que tocar. La
+política no se reescribe a cada cambio: se actualiza por tandas cuando Crescente dice "actualicemos"
+(decisión del 30-09-2026).
+
 ### Las seis trampas de esta base, que ya han mordido
 
 1. **Los permisos son por fila, no por columna.** Dejar que una empresa vea a un trabajador es
@@ -431,6 +437,7 @@ incidente no se puede ni acotar el daño.
 
 - **Si la tarea crea o mueve un dato de una persona**, las cuatro preguntas de §7 se contestan en la
   propuesta, antes de escribir nada.
+  Y se apunta su entrada en `security/POLITICA-PRIVACIDAD-PENDIENTE.md`.
 - **Si la tarea toca algo que decide sobre alguien**, se comprueban los tres puntos de §8.4.
 - **Si la tarea manda datos a un tercero nuevo**, se para y se pregunta qué contrato hay.
 - **Si algo de esto no se puede contestar**, se dice, y se decide con Crescente. No se construye

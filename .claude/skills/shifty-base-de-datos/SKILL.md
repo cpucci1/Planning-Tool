@@ -18,8 +18,9 @@ description: >
 `sales-tool`. Cualquier cambio afecta a todo a la vez. `Planning/` es el único que no la toca.
 
 **Antes de nada:** las reglas inquebrantables están en el `CLAUDE.md` maestro y aplican enteras.
-Resumen operativo: nada de crear tablas, columnas, vistas ni funciones sin permiso **por escrito**;
-nada de updates directos, se usan las RPC; nada de datos operativos ni de pago fuera de `is_test`.
+Resumen operativo: crear y cambiar no pide permiso, **solo se pregunta antes de borrar** (decidido
+por Crescente el 2026-09-24), y lo que se haga se cuenta después; nada de updates directos, se usan
+las RPC; nada de datos operativos ni de pago fuera de `is_test`.
 
 ---
 
@@ -44,7 +45,7 @@ sin dar ningún error**. Ya ha pasado: ver el punto 6.
 
 1. **Antes de escribir una comprobación, busca el helper.** Existen y casi nadie los usa:
    `assert_company_user_can` (22 usos), `check_company_user_can` (12), `_require_internal_user` (8),
-   `assert_can_edit_job_day` (12), `assert_is_company_member` (2), `_chat_identify_caller` (23),
+   `assert_can_edit_job_day` (12), `assert_is_company_member` (2), `_chat_resolve_caller` (25, por hilo o empresa),
    `feature_flag_enabled_for_worker`, `feature_flag_enabled_for_company`.
    **Para el dinero y las reglas ya centralizadas:** `fn_commission_pct` y `fn_commission_source`
    (la cascada de la comisión y de dónde sale), **`fn_effective_hourly_rate`** (la tarifa de una hora
@@ -53,9 +54,16 @@ sin dar ningún error**. Ya ha pasado: ver el punto 6.
    `fn_cancellation_penalty_points` (los puntos por cancelar), `fn_worker_offer_block` (si alguien
    está bloqueado para un anuncio), `calcular_horas_casuisticas` y `get_night_rate_for_job_day`
    (horas y tarifa de noche).
+   **Para lo que una empresa ve de un trabajador (25-09-2026):** `fn_company_related_worker_ids` y
+   `fn_company_can_see_worker(trabajador, nivel)` (¿tiene la empresa de quien llama relación con
+   esta persona? Con el nivel `'team'`, ¿está hoy en su equipo, plantilla o extra propio? Ese nivel
+   es el que abre el teléfono),
+   `fn_company_registered_worker_ids` y `fn_company_registers_worker` (¿la gestiona directamente, y
+   por tanto puede ver su NIF, fecha de nacimiento e IBAN?), y `fn_assert_internal_or_system` (solo
+   interno activo o servidor).
    **Ninguna de estas se vuelve a escribir a mano, ni en la base ni en una pantalla.**
 2. **A la tercera, se extrae.** Escribir la misma comprobación por tercera vez significa que es un
-   helper. Y crear una función necesita permiso escrito.
+   helper. Se crea sin pedir permiso, pasando la verificación del §7 y contándolo después.
 3. **Añadir un parámetro NO es crear una función nueva.** Hay **28 familias con varias firmas, 57
    funciones**, casi todas por ese patrón. `upsert_subscription_plan` tiene **tres** versiones vivas.
    Con dos firmas vivas PostgREST elige, y esa ambigüedad puede tumbar el chat de las cuatro apps.
@@ -89,7 +97,8 @@ nombres. Primero se marca en el comentario; renombrar solo cuando esté verifica
 
 ## 2. Las cuatro vistas de precio: zona crítica
 
-**De aquí nace casi todo el dinero. Antes de tocar una de estas cuatro, para y pregunta.**
+**De aquí nace casi todo el dinero. Estas cuatro se tocan con cuidado y se verifica el resultado:
+antes y después del cambio, los mismos importes en una muestra de turnos reales.**
 
 `v_shifts_pending` · `v_shifts_closed` · `v_job_days_pending` · `v_job_days_closed`
 
@@ -113,6 +122,10 @@ hace es **sobreestimar** sobre la parte ya asignada si esos turnos son de equipo
 
 La segunda **sí es una divergencia**: si a una empresa le cambias el coeficiente, las dos vistas
 dejan de contar lo mismo sobre turnos ya asignados.
+
+**Desde el 2026-09-25 el coeficiente no se redondea** (D-004). Las cuatro lo pasan por
+`fn_pricing_coefficient`, que lo deja exacto salvo en lo ya facturado, y el de la empresa sale de
+`fn_company_base_coefficient`. Ni el 1,505 ni el redondeo se vuelven a escribir a mano en una vista.
 
 Las dos aplican el **mínimo del convenio como suelo** al calcular el pago, así que una tarifa baja
 guardada no baja el importe facturado. Lo que queda mal es la tarifa guardada, que es la que se ve.
@@ -262,8 +275,9 @@ Cada una ha costado un incidente real.
 
 ### Medir sin engañarse
 
-- **`from_company_review_rating` trae un 4 por defecto.** Vale 4 en 7.786 turnos y solo 252 tienen
-  `from_company_review_created_at`. Una valoración cuenta **solo si esa fecha no es nula**.
+- **`from_company_review_rating` trae un valor por defecto** (4 hasta febrero de 2026; 5 desde
+  entonces, comprobado el 24-09-2026: 6.398 de 9.599 turnos terminados no tienen
+  `from_company_review_created_at`). Una valoración cuenta **solo si esa fecha no es nula**.
 - **`worker_summary_view.rating` está vacía.** Viene de `company_ratings`, que no tiene filas.
 - **Una oferta cancelada (`job_day_status_id = 5`) no es demanda sin atender**: son 245 plazas sobre
   1.805 en 90 días, un 14 % de ruido. Pero **no se tiran**: se analizan en dos montones. Las

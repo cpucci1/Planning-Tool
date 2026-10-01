@@ -5,10 +5,10 @@
 # Hace dos cosas distintas, y conviene no confundirlas:
 #
 #   1. COMPRUEBA A QUE BASE VA la llamada. Si el proyecto no es uno de los nuestros, la corta.
-#   2. Si la llamada ESCRIBE en produccion, pide confirmacion antes de lanzarla. Es la regla de
-#      las comunes escrita en piedra: "se puede sin preguntar SELECT y lectura de catalogos;
-#      necesita permiso cualquier DDL, cualquier mutacion de produccion, RLS, triggers y crons".
-#      Hasta hoy esa regla dependia de que el agente se acordara.
+#   2. Si la llamada BORRA algo en produccion, pide confirmacion antes de lanzarla. Solo borrar:
+#      decision de Crescente del 2026-09-24, "solo pidelo si algo es eliminar, nada mas". Crear,
+#      cambiar, desplegar y escribir pasan sin preguntar. Antes preguntaba por cualquier
+#      escritura o DDL, y pedir aprobacion para todo le hacia aprobar sin leer.
 #
 # ⚠️ POR QUE HACE FALTA
 # Hay mas de una base en juego y todas responden igual de bien a una consulta suelta:
@@ -81,25 +81,27 @@ preguntar() {
   exit 0
 }
 
+# Se quitan los comentarios antes de mirar: un `-- borrar esto` no es un DELETE.
+# ⚠️ `--` dentro de un texto entrecomillado se traga el resto de la linea. Es raro en el SQL que
+# ⚠️ escribimos, y quitar de mas solo puede hacer que NO pregunte, nunca que pregunte de mas.
+borra() {
+  printf '%s' "$1" | sed -e 's/--.*$//' -e 's|/\*[^*]*\*/||g' \
+    | grep -qiE '(^|[^a-z_])(delete|truncate|drop)([^a-z_]|$)'
+}
+
 case "$herramienta" in
-  *apply_migration*)
-    preguntar "Esto aplica una MIGRACION a la base compartida por los seis proyectos. Las reglas piden aprobacion por escrito describiendo el cambio exacto antes de cualquier DDL." ;;
-  *deploy_edge_function*)
-    preguntar "Un deploy reemplaza el bundle ENTERO de la funcion. El 2026-07-06 se perdio una semana de arreglos asi. Compara antes con lo que hay vivo en produccion." ;;
-  *create_branch* | *delete_branch* | *merge_branch* | *reset_branch* | *rebase_branch* | *pause_project* | *restore_project*)
-    preguntar "Esto opera sobre el PROYECTO de Supabase entero, no sobre una tabla. Confirma que es lo que quieres." ;;
-  *execute_sql*)
+  *apply_migration* | *execute_sql*)
     consulta=$(printf '%s' "$entrada" | jq -r '.tool_input.query // .tool_input.sql // empty' 2>/dev/null)
     [ -z "$consulta" ] && exit 0
-    # Se quitan los comentarios antes de mirar: un `-- borrar esto` no es un DELETE.
-    # ⚠️ `--` dentro de un texto entrecomillado se traga el resto de la linea. Es raro en el SQL
-    # ⚠️ que escribimos, y el `[^\n]` que habia aqui antes era peor: no quitaba nada, asi que
-    # ⚠️ cualquier comentario con la palabra "update" hacia preguntar por una consulta de lectura.
-    limpia=$(printf '%s' "$consulta" | sed -e 's/--.*$//' -e 's|/\*[^*]*\*/||g')
-    if printf '%s' "$limpia" | grep -qiE '(^|[^a-z_])(insert|update|delete|truncate|drop|alter|create|grant|revoke|comment[[:space:]]+on|refresh[[:space:]]+materialized)([^a-z_]|$)'; then
-      preguntar "Esta consulta ESCRIBE o cambia el esquema, y va a la base compartida por los seis proyectos. Las reglas solo dan via libre a los SELECT. Lee la consulta antes de aprobarla."
+    # ⚠️ Una funcion que se redefine y lleva un DELETE dentro de su cuerpo tambien pregunta: no se
+    # ⚠️ distingue un borrado de ahora de uno que la funcion hara despues. Es raro y se prefiere
+    # ⚠️ preguntar de mas en un borrado que de menos.
+    if borra "$consulta"; then
+      preguntar "Esto BORRA algo en la base compartida por los seis proyectos (DELETE, TRUNCATE o DROP). Lo que se borra no vuelve: lee que se borra antes de aprobarlo."
     fi
     exit 0 ;;
+  *delete_branch* | *reset_branch*)
+    preguntar "Esto BORRA una rama de Supabase o la devuelve a cero, con sus datos. Confirma que es lo que quieres." ;;
 esac
 
 exit 0

@@ -53,7 +53,7 @@ Cuatro sitios, y el criterio para elegir es **cuándo hace falta ese conocimient
 
 > **¿Se necesita esto en todas las sesiones, o solo cuando se hace una cosa concreta?**
 
-- **En todas** → `Docs/docs/shared/REGLAS-COMUNES.md`. Ejemplo: "nunca crear tablas sin permiso escrito".
+- **En todas** → `Docs/docs/shared/REGLAS-COMUNES.md`. Ejemplo: "solo se pregunta antes de borrar".
 - **Solo al tocar la base** → skill `shifty-base-de-datos`.
 - **Solo al hablar de dinero** → skill `shifty-dinero`.
 - **Solo dentro del panel** → `Docs/repos/Web-Panel.md`.

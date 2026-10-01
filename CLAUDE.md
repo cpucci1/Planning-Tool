@@ -22,7 +22,8 @@
   Antes de anadir nada, lee la skill shifty-mantener-las-reglas.
 -->
 
-Shifty es un marketplace de talento verificado para hosteleria en Espana. Son **ocho proyectos**,
+Shifty es un marketplace de talento verificado en España: hoy sobre todo hostelería, pero se construye
+para **cualquier sector y cualquier territorio** (ver "Agnóstica de territorio y de sector"). Son **ocho proyectos**,
 y **seis comparten una sola base de datos Supabase** (`brgswggayexbvrnqtlhp`, produccion). Por eso
 estas reglas son las mismas en todos: **un cambio de base afecta a los seis a la vez**.
 
@@ -86,14 +87,20 @@ Cuando te corrija, **persiste el aprendizaje en el momento**, en su sitio (ver
 
 Aplican **en todos los proyectos**, porque la base de datos es una sola.
 
+**Decidido por Crescente el 2026-09-24: solo se pregunta antes de borrar.** Crear, cambiar y
+desplegar se hace sin pedir permiso, y se cuenta después qué se ha hecho.
+
 **Base de datos**
-1. **NUNCA crear columnas, tablas, vistas ni funciones sin permiso POR ESCRITO.** Incluye las `crm_*`.
+1. **Crear columnas, tablas, vistas o funciones no necesita permiso, pero se hace bien.** Incluye
+   las `crm_*`. Antes, buscar si ya existe (regla 5); al crearlo, RLS, comentario, `search_path` y
+   sin sobrecargas, como dice la plantilla; y después, contar en castellano qué se ha creado.
 2. **NUNCA renombrar ni eliminar columnas o tablas críticas.** Las 4 apps dependen de esos nombres.
    Lo que se deja de usar **se marca en su comentario, no se borra**.
 3. **NUNCA updates directos a tablas operativas.** Se usan las RPC, que dejan rastro en `activity_log`.
 4. **NUNCA calcular precios en el frontend.** Se piden a las vistas.
 5. **Antes de crear algo, buscar si ya existe.** 461 tablas y 1.363 funciones: lo normal es que exista.
-6. **NUNCA tocar `auth.users` ni el flujo de OTP sin permiso escrito.**
+6. **NUNCA borrar usuarios de `auth.users` ni desmontar el flujo de OTP sin preguntar antes.**
+   Cambiarlo se puede, con cuidado y contándolo: si se rompe, nadie entra en las apps.
 7. **Nada de tablas transitorias.** Las filas van a la tabla donde de verdad viven, marcadas con su
    `origen`, o no se guardan.
 8. **Ninguna tabla nueva sin RLS encendida y sin decidir quién puede leerla.** La clave anónima va
@@ -153,8 +160,9 @@ Aplican **en todos los proyectos**, porque la base de datos es una sola.
     poder explicarse en una frase, quedar registrado el porqué, y existir una vía para que lo mire
     una persona. Es un derecho, no una cortesía. El detalle está en la skill `shifty-seguridad` §8.
 
-Se puede sin preguntar: `SELECT` y lectura de catálogos. Necesita permiso: cualquier DDL, cualquier
-mutación de producción, RLS, triggers y crons.
+Se puede sin preguntar todo menos borrar: consultas, DDL, RLS, permisos, triggers, crons y
+cambios de producción por RPC. Borrar (`DROP`, `DELETE`, `TRUNCATE`, quitar datos o ficheros,
+eliminar ramas) se pregunta antes. Lo demás se hace y se cuenta después.
 
 ---
 
@@ -198,6 +206,25 @@ porque da permiso para desplegar. Ahí están también las tres trampas al escri
 de retirar una versión duplicada.
 
 ---
+
+## Agnóstica de territorio y de sector
+
+Regla de Crescente (23-09-2026), por escalabilidad: **todo lo que se construya tiene que valer para
+cualquier territorio de España y cualquier sector** (hostelería, comercio, logística, eventos,
+enfermería…), y lo que ya existe se va llevando hacia ahí a medida que se toca.
+
+- **Ningún catálogo escrito en el código.** Áreas, puestos, especialidades, documentos por área,
+  preguntas de verificación, vestimentas, tipos de sitio, territorios, zonas, festivos y convenios
+  salen de la base. Añadir una ciudad o un sector nuevo no puede pedir tocar código.
+- **Ningún texto general nombra un sector ni una ciudad** ("hostelería", "camarero", "Madrid").
+  Lo concreto sale de los datos del turno, la empresa o la persona.
+- **Nada decide por una ciudad o un sector fijos:** reglas, precios, horarios y avisos se leen de la
+  configuración del territorio o del área, nunca de un `if` con un nombre dentro.
+- **Si te cruzas con algo atado a un sector o una ciudad**, no se reescribe a la brava: se apunta en
+  `shared/PENDIENTE.md` y se generaliza cuando toque, igual que las lógicas duplicadas.
+
+El detalle, con la lista de comprobación y lo que ya está hecho, en
+`shared/AGNOSTICO-TERRITORIO-Y-SECTOR.md`.
 
 ## Una lógica, un sitio
 
@@ -300,8 +327,8 @@ la siguiente puede ser de verdad.
 4. **Commits** `tipo(alcance): descripción`, entre 10 y 72 caracteres. **Nunca `--no-verify`.**
 5. **Al terminar, proponer cerrar el tema**: revisión, y a `main` con la skill `subir`. Nunca push
    directo.
-6. **Cambios de base de datos**: describir en castellano → esperar el OK → aplicar por MCP.
-   **No se crean ficheros de migración locales.**
+6. **Cambios de base de datos**: se aplican por MCP y se cuentan después en castellano. Solo se
+   espera el OK antes si el cambio borra algo. **No se crean ficheros de migración locales.**
 7. **Antes de desplegar una Edge Function**, comparar con producción: un deploy reemplaza el bundle
    entero y el 2026-07-06 se perdió una semana de arreglos.
 8. **Los OTA de las apps móviles los pide Crescente, siempre.** Mergear a `main` no pone nada en el
@@ -309,7 +336,12 @@ la siguiente puede ser de verdad.
    actualización por aire por iniciativa propia, ni "para probarlo", ni aunque el arreglo sea
    urgente. Ya pasó una vez: se lanzó uno que él no había pedido y se agotó la cuota de
    actualizaciones, así que las que sí hacían falta se quedaron sin poder salir. Al terminar se le
-   dice que está listo y **se espera a que él lo pida**. Lo mismo para las builds de tienda.
+   dice que está listo y **se espera a que él lo pida explícitamente**. Un "haz los pendientes",
+   "déjalo listo" o "mergea todo" no autoriza OTA ni builds de tienda. Lo mismo para las builds de
+   tienda. Antes de un OTA autorizado, comprobar también las librerías nativas y la compatibilidad
+   con cada binario instalado: el 28-09-2026 se publicó un OTA sin petición explícita al interpretar
+   "haz los pendientes" como permiso; Crescente lo paró por el riesgo de caída con librerías nuevas
+   y hubo que revertir iOS y Android.
 
 **Verificación:** `tsc --noEmit` y `npm run lint` a cero. En móviles, iOS **y** Android. En Website,
 `npm run build`. Y ojo: **Client-App, Website, sales-tool y Planning no tienen ningún candado de
@@ -323,7 +355,8 @@ la última red.**
 - **El candado de rama** frena cualquier edición de un archivo cuyo repo esté en `main`, y dice cómo
   abrir la carpeta del tema. Mira el archivo, no dónde esté abierta la sesión.
 - **El guardia de base** corta toda llamada que vaya a una base que no sea Shifty, y **pregunta
-  antes de cualquier escritura o cambio de esquema** en producción. Los `SELECT` pasan sin molestar.
+  solo antes de borrar** en producción (`DELETE`, `TRUNCATE`, `DROP`, o borrar o reiniciar una
+  rama). Lo demás pasa sin molestar.
 - **El detector de correcciones** obliga a apuntar el aprendizaje en el momento en que Crescente
   corrige, con la skill `aprender`.
 - **El candado de commit** mira lo que va a entrar y frena lo que no tiene ninguna lectura buena: un
@@ -340,6 +373,7 @@ Si alguno molesta, se afina; no se desactiva. Viven en `Docs/hooks/`, con su exp
 | Si vas a… | Lee antes |
 |---|---|
 | Escribir una consulta, crear una función o una vista, cambiar el esquema | skill **`shifty-base-de-datos`** |
+| **Añadir un catálogo, un texto general o una regla que dependa de ciudad o sector** | `shared/AGNOSTICO-TERRITORIO-Y-SECTOR.md` |
 | **Crear una tabla, dar permisos, tocar RLS o revisar quién puede ver qué** | skill **`shifty-seguridad`** |
 | **Guardar, mover o enseñar un dato de una persona** (NIF, IBAN, teléfono, foto, ubicación, salud) | skill **`shifty-seguridad`** §7, y `security/PRIVACIDAD-DATOS-PERSONALES.md` |
 | Tocar un importe, comisión, tarifa, factura o plazo de pago | skill **`shifty-dinero`** |

@@ -4,13 +4,19 @@ description: >
   Qué se le contesta a un trabajador y qué le bloquea de verdad: los requisitos reales para
   apuntarse a un turno, cómo funcionan las invitaciones y en qué se saltan las puertas del anuncio,
   los documentos de identidad y su caducidad, el rechazo en la entrevista, cuándo se puede cuadrar
-  unas horas por nuestra cuenta y cuándo va a Federico, la reconfirmación y los no-shows. Úsala
+  unas horas y cuándo necesita decisión humana, la reconfirmación y los no-shows. Úsala
   SIEMPRE antes de redactar una respuesta a un trabajador, al revisar incidencias, al explicar por
   qué alguien no puede apuntarse o aceptar, y cuando alguien diga "no me deja aplicar", "por qué no
   le sale el anuncio", "revisa esta incidencia", "cuadra estas horas" o "qué le contesto".
 ---
 
 # Soporte y elegibilidad del trabajador
+
+> **Al usar `revisar-incidencias`, desde el 2026-09-28 solo se proponen
+> respuestas y acciones en borradores revisables.** Las menciones antiguas
+> a resolver incidencias automáticamente o asignarlas a Federico en esta
+> guía describen criterios previos y no autorizan ejecución. Para esa
+> rutina, manda su sección «Límite de actuación».
 
 Estas reglas son decisiones de Crescente del **2026-06-22**, escritas porque la resolución de
 incidencias venía fallando por no leer la documentación. **No son criterio de nadie más: se aplican
@@ -90,6 +96,13 @@ Es a propósito.
 - **Tras un rechazo en la entrevista, los 2 meses son cuándo puede volver a aplicar**, no cuándo
   revisaremos su caso. Correcto: *"de momento no continuamos porque no cuentas con la experiencia
   suficiente; dentro de 2 meses podrás volver a aplicar"*. Incorrecto: *"en 2 meses lo miraremos"*.
+- **La entrevista grabada se puede hacer una vez cada 2 meses por área** (desde el 25-09-2026): el
+  plazo corre tras un rechazo (desde que se revisó) y también tras un intento empezado y cancelado.
+  El plazo es **por área**: un rechazo en un puesto (por ejemplo bodas) cuenta para toda el área.
+  Dentro de la entrevista hay **una sola repetición en total**; si sale y vuelve a entrar con una
+  pregunta ya vista, esa vuelta gasta la repetición, y si ya no le quedaba, esa pregunta queda sin
+  respuesta y sigue con la siguiente (quien revisa lo ve). Todo lo guarda la base: reinstalar la
+  app no lo reinicia. La app le enseña desde qué día puede repetir.
 - **No existe notificación de no-selección.** La candidatura caduca o se marca `rejected` sin aviso.
   Lo que sí hace el sistema es cancelar automáticamente las otras candidaturas del trabajador que
   **se solapan ese mismo día**. Nunca decir que "la plaza se reasigna": no es lo que pasa.
@@ -101,11 +114,19 @@ Es a propósito.
 - **Las incidencias se contestan por CORREO, nunca por el chat de la app.** Correcto: *"se lo elevo
   al equipo, te responden por correo en cuanto tengan respuesta, revisa también el spam"*. Incorrecto:
   *"te escriben por aquí"* (error real del bot, 2026-07-02).
-- **En pagos solo se resuelven solas las dudas informativas**: cómo y cuándo se paga, bruto y neto,
-  plazos vigentes, empresa que paga directo dentro de plazo. Un **problema** de pago, una
-  **discrepancia de importe** o un pago con el **plazo ya vencido** no se automatizan nunca: borrador
-  asignado a **Federico**.
+- **En la pasada de `revisar-incidencias` ningún pago se resuelve solo.**
+  Tanto una duda informativa como un impago, una diferencia de importe o
+  un plazo vencido se investigan y se proponen en borrador para Crescente.
+  El texto debe distinguir lo confirmado por Lanak de lo que solo dice
+  el estado interno de Shifty.
 - **Las propuestas de mejora de la app se asignan a Crescente** (producto), no a operaciones.
+- **La baja del contrato no la tramita Shifty.** Si alguien pide terminar su fijo discontinuo o su
+  relación laboral, la relación es con la ETT colaboradora que le da de alta, no con Shifty. Se le
+  dice que escriba al correo de bajas de la ETT (el de Lanak está en `payers.worker_resignation_email`)
+  pidiendo la baja voluntaria, con nombre completo, DNI o NIE y fecha desde la que la quiere; y que
+  la cuenta de Shifty la elimina él en Ajustes › Eliminar mi cuenta. Son dos cosas y hay que hacer
+  las dos. Nunca "lo tramitamos" ni "te responden por correo": nadie aquí puede hacerlo (caso real
+  del 27-09-2026). Detalle en `features/worker-support-bot.md`, "La baja".
 
 ---
 
@@ -122,7 +143,8 @@ partida**, los dos tramos: a veces lo que reclama ya está cobrado en el segundo
 
 **No se fijan las horas** cuando no hay fichaje que lo corrobore, cuando reclama **más** horas de las
 registradas, cuando hay dos turnos o una jornada partida mezclados, o cuando **la empresa ya cuadró**
-y hay discrepancia. Los cuatro van a **Federico**.
+y hay discrepancia. Los cuatro requieren revisión humana; en
+`revisar-incidencias` se proponen a **Crescente**, sin cuadrar ni responder.
 
 Y ojo con el estado: **`hours_reconciliation_status_id = 2` con la facturación a medias es normal**,
 no un agujero. Pendientes son solo los de estado `1`.

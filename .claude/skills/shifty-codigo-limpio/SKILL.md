@@ -156,7 +156,25 @@ librería.
 
 ---
 
-## 7. Verificar antes de dar algo por terminado
+## 7. En la interfaz, nunca un emoji como icono
+
+Regla de Crescente del 25-09-2026: **un emoji como icono es poco profesional. Siempre va un icono del
+set de la app**, y si el que hace falta no está, se añade al set; no se tira de un emoji mientras
+tanto. Vale para las cuatro apps. En la app de trabajadores el set es `components/nueva/Icono.js`,
+el lint da error si se escribe un emoji en el código de la app única, y el detalle (qué cuenta como
+emoji, qué pieza lleva cada icono y la lista de la app de siempre) está en su
+`docs/rediseno-front-2026-09/GUIA-FRONT-UX.md` §14.
+
+- **Cuenta como emoji** lo que el móvil pinta en color (📄, 💜, ✅) y lo que lleva el selector que lo
+  convierte (⚠️).
+- **Un signo tipográfico dentro de una frase es texto y se queda** ("★ 4,5 · 12 turnos",
+  "Ajustes › Shifty"). Si va suelto haciendo de icono (un ✓ en una pastilla, un › al final de una
+  fila), se cambia por el icono.
+- **Lo que escribe una persona o manda el servidor es contenido** y no se toca.
+
+---
+
+## 8. Verificar antes de dar algo por terminado
 
 `tsc --noEmit` y `npm run lint` a cero. En las apps móviles, iOS **y** Android. En Website,
 `npm run build`.
