@@ -104,6 +104,23 @@ dos skills con el mismo nombre tengan exactamente el mismo contenido.
 Si falla el sync, **no se actualiza ninguno de los seis repos**, y el push a `Docs` sale en verde
 igual: solo se entera quien mire las Actions.
 
+### Toda skill nueva se apunta en el inventario de Drive
+
+Regla de Crescente, 2026-10-06: quiere todas sus skills **centralizadas en un solo sitio** que
+pueda leer sin abrir repos. Ese sitio es la hoja **"Skills"** de Google Drive:
+<https://docs.google.com/spreadsheets/d/1xAKz_iNew1QVy76uwVO8ccA7fR6LCoXmKbVjFOFnezY/edit?gid=644298756>
+
+Dos columnas: **Skill** (el `name` de la cabecera) y **Qué hace** (una o dos frases en castellano
+de persona, lo que hace y si propone o actúa sola; no se pega la `description` técnica). Las filas
+van agrupadas por bloque (operativa diaria, auditorías, git y despliegue, mantenimiento,
+guardarraíles): la nueva entra en el bloque que le toque.
+
+- **Cuándo:** en el mismo trabajo en que se crea la skill, no después. Lo mismo al renombrarla o
+  al cambiar lo que hace, y al retirarla se marca en su fila, no se borra.
+- **Cómo:** el conector de Drive solo lee la hoja, no escribe celdas. Si en la sesión no hay forma
+  de editarla, se le deja a Crescente **la fila lista para pegar** en el mensaje final, diciendo en
+  qué bloque va. Una skill no se da por terminada sin esa fila.
+
 ### El campo `paths` de una skill
 
 Una skill puede declarar `paths` en su cabecera. Entonces se carga **de forma determinista** cuando
