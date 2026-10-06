@@ -116,10 +116,18 @@ van agrupadas por bloque (operativa diaria, auditorías, git y despliegue, mante
 guardarraíles): la nueva entra en el bloque que le toque.
 
 - **Cuándo:** en el mismo trabajo en que se crea la skill, no después. Lo mismo al renombrarla o
-  al cambiar lo que hace, y al retirarla se marca en su fila, no se borra.
-- **Cómo:** el conector de Drive solo lee la hoja, no escribe celdas. Si en la sesión no hay forma
-  de editarla, se le deja a Crescente **la fila lista para pegar** en el mensaje final, diciendo en
-  qué bloque va. Una skill no se da por terminada sin esa fila.
+  al cambiar lo que hace. Al retirar una skill, su fila se quita de la hoja.
+- **Formato:** igual que las filas que ya hay. La fila de una skill copia el formato de cualquier
+  otra fila de skill (nombre en negrita, descripción ajustada a la celda); un bloque nuevo copia el
+  de una barra de bloque (gris, en negrita, con las dos columnas unidas). Si la skill encaja en un
+  bloque que ya existe, se inserta una fila dentro de ese bloque, no al final.
+- **Cómo:** el conector de Drive solo lee la hoja. Se escribe desde Chrome (Claude in Chrome):
+  escribir con tabuladores no sirve, porque los convierte en espacios. Lo que funciona es escribir
+  en la celda una matriz literal (en esta hoja, que está en castellano, columnas separadas con
+  barra invertida y filas con punto y coma) y después copiar y pegar solo los valores, y copiar el
+  formato con "pegar solo formato". Al acabar se relee la hoja con el conector para comprobarlo.
+  Si en la sesión no hay Chrome, se le deja a Crescente **la fila lista para pegar** diciendo en
+  qué bloque va. Una skill no se da por terminada sin su fila.
 
 ### El campo `paths` de una skill
 
