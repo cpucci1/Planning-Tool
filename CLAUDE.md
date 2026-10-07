@@ -391,6 +391,7 @@ Si alguno molesta, se afina; no se desactiva. Viven en `Docs/hooks/`, con su exp
 | Trabajar dentro de un repo concreto | su `CLAUDE.md`; el cargador del agente obliga a leerlo |
 | Cualquier cosa que afecte a más de una app | `shared/SOURCE_OF_TRUTH.md` **primero** |
 | Crear una RPC | `shared/rpc-functions.md`, para no duplicar una que ya existe |
+| **Tocar contratos, plantillas de contrato o la firma** | `features/firma-de-contratos.md`, y al terminar pasar `shared/comprobar-firma.sql` hasta que diga OK |
 | Entender una feature | su fichero en `features/` |
 | **Tocar quién ve un anuncio en la app de trabajadores** | `features/quien-ve-cada-anuncio.md`, y ojo: es UNA sola puerta que preguntan once funciones |
 | **Crear un tipo nuevo de `activity_log`, o tocar lo que se ve en un historial** | `features/historial-de-actividad.md` |
