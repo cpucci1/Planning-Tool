@@ -2,7 +2,7 @@
 name: shifty-base-de-datos
 description: >
   Todo lo que hay que saber antes de tocar la base de datos compartida de Shifty (Supabase
-  brgswggayexbvrnqtlhp, 461 tablas, 1.363 funciones, usada por las 4 apps y el sales-tool): las
+  brgswggayexbvrnqtlhp, cientos de tablas y miles de funciones, usada por las apps, el panel y el sales-tool): las
   trampas verificadas del esquema que ya han costado incidentes, las cuatro vistas de precio y por
   qué son zona crítica, qué se congela en el turno y por qué, los feature flags y cómo no
   saltárselos, la convención de nombres, las reglas de arquitectura para no duplicar lógica, y la
@@ -14,7 +14,7 @@ description: >
 
 # La base de datos de Shifty
 
-**Proyecto `brgswggayexbvrnqtlhp` (producción).** La comparten las 4 apps de producto **y** el
+**Proyecto `brgswggayexbvrnqtlhp` (producción).** La comparten las apps de producto (app única, Client-App, panel y web) **y** el
 `sales-tool`. Cualquier cambio afecta a todo a la vez. `Planning/` es el único que no la toca.
 
 **Antes de nada:** las reglas inquebrantables están en el `CLAUDE.md` maestro y aplican enteras.
@@ -26,25 +26,37 @@ las RPC; nada de datos operativos ni de pago fuera de `is_test`.
 
 ## 1. Una lógica, un sitio
 
-Medido contra producción el 2026-09-02. La misma regla de negocio vive hoy en muchos sitios:
+Medido contra producción el 2026-10-09 (2.110 funciones, 524 tablas) con
+`fn_logic_duplication_metrics()`, que lo vuelve a medir solo cada día y avisa a #alarmas si sube. **Cada cifra puede bajar y
+nunca subir.** La lista completa de preguntas y la única función que contesta cada una está en
+**`shared/FUENTES-UNICAS.md`**; el plan para deshacer las copias, y cómo se hace sin romper
+producción, en **`shared/PLAN-UNA-LOGICA-UN-SITIO.md`**.
 
-| Lógica | En cuántas funciones está escrita |
-|---|---|
-| La comisión | ✅ **una sola**, `fn_commission_pct` (2026-09-18) |
-| La tarifa con recargo de noche o festivo | ✅ **una sola**, `fn_effective_hourly_rate` (2026-09-18) |
-| Detectar quién actúa (interno o usuario de empresa) | **158** |
-| La guarda `is_test` | **145** |
-| Estados de jornada | **55** |
-| Estados de trabajador | **53** |
-| El documento de identidad del trabajador | **14** |
+| Lógica | Copias a mano | Fuente única |
+|---|---|---|
+| La comisión | 27 leen columnas de comisión sin el helper | `fn_commission_pct` |
+| La tarifa con recargo de noche o festivo | ✅ centralizada (2026-09-18) | `fn_effective_hourly_rate` |
+| Quién es Gold | 1 (la cascada) | `fn_is_gold` / `fn_workers_gold` |
+| Detectar si quien llama es interno | **416**, y **ocho** helpers para lo mismo | `is_internal_user` / `_require_active_internal_user` |
+| Detectar si quien llama es de la empresa | **184**; 89 eligen empresa con `LIMIT 1` | `assert_is_company_member` / `check_company_user_can` |
+| Estados con números a secas | **391** | Helpers de estado (plan 2.2) |
+| La nota media | **40** | `get_workers_avg_rating` |
+| Escribir en `activity_log` | **41** (eran 447 el 10-10-2026) | `fn_log_activity_core` (argumentos con nombre) o su canal corto `fn_log_activity`. Nunca un `INSERT` propio |
+| La zona horaria de Madrid escrita | **127** | `fn_shift_timezone` |
+
+⚠️ **Para "¿es interno?" se usan tres:** `is_internal_user()` (sí/no), `_require_active_internal_user()`
+(corta) y `fn_internal_user_id(usuario)` (el id o nulo, también con el usuario por parámetro). Los otros
+seis que existen son alias desde el 10-10-2026 y lo dicen en su comentario. Para "¿es de esta empresa?":
+`assert_is_company_member`, `get_my_company_ids()` y `fn_company_user_id_for(empresa, usuario)`.
 
 Si se cambia una copia y no las otras, **el sistema contesta cosas distintas según por dónde entres,
 sin dar ningún error**. Ya ha pasado: ver el punto 6.
 
 ### Las reglas
 
-1. **Antes de escribir una comprobación, busca el helper.** Existen y casi nadie los usa:
-   `assert_company_user_can` (22 usos), `check_company_user_can` (12), `_require_internal_user` (8),
+1. **Antes de escribir una comprobación, busca el helper** (`fn_find_similar`, §7 paso 0, y
+   `shared/FUENTES-UNICAS.md`). Existen y casi nadie los usa:
+   `assert_company_user_can` (22 usos), `check_company_user_can` (12), `_require_active_internal_user`,
    `assert_can_edit_job_day` (12), `assert_is_company_member` (2), `_chat_resolve_caller` (25, por hilo o empresa),
    `feature_flag_enabled_for_worker`, `feature_flag_enabled_for_company`.
    **Para el dinero y las reglas ya centralizadas:** `fn_commission_pct` y `fn_commission_source`
@@ -90,7 +102,7 @@ Hoy hay **348 columnas sin información** (213 completamente vacías) y **solo 1
 las columnas legacy de `shifts` **no están vacías del todo**, tienen entre 3 y 10 filas con importes
 viejos sobre 13.816. Eso es peor que vacías, porque no fallan: mienten.
 
-⚠️ **Renombrar una columna para marcarla es un cambio destructivo**: las 4 apps dependen de los
+⚠️ **Renombrar una columna para marcarla es un cambio destructivo**: todas las apps dependen de los
 nombres. Primero se marca en el comentario; renombrar solo cuando esté verificado que no la lee nadie.
 
 ---
@@ -160,7 +172,7 @@ el turno el día que se crea, no después.
 - **Una función sin llamadas NO está muerta.** Puede estar detrás de un flag apagado. El portal de
   empleo está apagado, así que `create_job_posting` y `update_job_posting` parecen abandonadas y no
   lo están. Igual con `hiring_service_enabled` (apagado en producción, encendido para test) y
-  `category_required_documents_gate` (apagado el 2026-09-01).
+  `category_required_documents_gate` (apagado el 2026-09-01, encendido el 2026-10-07).
 - **Antes de proponer borrar o unificar algo, comprueba su flag.**
 - **Siempre encendidas (`is_always_on`, desde el 30-09-2026).** Una bandera cuya funcionalidad ya es
   permanente se marca así: queda encendida para todos, la base no deja apagarla (CHECK
@@ -247,6 +259,12 @@ Cada una ha costado un incidente real.
 
 ### Estados que engañan
 
+- **"Rechazado" (4) en `job_days_candidates` no dice quién dijo que no.** En una solicitud
+  (`source` = `organic`) lo rechazó la empresa o el sistema; en una invitación (`source` =
+  `invited`) lo rechazó **el trabajador**. Invitación y solicitud son cosas distintas y siempre se
+  separan por `source`. El 2026-10-20 se recomendaron para reinvitar 6 "rechazados" de AGA y 5
+  habían declinado ellos la invitación. El detalle y cómo reconocer cada una está en
+  `status-ids.md`, "Invitación y solicitud no son lo mismo".
 - **`unpublished` NO es inactivo.** Cerrado a solicitudes nuevas, pero sus turnos confirmados siguen
   activos. Incluirlo en el monitor en directo.
 - **Desde el 2026-10-01, la empresa que acepta las horas sin disputa deja el turno cuadrado en el
@@ -311,6 +329,19 @@ Cada una ha costado un incidente real.
 - **Las altas precreadas por partners no son clientes que fracasaron.** De 72 altas en 60 días, solo
   11 eran clientes reales.
 
+### Frenos de producción
+
+- **Las conexiones de la API engordan y no sueltan la memoria mientras viven.** Cada conexión de
+  PostgREST guarda lo que ha ejecutado y llega a ~230 MB; con el grupo lleno tumba la máquina de
+  16 GB. Por eso existe el reciclador `monitoring.recycle_idle_postgrest` (cron 288, cada minuto,
+  conexiones con más de 4 minutos de vida). Caso completo en
+  `docs/incidencias-tecnico/rendimiento-postgres.md`.
+
+### Freno comprobado después del último cambio (2026-10-15)
+Un freno se da por bueno solo si se ha medido DESPUÉS del último cambio que pueda reiniciar el servicio en el que se apoya.
+- CORRECTO: tras cambiar algo que reinicia un servicio (ajustes de la API, pooler, tamaño de máquina, reiniciar el proyecto), volver a mirar a los 5 minutos que el freno sigue actuando con su propio registro (para el reciclador, `monitoring.pool_recycle_log` con cierres > 0), y filtrar siempre de forma tolerante lo que nombra otro (`application_name ilike 'postgrest%'`, nunca igual exacto). Y todo freno lleva su vigilante, que avisa a #alarmas si deja de actuar.
+- INCORRECTO: el 2026-10-15 el reciclador se midió a las 18:06 y funcionaba. A las 18:12 se bajó el grupo de PostgREST de 60 a 30 por la API de gestión; PostgREST reinició y pasó a llamarse `PostgREST 14.5` en vez de `postgrest`. El reciclador filtraba por el nombre exacto, dejó de cerrar ninguna conexión y la memoria volvió a 9,2 GB en media hora. No avisó nada: lo vio Crescente en la gráfica. Faltaron las dos cosas, volver a comprobar tras el cambio y un vigilante del freno.
+
 ---
 
 ## 6 bis. Cómo se modifica una función que ya está en producción
@@ -344,12 +375,185 @@ El tipo de retorno, la volatilidad, si es `SECURITY DEFINER`, el `search_path` y
 sacarlos de `pg_proc` y **reproducirlos tal cual**. Escribir mal el tipo de retorno rompe la función.
 Después de aplicar, verificar que siguen igual.
 
+### Añadir un parámetro cambia la firma, y eso exige retirar la vieja
+
+En Postgres, `CREATE OR REPLACE` no puede cambiar la lista de parámetros: un parámetro nuevo, aunque
+tenga valor por defecto, es **otra función**. Dejar la vieja viva es la sobrecarga que rompe las
+llamadas cortas; quitarla es un `DROP`, y borrar se pregunta antes. Así que **un cambio que pida un
+parámetro nuevo se pregunta antes** (y la vieja se retira en la misma migración), o se busca otra
+función que ya reciba ese dato. Aprendido el 09-10-2026 con la nota del cierre rápido.
+
+A veces basta con **no mandar el valor**: si la función hace `COALESCE(nuevo, previo)` y la columna
+nace con el valor bueno, que la pantalla deje de mandarlo hace que decida la base sin tocar la firma.
+Así se resolvió el "aceptar en lote = 5".
+
+### El comentario se pisa sin avisar
+
+`COMMENT ON FUNCTION` pisa el anterior. Desde el 09-10-2026 la caja negra también lo guarda (columna
+`comment` de `function_versions`, filas `COMMENT`), así que se puede recuperar; aun así, antes de
+reescribirlo lee `obj_description(oid, 'pg_proc')` y conserva lo útil.
+
+### Un helper que mira la sesión no sirve para quien llama sin sesión
+
+`assert_is_company_member` y compañía preguntan a `auth.uid()`. Muchas funciones reciben el usuario
+por parámetro (`p_auth_user_id`) y las llama también el servidor, sin sesión: meterles el helper las
+rompe. En ese caso se usan los que aceptan el usuario por parámetro: `fn_internal_user_id(p_auth_user_id)` y
+`fn_company_user_id_for(empresa, p_auth_user_id)` (cuenta activa incluida; solo los llaman otras funciones). Leer antes la guarda de sesión de la función y
+quién la llama sin sesión.
+
+### La comparación en sombra, dentro de la misma transacción
+
+Para una función de lectura: calcular las respuestas con la versión viva, ejecutar en el mismo bloque
+el `CREATE OR REPLACE` nuevo, volver a calcular, comparar y terminar con `RAISE` para que no quede
+nada aplicado. Sin ruido de datos que cambian entre minutos. Y la sombra se hace contra **todo** lo
+que hace la fuente de referencia, no solo contra las diferencias que ya se conocían: el 09-10-2026 el
+plan esperaba 91 turnos distintos en el coste del cuadre y salieron 9.835, por una segunda causa (el
+redondeo del coeficiente en periodos ya facturados) que nadie había visto. Cada diferencia se
+desglosa por causa antes de aplicar.
+
+### Un dato que se pide en un paso del alta se queda vacío: derívalo en la base
+
+Aprendido el 09-10-2026 con MAPA Bakery: el centro se creó sin territorio porque ese paso del alta se
+lo saltaron, aunque su local sí lo tenía. Una regla nueva que leía el territorio del centro la frenó
+por error. Si un dato se puede deducir de otro que ya existe (el territorio del centro, del de sus
+locales), la base lo rellena sola con un disparador, con rastro y sin impedir guardar. Y antes de
+poner una regla que lea un dato, cuenta cuántas filas lo tienen vacío y por qué.
+
+### Las llamadas de la base a funciones (`pg_net`): cómo leerlas sin engañarse
+
+Aprendido el 09-10-2026 investigando "un 20 % de llamadas fallan":
+- **`pg_net` procesa por tandas y cada tanda espera a la petición más lenta.** Una llamada lenta con
+  espera larga retrasa todo lo que encola la base (ese día, los push pasaron de 3 s a 11-25 s por un
+  barrido de Clara que tardaba 30 s). **Subir el tiempo de espera "para que no falle" empeora la cola
+  de todas las demás.**
+- **"Timeout of 5000 ms" no quiere decir que la función no corriera**: es la espera por defecto de
+  `net.http_post`; la función sigue y termina. Para saber si una llamada llegó se mira su efecto en la
+  base o la forma de su respuesta, no `function_edge_logs` (pierde muchas llamadas que vienen de la base).
+- **La cola de `pg_net` no sobrevive a un reinicio de la base**: lo que esperaba se pierde sin rastro.
+- El "DNS time" del mensaje de error es un reparto falso de curl; no hay problema de DNS.
+
+### Un cambio de estructura bloquea la tabla entera mientras dura
+
+Aprendido el 09-10-2026: borrar una restricción de `workers` (una línea) esperó a que acabaran las
+consultas en curso y, mientras tanto, bloqueó la tabla **56 segundos**: 255 errores en la app de
+trabajadores en iPhone y Android, y a 4 trabajadores reales les falló la pantalla de fichar. Ningún
+fichaje se perdió porque en ese minuto no había entradas ni salidas previstas; la próxima vez puede
+haberlas.
+
+Cualquier `ALTER TABLE`, `DROP CONSTRAINT`, `CREATE INDEX` sin `CONCURRENTLY` o disparador nuevo sobre
+una tabla que las apps leen a todas horas (`workers`, `shifts`, `job_days`, `job_days_candidates`,
+`company_users`, `notifications`, `activity_log`) lleva **al principio de la migración**
+`SET LOCAL lock_timeout = '3s';`: si no consigue la tabla enseguida, falla y no bloquea a nadie, y
+se reintenta. Y se lanza fuera de horas punta, mirando antes en `shifts` que no haya entradas ni
+salidas previstas en los minutos siguientes.
+
+### Lo que parece de una línea y en Postgres exige borrar
+
+- **Añadir una etiqueta a un event trigger** es DROP + CREATE (`ALTER EVENT TRIGGER` no cambia
+  etiquetas): se crea otro que llame a la misma función. **Cambiar la condición de una política** sí
+  se puede sin borrar: `ALTER POLICY ... USING (...)`.
+- **Una regla que depende de la fecha de hoy no va en un `CHECK`**: el `CHECK` se evalúa en cualquier
+  cambio de la fila, y bloquearía cualquier escritura en las fichas que ya no lo cumplen (puntos,
+  bajas, crons). Va en un disparador sobre la columna.
+- **Un disparador corre con el rol de quien escribe**: si llama a un helper, ese helper necesita
+  `EXECUTE` para `authenticated`, o la app deja de poder guardar. Probado como empresa o trabajador
+  de prueba antes de aplicar. Desde el 28-10-2026 lo mira solo `fn_review_function` (y
+  `fn_review_table`) con la comprobación `disparador_permisos`, en las dos direcciones: el
+  disparador que revisas, y la función a la que le quitas el permiso. La lista entera de la base:
+  `select * from fn_trigger_calls_without_grant();`.
+  - CORRECTO: al poner un disparador o al cerrar el permiso de una función, pasar la revisión y
+    escribir en la tabla con `set local role authenticated` y la sesión de una empresa o un trabajador
+    de prueba, en una transacción que se deshace. Arreglo según el caso: `EXECUTE` a `authenticated` si
+    la función es inofensiva, `SECURITY DEFINER` en el disparador si no decide por `current_user`, o un
+    helper `SECURITY DEFINER`.
+  - INCORRECTO: el 11-10-2026 (ronda 4 del plan una lógica) el nivel del puesto se puso con un
+    disparador en `position_types` que llamaba a `v8_position_level`, cerrada a `authenticated`. La
+    sombra comparó los niveles como `postgres` (0 diferencias) y nadie escribió como empresa: crear una
+    posición desde el anuncio del panel falló 17 días con un "Error al crear la posicion" sin motivo,
+    hasta que lo reportó Chispa Bistró el 28-10.
+  - Ojo con los guardas que deciden por `current_user` (`fn_guard_location_direct_update`): hacerlos
+    `SECURITY DEFINER` los deja sin efecto, porque dentro `current_user` siempre es la base.
+
+### Leer la función entera, aunque el encargo sea "solo falta X"
+
+El 09-10-2026 la lista era "funciones que no miran si el acceso de empresa está activo", y al leerlas
+tres no miraban **quién llamaba en absoluto**: cualquiera con sesión quitaba los anuncios a otro
+trabajador, o subía y firmaba el contrato de cualquier centro. Una búsqueda por patrón no distingue
+"guarda floja" de "sin guarda". Y para saber si una RPC se usa de verdad: `query_logs` sobre
+`edge_logs` buscando `rpc/<nombre>` (en `pg_stat_statements` no aparecen).
+
+### Antes de tocar una función que se usa en un índice, o que "solo convierte nulos"
+
+- Una función `IMMUTABLE` puede estar dentro de un índice (`pg_index`), un valor por defecto, una
+  restricción o una política: cambiar lo que devuelve obliga a reindexar o el índice miente. Mide el
+  cambio sobre la entrada exacta que le llega.
+- "Solo convierte nulos en el valor bueno" puede ser **una decisión sobre personas**: el 09-10-2026
+  arreglar la normalización de teléfonos no cambiaba ningún resultado válido, pero 217 personas con
+  campañas programadas habrían empezado a recibir WhatsApp. Sigue cada llamada hasta su efecto
+  (enviar, saltar, contar topes) y cuenta personas antes de aplicar.
+- **Antes de decir cuándo saldrá un envío, lee la función que envía.** El 09-10-2026 se le dijo a
+  Crescente que 18 envíos atrasados saldrían "en la siguiente vuelta", y la recuperación solo manda
+  lo programado para ese día exacto: lo atrasado no sale nunca si no se le da fecha nueva.
+- Saca cada llamada con su argumento, no solo la lista de funciones: unas limpian la entrada antes y
+  otras pasan el valor guardado tal cual.
+- **No bajes una métrica sin arreglar nada**: añadir una llamada suelta al helper hace que la función
+  deje de contar como copia aunque siga consultando a mano. Lo que cuenta es que la consulta a mano
+  desaparezca y la sombra diga que nada cambia.
+- **Repasa `function_versions` también al terminar**, no solo al empezar: otra sesión puede estar
+  tocando la misma familia mientras trabajas.
+
+### Antes de añadir rastro o una comprobación, mira la tabla, no solo la función
+
+- **El rastro puede vivir ya en un disparador de la tabla** (el auditor genérico `fn_config_audit`
+  lo usan diez). Si existe, se le pone a la tabla que falta en vez de escribir otro `INSERT`.
+- **Si una pantalla escribe directo en la tabla, arreglar la función no basta**: el sitio es un
+  disparador. Busca el nombre de la tabla en el código (`from('tabla')`), no solo el de la función.
+- **Una comprobación de "ya existe" mira exactamente lo que mira el índice único**: la misma
+  expresión (normalizada si hay disparador que normaliza) y el mismo conjunto de filas (también las
+  borradas). Si no, revienta con un error técnico justo en el hueco entre las dos.
+- En una sombra, `now()` es la hora de toda la transacción: para separar fases, guarda los ids de antes.
+
+### Un parche reutilizable: lo probado es lo aplicado
+
+Una función temporal `pg_temp.patch(regprocedure, text[] pares)` que parte de `pg_get_functiondef`,
+aplica los pares de sustitución y aborta si un trozo no aparece exactamente una vez. La misma
+llamada sirve para la sombra (dentro de un bloque que acaba en `RAISE`, con `SET LOCAL ROLE
+authenticated` y `request.jwt.claims` para probar como cada usuario, y `RESET ROLE` antes de cada
+`CREATE OR REPLACE`) y para la migración.
+
 ### Una variable que se queda sin uso es una trampa
 
 Al quitar una condición, la variable que la gobernaba se queda asignada y sin leer. `plpgsql_check`
 lo avisa, y hay que hacerle caso: **una variable muerta que antes gobernaba una comprobación invita a
 que alguien la devuelva a la condición.** Se retira del `DECLARE` y del `SELECT INTO`, y se deja un
 comentario explicando por qué ya no está.
+
+---
+
+### Volver atrás: la caja negra
+
+Desde el 2026-10-09, cada vez que se crea o cambia una función de `public` su definición entera
+se guarda sola en `function_versions` (también si el cambio se hizo con `execute_sql` o con un
+bloque `DO`, que no dejan rastro en `supabase_migrations`). **Antes de aplicar, apunta el `id` de la
+última fila de esa función. Si algo se rompe, volver atrás es ejecutar la `definition` de esa
+fila.** Para ver qué cambió una semana: las filas con `changed_at` de esos días.
+
+La tabla no la lee nadie con sesión: solo el servidor y el rol `postgres`.
+
+---
+
+### Corregir datos en bloque en `shifts`: mira antes qué se dispara
+
+Aprendido el 09-10-2026 al pasar 4.369 valoraciones antiguas de 4 a 5. `shifts` tiene **33
+disparadores**, y siete saltan con **cualquier** cambio, no solo el de estado. Dos podían hacer daño
+con un cambio que no tenía nada que ver: `trigger_set_payment_pending` pone estado de pago a un turno
+terminado con horas aceptadas que no lo tenga, y `fn_queue_nortempo_sync` puede encolar el turno
+para la hoja de Nortempo. Esa vez daban cero, pero se supo porque se midió antes.
+
+Antes de un `UPDATE` en bloque sobre `shifts` (o cualquier tabla con muchos disparadores): listar
+los que saltan sin filtro de columna (`pg_get_triggerdef`), leerlos, y **contar cuántas filas del
+objetivo cumplen la condición de cada uno**. Si alguno no da cero, no se hace así. Y cada fila
+cambiada deja su rastro en `activity_log` con el valor anterior: es la vuelta atrás.
 
 ---
 
@@ -400,12 +604,55 @@ mismo sitio. Y si no puede ser, se escribe en las dos que van juntas.
 
 ## 7. Verificación de una función nueva
 
+**Dos llamadas, una antes y otra después. Las dos solo leen y van por el MCP.**
+
+0. **Antes de escribirla: ¿ya existe algo parecido?**
+   `select * from fn_find_similar('palabras de lo que va a hacer', array['tablas','que','toca']);`
+   Admite castellano o inglés (traduce las del negocio: comisión, turno, jornada...) y devuelve las
+   15 funciones, tablas y vistas que más se le parecen, con el porqué. Se mira junto con
+   `shared/FUENTES-UNICAS.md`. **Si sale una que hace lo mismo, se extiende esa**: parámetro con
+   DEFAULT, nunca una gemela. Con más de dos mil funciones lo normal es que exista; así nacieron las 19
+   familias del 3 de septiembre.
+
+   **Después de crearla o cambiarla:** `select * from fn_review_function('nombre');` (y
+   `fn_review_table('nombre')` para una tabla o vista). Hace en una llamada todo lo de abajo para
+   esa función: una sola firma y sin ambigüedad, comentario, `search_path`, `anon`, quién llama si
+   es DEFINER y recibe un id, copias a mano de reglas centralizadas (con los mismos patrones que el
+   trinquete), `plpgsql_check`, volatilidad, acciones de `activity_log` sin etiqueta, disparadores
+   que fallarían por permisos (`disparador_permisos`) y funciones parecidas. `fail` se arregla, `look` se lee. El vigilante de funciones te la deja escrita con los
+   nombres puestos en cuanto despliegas. Lo que sigue explica el porqué de cada comprobación.
+
+0 bis. **Después de cualquier cambio que toque un disparador, una tabla o el permiso de una
+   función: `select * from fn_trigger_calls_without_grant();` tiene que dar cero filas.** Es obligatorio,
+   y va además de la revisión de la función. Una fila es una tabla en la que una empresa o un
+   trabajador ya no puede guardar: el disparador corre con su rol y llama a una función que no puede
+   ejecutar. Y se prueba escribiendo en esa tabla como empresa o trabajador de prueba (`set local role
+   authenticated` con su sesión, en una transacción que se deshace), no solo como la base. Así se coló
+   el fallo de crear posiciones del 11 al 28-10-2026 (§6 bis, "Un disparador corre con el rol de quien
+   escribe"). Esta consulta no ve las llamadas indirectas (disparador, helper, función cerrada) ni los
+   nombres armados con `EXECUTE`: la prueba escribiendo como empresa o trabajador sí.
+
 1. **`plpgsql_check` siempre.** Es obligatorio. PL/pgSQL resuelve los nombres **en ejecución**: una
    tabla mal escrita se despliega y solo revienta cuando la usa alguien, y si hay un `EXCEPTION WHEN
    OTHERS` no se entera nadie. El 2026-07-17 un barrido encontró **8 funciones vivas rotas desde su
    despliegue**. Falsos positivos conocidos: `_inv_weeks`, `_liv_base`, `_corr_results`,
    `_pib_day_counts` y `get_worker_company_relationship`. Todos menos el último son tablas
    temporales que se crean en ejecución y el analizador no puede ver.
+
+   Para una función, lo pasa `fn_review_function`. Para barrer la base entera (funciones de
+   disparador aparte), esta; el 10-10-2026 daba 4 filas, las tres tablas temporales de arriba y
+   `update_shifts_schedule_bulk`, rota, sin uso y marcada en su comentario:
+
+   ```sql
+   select p.oid::regprocedure as funcion, c as error
+     from pg_proc p
+     join pg_language l on l.oid = p.prolang
+     left join pg_depend d on d.objid = p.oid and d.deptype = 'e',
+     lateral public.plpgsql_check_function(p.oid, format := 'text') c
+    where p.pronamespace = 'public'::regnamespace and d.objid is null and l.lanname = 'plpgsql'
+      and p.prorettype not in ('trigger'::regtype, 'event_trigger'::regtype)
+      and c ~* '^error';
+   ```
 
    **Pero ojo, que una tabla temporal salga en la lista no la absuelve.** El 2026-09-02
    `preview_invite_bulk` daba ese mismo error de tabla temporal inexistente y **además** estaba
@@ -433,7 +680,8 @@ mismo sitio. Y si no puede ser, se escribe en las dos que van juntas.
    existente con `CREATE OR REPLACE`. Si el cambio obliga a cambiar la firma, se retira la anterior
    en la misma migración, nunca se deja conviviendo.
 
-   **Comprobación obligatoria después de crear o desplegar cualquier función.** Cero filas = bien:
+   **La revisión de la función ya mira su familia.** Para barrer la base entera (una auditoría, o
+   antes de retirar una versión), esta es la consulta global. Cero filas = bien:
 
    ```sql
    with f as (

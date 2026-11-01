@@ -28,6 +28,8 @@ Antes de redactar cualquier respuesta de selección, documentos o elegibilidad, 
 
 ---
 
+Para dudas de transporte coordinado, leer `features/transporte-coordinado.md` y el contrato de Clara en `features/clara-quality-reviews/TRANSPORTE-2026-10-09.md`. Ahí están la fuente por ubicación/anuncio, compensación, coordinación y límites de lo que se puede prometer; no reconstruir condiciones desde el chat.
+
 ## 1. Qué bloquea de verdad para apuntarse
 
 Verificado en `get_job_offer_details`, `apply_to_job_days` y `can_worker_see_offer`. Puede aplicar si:
@@ -82,6 +84,13 @@ Es a propósito.
   se deshabilita. El corte salta al pulsarlo. Por eso llegan a soporte como "no me deja apuntarme".
 - **Para un trabajador español el documento obligatorio es el DNI en vigor.** El pasaporte no sirve
   para el alta. Se le pide el DNI; no se acepta el pasaporte ni se escala a producto.
+- **Extranjeros: qué permiso vale lo dice `features/permisos-de-trabajo.md`** (decisiones del
+  09-10-2026), no la memoria. Resumen: la renovación de quien ya tenía una tarjeta que autorizaba a
+  trabajar vale (tarjeta caducada más el papel de la renovación, hasta la fecha que pone el sistema);
+  la autorización provisional y los permisos de primera vez en trámite no; la tarjeta roja solo si
+  dice que autoriza a trabajar. Lo que Lanak no ha contestado (estudiante sin mención, prórroga de
+  estudios, tarjeta blanca, resolución favorable de primera vez) **ni se afirma ni se niega**: que lo
+  suba por la app y la revisión le dirá si vale.
 - **Sin número de afiliación a la Seguridad Social no se puede trabajar en Shifty**: hace falta para
   el alta y el contrato. Es un requisito, no hay nada que elevar.
 - **Al subir un documento que NO es de identidad, `identity_set_type` se deja SIN PONER.** Un
@@ -90,6 +99,13 @@ Es a propósito.
   **sobrescribiera la del DNI real de 10 personas**.
 
 ---
+
+### La prevención de riesgos (PRL) no la gestiona Shifty
+
+Decisión de Crescente del 09-10-2026: **los cursos de prevención no los maneja Shifty**, y nada de
+eso existe de cara al trabajador. No se le avisa, no se le enseñan tareas pendientes de PRL y no se
+le promete nada sobre ellos; si pregunta, se le dice que eso lo gestiona la ETT que le da de alta.
+El interruptor `prl_worker_notifications` y el cron `sync-prl-from-sheet` están apagados desde ese día.
 
 ## 4. Selección
 
@@ -119,6 +135,11 @@ Es a propósito.
   un plazo vencido se investigan y se proponen en borrador para Crescente.
   El texto debe distinguir lo confirmado por Lanak de lo que solo dice
   el estado interno de Shifty.
+- **⛔ Nunca se remite a un trabajador a hablar con una empresa cliente** sin que Crescente lo
+  pida de forma explícita (regla suya del 2026-10-06). No se le dice que escriba, llame o reclame
+  a la empresa, no se le da su correo, teléfono ni contacto, y no se le cuenta lo que diga el
+  cliente sobre su turno. Lo que haya que consultar con el cliente lo gestiona Shifty. Vale
+  también para el pago directo vencido, que se prepara para Crescente.
 - **Las propuestas de mejora de la app se asignan a Crescente** (producto), no a operaciones.
 - **La baja del contrato no la tramita Shifty.** Si alguien pide terminar su fijo discontinuo o su
   relación laboral, la relación es con la ETT colaboradora que le da de alta, no con Shifty. Se le

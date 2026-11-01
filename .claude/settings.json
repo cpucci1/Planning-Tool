@@ -33,6 +33,17 @@
             "statusMessage": "Mirando lo que va a entrar en el commit..."
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__.*__(apply_migration|execute_sql|deploy_edge_function)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/exigir-skills.sh\"",
+            "timeout": 15,
+            "statusMessage": "Comprobando que esta cargada la skill que toca..."
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -43,6 +54,19 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/detectar-correccion.sh\"",
             "timeout": 10,
             "statusMessage": "Detectando correcciones..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__.*__(apply_migration|execute_sql)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/vigilar-funcion-nueva.sh\"",
+            "timeout": 15,
+            "statusMessage": "Preparando la revision de lo que acabas de crear en la base..."
           }
         ]
       }

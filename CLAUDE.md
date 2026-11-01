@@ -31,8 +31,8 @@ estas reglas son las mismas en todos: **un cambio de base afecta a los seis a la
 |---|---|---|
 | `Web-Panel` | Panel de administracion y de empresa. Vite + React + TS | `npm run dev` → :5173 |
 | `Website` | Web publica, `shifty.es`. Next.js 16 | `npm run dev` → :3000 |
-| `Worker-App` | App de trabajadores. Expo, **JavaScript** | `npx expo start` |
-| `Client-App` | App de empresas cliente. Expo + TS | `npx expo start` |
+| `Worker-App` | **La app única**: lado trabajador y, tras la bandera `app_unica_empresas`, lado empresa. Expo, **JavaScript**. Lo nuevo de empresas se hace aquí | `npx expo start` |
+| `Client-App` | **App anterior de empresas**: sigue publicada y se mantiene, pero lo nuevo va a la app única. Expo + TS | `npx expo start` |
 | `Docs` | **Fuente unica de documentacion, reglas y skills** | |
 | `Sales` | Marca, marketing y ventas | |
 | `Sales/sales-tool` | Scrapper, Enricher, Navigator (CRM comercial) | |
@@ -62,7 +62,9 @@ mensajes traen erratas: interpreta la intención.
    explicación. Citar `archivo:línea` como referencia está bien; el qué pasa y el cómo se arregla van
    en castellano de persona.
 2. **Conclusión primero.** Sí, no o depende de. Luego el porqué.
-3. **Cortas, 2 o 3 líneas.** Nada de respuestas con "## Qué pasó / ## La causa / ## Recomendación".
+3. **Cortas, 2 o 3 líneas. SIEMPRE**, también al explicar un análisis o una revisión. Lo pidió
+   otra vez el 2026-10-07, harto de recibir 13 párrafos de algo que cabe en dos líneas. Nada de
+   respuestas con "## Qué pasó / ## La causa / ## Recomendación". Si hay detalle, va a un fichero.
 4. **Sin guiones largos.** Le suenan a texto de IA.
 5. **NUNCA inventar un dato.** Empresa, trabajador, turno, factura: se consulta y se da el valor de
    ahora. Ni de memoria de la conversación ni de sesiones anteriores.
@@ -94,11 +96,13 @@ desplegar se hace sin pedir permiso, y se cuenta después qué se ha hecho.
 1. **Crear columnas, tablas, vistas o funciones no necesita permiso, pero se hace bien.** Incluye
    las `crm_*`. Antes, buscar si ya existe (regla 5); al crearlo, RLS, comentario, `search_path` y
    sin sobrecargas, como dice la plantilla; y después, contar en castellano qué se ha creado.
-2. **NUNCA renombrar ni eliminar columnas o tablas críticas.** Las 4 apps dependen de esos nombres.
+2. **NUNCA renombrar ni eliminar columnas o tablas críticas.** Todas las apps y el sales-tool dependen de esos nombres.
    Lo que se deja de usar **se marca en su comentario, no se borra**.
 3. **NUNCA updates directos a tablas operativas.** Se usan las RPC, que dejan rastro en `activity_log`.
 4. **NUNCA calcular precios en el frontend.** Se piden a las vistas.
-5. **Antes de crear algo, buscar si ya existe.** 461 tablas y 1.363 funciones: lo normal es que exista.
+5. **Antes de crear algo, buscar si ya existe.** Casi 600 tablas y más de 2.300 funciones (22-10-2026, y
+   crece cada semana): lo normal es que exista. Las preguntas del negocio y la única función que las contesta están en
+   `shared/FUENTES-UNICAS.md`.
 6. **NUNCA borrar usuarios de `auth.users` ni desmontar el flujo de OTP sin preguntar antes.**
    Cambiarlo se puede, con cuidado y contándolo: si se rompe, nadie entra en las apps.
 7. **Nada de tablas transitorias.** Las filas van a la tabla donde de verdad viven, marcadas con su
@@ -110,8 +114,18 @@ desplegar se hace sin pedir permiso, y se cuenta después qué se ha hecho.
 **Datos y dinero**
 
 9. **NUNCA crear registros operativos** (turnos, candidaturas, invitaciones, jornadas, ofertas) para
-   empresas o trabajadores que no sean `is_test = true`. Sin excepciones.
-10. **NUNCA seleccionar candidatos ni enviar invitaciones** fuera de test. Verificar **las dos partes**.
+   empresas o trabajadores que no sean `is_test = true`, **salvo con el OK explícito de Crescente en
+   esa misma conversación** para ese registro en concreto (qué empresa, qué persona, qué anuncio).
+10. **NUNCA seleccionar candidatos ni enviar invitaciones** fuera de test, salvo con ese mismo OK
+    explícito. Verificar **las dos partes**. Con el OK se hace por la misma función que usa el panel,
+    pasando antes sus puertas (bloqueos y choque de horario), y se cuenta después.
+    El 21-10-2026 se le negó dos veces una invitación ya autorizada citando "sin excepciones":
+    *"lo hacemos todo el rato, solo que con mi ok explícito"*.
+    **Y NUNCA mandar nada a una persona real** (mensaje del bot en el chat de la app, WhatsApp, SMS,
+    push o correo) **sin que Crescente autorice ese envío en concreto**, viendo el texto y a quién va.
+    Elegir una opción tipo "bloquear y avisar" en una pregunta de diseño no es permiso para enviar.
+    Una función que avisa nace con el envío apagado hasta su OK. El 10-10-2026 la relectura de
+    documentos avisó a 46 personas por el chat sin su autorización: *"gran error"*.
 11. **NUNCA tocar nada de pagos** para empresas que no sean de test sin aprobación explícita **en esa
     misma conversación**, describiendo qué tabla, qué registro y qué pasa de qué a qué.
 12. **NUNCA editar un plan que ya tenga empresas asignadas.** Se crea uno nuevo específico.
@@ -125,10 +139,10 @@ desplegar se hace sin pedir permiso, y se cuenta después qué se ha hecho.
 15. **Nada externo se publica ni se envía sin el OK de Crescente.** Ni pricing interno, ni datos
     societarios, ni nombres de clientes fuera de la lista aprobada.
 
-**Legal**
-
-16. **12 horas de descanso mínimo entre turnos de la misma persona** (Art. 34.3 ET). Es un mínimo
-    legal. La comprobación cruza también el fin de semana.
+16. *(Retirada el 21-10-2026 por Crescente: el descanso de 12 h entre turnos no es una regla de
+    Shifty, y dos turnos el mismo día no exigen descanso entre ellos. Entre dos turnos de la misma
+    persona solo se mira que no se pisen, con el margen de `fn_worker_day_conflict`. El número se
+    conserva porque las fichas citan las reglas 17 a 21 por su número.)*
 
 **Seguridad y datos personales**
 
@@ -190,7 +204,7 @@ verdad, se lea con desconfianza. El detalle y los casos están en la skill `shif
 
 ---
 
-## Al desplegar una función: comprobar que no se ha duplicado
+## Al crear una función o una tabla: buscar antes, revisar después
 
 Regla de Crescente, 2026-09-03. **Nunca se crea una sobrecarga de una función que ya existe.** Si
 hace falta un parámetro nuevo, se le pone un valor por defecto y se modifica la que hay. Dejar dos
@@ -198,12 +212,11 @@ versiones vivas con los mismos argumentos obligatorios hace que **toda llamada c
 falle**, y el front se traga ese error: la pantalla parece funcionar y no funciona. Había 19 familias
 así, y una tenía rota la comprobación de disponibilidad al invitar.
 
-**Después de crear o desplegar cualquier función se pasa la comprobación de ambigüedad y
-`plpgsql_check`. Cero filas en las dos.** ⚠️ **La consulta se copia de la skill
-`shifty-base-de-datos`, §7 regla 1 bis; no se escribe de memoria** — el 2026-09-03 se escribió mal y
-se escaparon tres familias rotas. Una comprobación que falla en silencio es peor que no tenerla,
-porque da permiso para desplegar. Ahí están también las tres trampas al escribirla y qué mirar antes
-de retirar una versión duplicada.
+**Antes:** `fn_find_similar('lo que va a hacer')` y `shared/FUENTES-UNICAS.md`; si ya hay una que lo
+hace, se extiende esa. **Después:** `fn_review_function('nombre')` o `fn_review_table('nombre')`,
+cero `fail`. Hacen en una llamada la ambigüedad, `plpgsql_check`, permisos, comentarios, RLS,
+copias a mano y las parecidas; el vigilante te la deja escrita al desplegar. Están en la skill
+`shifty-base-de-datos` §7, con el porqué de cada comprobación.
 
 ---
 
@@ -228,9 +241,17 @@ El detalle, con la lista de comprobación y lo que ya está hecho, en
 
 ## Una lógica, un sitio
 
-La misma regla vive hoy en muchos sitios: la detección del actor en **158 funciones**, la guarda
-`is_test` en **145**. **Si se cambia una copia y no las otras, el sistema contesta cosas distintas
-según por dónde entres, sin dar ningún error.**
+La misma regla vive hoy en muchos sitios: decidir quién llama se hace a mano en **416 funciones**
+(y con ocho helpers distintos para lo mismo), los estados se comparan con números a secas en
+**391**, la nota media se calcula en **40** funciones y 12 pantallas (medido el 09-10-2026). **Si se
+cambia una copia y no las otras, el sistema contesta cosas distintas según por dónde entres, sin
+dar ningún error.** Y crece solo: en septiembre nacieron 403 funciones nuevas.
+
+**El plan para deshacerlo, y cómo se toca producción sin romperla, está en
+`shared/PLAN-UNA-LOGICA-UN-SITIO.md`.** La lista de qué pregunta contesta cada función, en
+`shared/FUENTES-UNICAS.md`. Y hay un **trinquete**: `fn_logic_duplication_metrics()` mide 16 cifras
+cada día; **pueden bajar, nunca subir**. Si una sube, avisa solo a #alarmas con la función que la subió,
+y la caja negra (`function_versions`) guarda su versión anterior.
 
 **El olor no es "código repetido": es la misma pregunta contestada desde fuentes distintas.** Las dos
 parecen razonables leyéndolas sueltas, y por eso nadie las ve. Tres casos reales, todos del
@@ -240,18 +261,18 @@ escaleras: la pantalla que avisa decía 0 puntos y la que ejecuta quitaba 3, ver
 `features/cancelar-un-turno-que-cuesta.md`) y **quién es Gold** (12 copias, y 15 personas salían Gold
 en una pantalla y no en otra).
 
-- **Antes de escribir una comprobación, busca el helper.** Existen y casi nadie los usa; la lista
-  está en la skill `shifty-base-de-datos` §1.
+- **Antes de escribir una comprobación, busca el helper** en `shared/FUENTES-UNICAS.md` y con
+  `fn_find_similar`. Existen y casi nadie los usa.
 - **A la tercera vez que escribas lo mismo, se extrae.**
 - **Añadir un parámetro no es crear una función nueva.** Se reemplaza; no se deja la vieja viva.
 - **Una acción, una función**, con la fuente como parámetro. El panel y la app no tienen funciones
   distintas para lo mismo. **Nada de `_v2` conviviendo con la vieja.**
 - **Cada columna nueva nace con su comentario.** Hoy solo el 19,5 % lo tiene.
-- **Cada acción nueva de `activity_log` nace con su etiqueta en el historial**, si tiene algo que
-  ver con un anuncio. El historial solo enseña lo que está en una lista escrita a mano: lo que no
-  está no existe para quien mira, y no da ningún error. Son dos sitios, `shiftTimeline.ts` (con su
-  copia en la app) y la configuración del panel de actividad; están en
-  `features/historial-de-actividad.md`, con la consulta para comprobar que no falta ninguna.
+- **Cada acción nueva de `activity_log` nace con su fila en `activity_log_actions`**, si tiene algo
+  que ver con un anuncio: su nombre en castellano y si la ve la empresa. Lo que no está no existe
+  para quien mira, y no da ningún error (de las nacidas del 1 al 10 de octubre, 6 no la tenían).
+  Mientras las pantallas no lean ese catálogo, también van en sus listas; están en
+  `features/historial-de-actividad.md`.
 - **Si te cruzas con una copia mientras haces otra cosa, no la arregles a la brava: anótala.**
   Cambiar una de las 158 copias de la detección del actor y no las otras es exactamente cómo el
   sistema empieza a contestar cosas distintas. Se apunta en `shared/PENDIENTE.md` y se unifican
@@ -261,7 +282,7 @@ Nombres: inglés, `snake_case`, tablas en plural, claves ajenas en singular + `_
 `is_`, fechas con `_at`, vistas con `v_`. Dinero siempre `numeric`, nunca coma flotante; instantes
 siempre con zona horaria. **Excepción: las 66 tablas `crm_*` van en castellano.**
 
-**Stack, acotado a donde de verdad aplica** (`governance.md` §8 lo declara para todo y no puede ser):
+**Stack, acotado a donde de verdad aplica**:
 **TanStack Query** para leer datos de Supabase en Web-Panel, Client-App y las dos apps del
 sales-tool, que ya lo usan. No aplica a Worker-App (JavaScript, con sus propios contextos), a Website
 (Next.js, servidor) ni a Planning (no toca Supabase). **Shadcn/ui + Tailwind** solo en Web-Panel y
@@ -286,8 +307,9 @@ corto a propósito:
   ver su fila entera, con el IBAN dentro.
 - **Al mandar algo a un tercero** (un correo, un CRM, un modelo de lenguaje): se para y se pregunta
   qué contrato hay con ellos. Mandar datos de una persona a un proveedor nuevo es una cesión.
-- **Al terminar:** `shared/auditar-seguridad.sql`. Siete consultas de solo lectura, y la primera es
-  la que importa: quién puede llamar a lo que acabas de crear sin haber iniciado sesión.
+- **Al terminar:** `fn_review_function` o `fn_review_table` sobre lo que has creado, y
+  `shared/auditar-seguridad.sql`, cuya primera consulta es la que importa: quién puede llamar a lo
+  que acabas de crear sin haber iniciado sesión.
 
 ⚠️ **Y lo que sale de ahí se lee antes de darlo por roto.** El 2026-09-18 el primer barrido marcó 39
 funciones abiertas; al leerlas, la mayoría comprobaban por dentro con un helper que el patrón no
@@ -342,12 +364,21 @@ la siguiente puede ser de verdad.
    con cada binario instalado: el 28-09-2026 se publicó un OTA sin petición explícita al interpretar
    "haz los pendientes" como permiso; Crescente lo paró por el riesgo de caída con librerías nuevas
    y hubo que revertir iOS y Android.
+9. **Los lienzos son un espejo de `main`, siempre.** Los de las apps (trabajadores y empresas) y
+   los del panel web enseñan exactamente lo que hay en `main`. Lo que se mergea a `main` se lleva al
+   lienzo **en el mismo trabajo**, aunque no haya salido en ninguna build ni OTA. Y aunque esa
+   pantalla del lienzo la haya publicado otra sesión con algo distinto: manda `main`, así que se
+   pone al día, no se salta. Lo que solo vive en una rama sin mergear no va al lienzo. El 09-10-2026
+   se dejaron 13 pantallas de empresa sin "va con retraso" por no pisar otra sesión, y Crescente lo
+   corrigió: *"siempre deben estar igual que main"*. Cómo se genera cada lienzo, en el `CLAUDE.md`
+   de su repo.
 
 **Verificación:** `tsc --noEmit` y `npm run lint` a cero. En móviles, iOS **y** Android. En Website,
-`npm run build`. Y ojo: **Client-App, Website, sales-tool y Planning no tienen ningún candado de
+`npm run build`. **Si se ha tocado algo que se ve, se repasa la guía de front de su app** (skill
+`shifty-codigo-limpio` §8): nada de golpe, transiciones suaves, ninguna pantalla sin salida. Y ojo: **Client-App, Website, sales-tool y Planning no tienen ningún candado de
 push**, aunque sus ficheros digan lo contrario. Hay que ejecutarlo a mano o se sube roto.
 
-### Tres guardias que saltan solos
+### Los guardias que saltan solos
 
 Vigilan reglas que ya estaban escritas aquí y aun así se rompían. **No sustituyen a comprobar: son
 la última red.**
@@ -362,7 +393,24 @@ la última red.**
 - **El candado de commit** mira lo que va a entrar y frena lo que no tiene ninguna lectura buena: un
   fichero de entorno, una clave de servicio, un nombre de fichero temporal. Y pregunta por lo que
   huele mal pero puede tener explicación: una ficha sin estado, una regla ya centralizada escrita
-  otra vez a mano. La clave anónima sí puede ir en el código, y la distingue.
+  otra vez a mano, una escritura directa a una tabla operativa, una decisión de la base mandada
+  desde la pantalla, el coeficiente escrito a mano, una copia del Finder. La clave anónima sí puede
+  ir en el código, y la distingue. Mira también lo que el mismo comando añade (`git add x && git
+  commit`), que hasta el 10-10-2026 se le escapaba entero.
+- **El vigilante de funciones** salta al crear o cambiar una función, una tabla o una vista en la
+  base, que no pasa por ningún commit: le deja al agente escrita la revisión (`fn_review_function`,
+  `fn_review_table`) con los nombres puestos. Los patrones de copia a mano son los del trinquete, un
+  solo sitio. No frena: avisa.
+- **El guardia de skills** frena cualquier cambio si no se ha cargado antes la skill que toca: código
+  de la app única o del panel (`shifty-codigo-limpio`, y `mapa-de-impacto` si el fichero ya existe),
+  la base (`shifty-base-de-datos`, más `mapa-de-impacto` y `regresion` si cambia algo que ya existe,
+  más `shifty-seguridad` si toca tablas o permisos), desplegar una función del servidor, las reglas
+  (`shifty-mantener-las-reglas`) y cada commit (`code-review` después de la última edición). Desde
+  el 13-10-2026, por petición de Crescente: que la calidad no dependa de que el agente se acuerde.
+
+Y dos redes en la propia base, desde el 09-10-2026: **la caja negra** (`function_versions`) guarda
+sola cada versión de cada función, así que **volver atrás un cambio es ejecutar la versión
+anterior**; y **el trinquete** diario, que mide la duplicación y avisa si sube.
 
 Si alguno molesta, se afina; no se desactiva. Viven en `Docs/hooks/`, con su explicación.
 
@@ -381,9 +429,11 @@ Si alguno molesta, se afina; no se desactiva. Viven en `Docs/hooks/`, con su exp
 | **Tocar penalizaciones por cancelar** | `features/cancelar-un-turno-que-cuesta.md` |
 | Responder a un trabajador, revisar incidencias, cuadrar horas | skill **`shifty-soporte-trabajador`** |
 | Escribir copy, un post, un correo, una landing o una propuesta | skill **`shifty-marca-y-copy`** |
+| Diseñar un Excel, PDF, informe, presupuesto o presentación de Shifty para clientes | skill **`shifty-marca-y-copy`** y `brand/materiales-clientes.md`, además de la skill de la herramienta |
 | Añadir, mover o borrar una regla, o crear una skill | skill **`shifty-mantener-las-reglas`** |
 | **Escribir o modificar código en cualquiera de las apps** | skill **`shifty-codigo-limpio`** |
-| **Crear una tabla o una función** | `shared/_plantilla-migracion.sql`, que ya trae RLS, índices, comentarios y permisos |
+| **Cambiar algo que otros usan** (función, tabla, columna, vista, función del servidor, componente compartido) | skill **`mapa-de-impacto`** antes, y **`regresion`** si puede cambiar un resultado |
+| **Crear una tabla o una función** | `shared/_plantilla-migracion.sql`, que ya trae RLS, índices, comentarios y permisos, y empieza por `fn_find_similar` |
 | **Comprobar que no has abierto un agujero** | `shared/auditar-seguridad.sql`, y la skill **`shifty-seguridad`** |
 | **Saber qué se está duplicando o desordenando** | skill **`auditar-orden`** |
 | **Empezar un tema, o cerrarlo** | skills **`rama`** y **`subir`** |
@@ -438,6 +488,8 @@ GitHub: todo en **cpucci1**. No confundir con `crescentepucci94-hub` (copias vie
 ---
 
 # Shifty Planning — Planificador de plantilla
+
+> **¿Llegas nuevo al equipo?** Empieza por `docs/EMPIEZA-AQUI.md` del repo `Docs` (https://github.com/cpucci1/Docs/blob/main/docs/EMPIEZA-AQUI.md): los proyectos, cómo arrancarlos, variables de entorno, la base de producción, cómo se despliega y lo que no se hace nunca.
 
 Herramienta web **gratuita y sin registro** para que un restaurante calcule la plantilla
 que necesita a partir de su demanda real de comensales. Es un **lead magnet** de Shifty:
@@ -625,7 +677,8 @@ para colgarlo en cocina donde lo ve todo el turno.
 ### 2 octies. La revisión del cuadrante y las tres métricas
 
 `lib/avisos.ts` recorre el cuadrante ya montado y saca lo que incumple: descanso de 12 h
-entre turnos (Art. 34.3 ET, con el cruce domingo→lunes porque la semana se repite),
+entre turnos (Art. 34.3 ET; es un aviso legal al cliente de Planning sobre su propio cuadrante,
+no una regla de Shifty, que la retiró el 21-10-2026 como regla 16; con el cruce domingo→lunes porque la semana se repite),
 libranzas sueltas cuando se pidieron seguidas, horas por encima del contrato y franjas sin
 cubrir. Hasta ahora esas reglas eran parámetros con los que se dimensionaba; no había nadie
 mirando el resultado final. Es el error caro y silencioso de quien hace el cuadrante a mano.

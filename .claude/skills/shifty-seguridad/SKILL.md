@@ -7,7 +7,9 @@ description: >
   abiertos. Úsala SIEMPRE antes de crear o modificar una tabla, una vista, una función o una
   política, antes de dar permisos a un rol, al revisar quién puede ver qué, y cuando alguien diga
   "crea una tabla", "añade esto a la base", "por qué no puedo leer esta tabla", "quién puede ver
-  esto", "es seguro" o "revisa la seguridad".
+  esto", "es seguro" o "revisa la seguridad". Es también la que dirige la revisión de seguridad por
+  rondas ("haz una ronda de seguridad", "revisión de seguridad", "que no nos puedan atacar"), y
+  cada ronda la mejora con lo que encuentra.
 ---
 
 # Seguridad de la base de datos de Shifty
@@ -18,27 +20,40 @@ de rol. Si una tabla no tiene RLS y el rol `anon` tiene permisos, esa tabla est�
 
 ---
 
-## 1. Al crear una tabla: la lista que no se salta
+## 1. Al crear una tabla: el orden, que no se salta
 
-Una tabla nueva no está terminada hasta que tiene las cinco cosas. **Crearla no necesita permiso**
-(regla 1 del maestro: desde el 2026-09-24 solo se pregunta antes de borrar), pero las cinco van en
-la misma migración, y después se cuenta qué se ha creado:
+**Crearla no necesita permiso** (regla 1 del maestro: desde el 2026-09-24 solo se pregunta antes de
+borrar), pero se hace en este orden, todo en la misma migración, y después se cuenta qué se ha
+creado. La plantilla con todo puesto es `shared/_plantilla-migracion.sql`.
 
-1. **`ALTER TABLE ... ENABLE ROW LEVEL SECURITY`.** Siempre. Sin excepción, ni siquiera "es interna",
-   ni "solo la escribe un cron", ni "es temporal".
-2. **Al menos una política.** RLS encendida sin políticas significa que **nadie puede leer**, que es
-   seguro pero deja la tabla inservible desde el cliente. Si de verdad no la lee ningún cliente,
-   déjalo así **a propósito** y escríbelo en el comentario de la tabla.
-3. **Permisos mínimos por rol.** La pregunta es *¿quién necesita esto de verdad?*
+0. **¿Ya existe?** `select * from fn_find_similar('palabras de lo que guarda');` y
+   `shared/FUENTES-UNICAS.md`. Si existe, las filas van ahí con su `origen` (regla 7: nada de tablas
+   transitorias).
+1. **Las cuatro preguntas de datos personales (§7)**, contestadas en la propuesta y escritas en el
+   comentario de la tabla: qué dato lleva, quién lo ve, cuánto se guarda, qué pasa en la baja. Si no
+   lleva ninguno, el comentario lo dice ("Sin datos personales").
+2. **RLS encendida y al menos una política.** En `public` la base la enciende sola al crear la tabla
+   (disparador `ensure_rls`), pero se escribe igual en la migración. Sin política **nadie puede
+   leer**, que es seguro pero deja la tabla inservible desde el cliente; si de verdad no la lee
+   ningún cliente, se deja así **a propósito** y se escribe en el comentario ("Sin políticas: solo
+   la lee el servidor"). Ni siquiera "es interna", "solo la escribe un cron" o "es temporal" la
+   libran de la RLS.
+3. **Comentario en la tabla y en cada columna** (ver `shifty-base-de-datos`), e **índice en cada
+   clave ajena** y en las columnas que usa la política: una política mal indexada convierte cada
+   consulta en un barrido.
+4. **Permisos mínimos por rol.** La pregunta es *¿quién necesita esto de verdad?*
    - Si solo la escribe un proceso de servidor (cron, edge function): **no dar nada a `anon` ni a
      `authenticated`**. El `service_role` se salta la RLS y no necesita permisos explícitos.
-   - Si la lee el panel: política para internos.
-   - Si la lee una empresa: política que filtre por su `company_id`.
-   - Si la lee un trabajador: política que filtre por su propio `worker_id`.
-   - **`anon` casi nunca.** Solo para datos verdaderamente públicos.
-4. **Comentario en la tabla y en cada columna** (ver `shifty-base-de-datos`).
-5. **Índices** para las columnas por las que se filtra, empezando por las que usa la política: una
-   política mal indexada convierte cada consulta en un barrido.
+   - Si la lee el panel: política para internos (`is_internal_user()`).
+   - Si la lee una empresa: política con `company_id in (select get_my_company_ids())`.
+   - Si la lee un trabajador: política que filtre por su propio `worker_id` (`get_my_worker_id()`).
+   - **`anon` casi nunca.** Solo para datos verdaderamente públicos, y con el motivo en el comentario.
+5. **Comprobar:** `select * from fn_review_table('nombre');` (todo lo anterior en una llamada; el
+   vigilante te la deja escrita al desplegar) y `shared/auditar-seguridad.sql`.
+
+Medido el 10-10-2026 sobre las 27 tablas nacidas desde el 1 de octubre: todas con RLS y comentario,
+cero en coma flotante o sin zona horaria, pero **91 de 278 columnas sin comentario** y 4 sin
+política (las cuatro a propósito; una no lo decía en el comentario y se ha añadido).
 
 **La pregunta de control antes de dar por buena una tabla nueva:**
 *si alguien saca la clave anónima del bundle de la app, ¿qué puede hacer con esta tabla?*
@@ -56,8 +71,9 @@ defiende por dentro**.
 
 1. **Averiguar quién llama**, con `auth.uid()`. Si es nulo, es un anónimo: cortar.
 2. **Comprobar que tiene derecho**, con los helpers que ya existen: `assert_company_user_can`,
-   `check_company_user_can`, `_require_internal_user`, `assert_can_edit_job_day`,
-   `assert_is_company_member`, `resolve_ett_payer_for_caller`.
+   `check_company_user_can`, `_require_active_internal_user`, `assert_can_edit_job_day`,
+   `assert_is_company_member`, `resolve_ett_payer_for_caller`. La lista completa, con la pregunta
+   que contesta cada uno, está en `shared/FUENTES-UNICAS.md`.
 3. **Imponer el alcance, no aceptarlo por parámetro.** Este es el punto que más se falla.
    `resolve_ett_payer_for_caller` lo hace bien: a un usuario de la ETT le devuelve **siempre su
    propio pagador**, ignorando el que pida por parámetro. Si una función acepta un `company_id` por
@@ -83,7 +99,7 @@ defiende por dentro**.
 
 ### Los permisos de ejecución
 
-Hoy hay **1.106 funciones `SECURITY DEFINER` ejecutables por usuarios autenticados** y **189 por
+El 30-09-2026 había **1.106 funciones `SECURITY DEFINER` ejecutables por usuarios autenticados** y **189 por
 anónimos**. En la muestra revisada, todas se defendían por dentro correctamente. **No son 189
 agujeros**, pero sí es un valor por defecto peligroso: significa que una función nueva escrita por
 alguien que se olvide de la comprobación queda expuesta desde el primer día.
@@ -112,11 +128,75 @@ cuatro van juntas, en la misma migración que la crea:
 4. **Se le quita el permiso a quien no deba llamarla.** Por defecto, `anon` no. Se le da solo con una
    razón, y la razón se escribe en el comentario de la función.
 
-La plantilla con todo esto puesto es `shared/_plantilla-migracion.sql`.
+La plantilla con todo esto puesto es `shared/_plantilla-migracion.sql`, y
+`select * from fn_review_function('nombre');` comprueba las cuatro en una llamada.
 
 ⚠️ **Y al quitar un permiso, comprobar antes si se usa.** Buscar la forma de llamarla envuelta no
 vale: hay llamadas construidas de otra manera. Se busca el nombre pelado y **se vigilan los logs
 después**, que es donde aparece lo que se rompió.
+
+### Las Edge Functions con `verify_jwt` apagado son la misma puerta
+
+Aprendido el 09-10-2026: `lanak-notifications` estaba publicada sin `verify_jwt` y sin mirar quién
+llamaba, y un modo de depuración olvidado devolvía la columna entera de DNI de la hoja de Lanak a
+cualquiera. Otras cuatro mandaban correos y WhatsApp a personas reales igual de abiertas. **La
+clave anónima no protege nada**: va dentro de las apps. Y un cron apagado no cierra la función: la
+dirección sigue respondiendo.
+
+- **Toda función sin `verify_jwt` comprueba por dentro quién llama**: el secreto del cron con
+  `verify_cron_secret` (patrón de `geocode-workers`), una llave de servidor con
+  `_shared/quien-llama.ts`, o la firma del proveedor si es un webhook.
+- **Nada de modos de depuración en producción** que devuelvan datos. Si hace falta mirar algo, se
+  mira con una consulta, no con un `case` que se queda olvidado.
+- **Cerrarla sin cortar el servicio va en dos pasos**: primero los crons empiezan a mandar el
+  secreto (la función todavía lo ignora), y después la función empieza a exigirlo. Se comprueba
+  con la siguiente ejecución del cron (`net._http_response`) y con una llamada sin secreto, que
+  tiene que dar 401.
+- **La prueba del 401 se hace con la clave anónima de verdad (`.env`) y un secreto falso**, para que
+  llegue a la función y conteste ella. Con el marcador de `.env.example` sale `Invalid JWT` de la
+  plataforma y parece que la comprobación funciona cuando no se ha probado.
+- **Para saber si un cron sigue entrando tras cerrarla**: que no aparezca ningún 401 en
+  `net._http_response` desde el despliegue (un 401 es instantáneo), reconocer cada función por la
+  forma de su respuesta, y un efecto en la base. Los registros de funciones (`function_edge_logs`)
+  llegan tarde e incompletos para las llamadas desde la base.
+- **Antes de atribuir un envío a una función, mira de dónde sale de verdad**: el 09-10-2026 lo que
+  parecían correos de una función abierta eran clics apuntados por `brevo-webhook`, y la captación,
+  una carga de Excel del panel.
+- **Un secreto que estuvo escrito en el código está quemado**: queda en el historial de git. Se
+  rota en el almacén y en el entorno de funciones a la vez. `supabase secrets list` da la huella de
+  cada valor para comparar sin sacarlo.
+- **Antes de rotar, busca dónde más está escrito**: el 09-10-2026 el de Slack aparecía además en los
+  argumentos de cuatro disparadores (`pg_trigger.tgargs`, que cualquiera con acceso al catálogo lee),
+  en el código de otra función y en migraciones viejas. Se busca sin sacarlo: `position(secreto in
+  ...)` en `pg_trigger`, `pg_proc` y `cron.job`, y huellas sha256 en el código descargado. Se genera en
+  una variable de shell, se ensaya el bloque con un valor de mentira que se deshace, y se cambian
+  entorno y almacén con un segundo de diferencia. Y ojo: `supabase secrets set` sube la versión de
+  todas las funciones sin cambiar su código; no es otra sesión desplegando.
+- **Cerrar una Edge Function no basta si una función de la base la llama por dentro con la llave de
+  servidor**: esa función de la base es la puerta trasera. El 09-10-2026, tras cerrar 11 funciones,
+  tres de la base que las llamaban seguían ejecutables por cualquiera con sesión (también un
+  trabajador). Al cerrar una Edge Function, busca quién la llama desde la base (`invoke_edge_function`,
+  `net.http_post`) y comprueba que esas funciones no las pueda ejecutar `authenticated` ni `anon`.
+- **Nunca `select *` de `net.http_request_queue`**: trae las cabeceras de la petición, con la llave
+  dentro. El 09-10-2026 así quedó escrita la llave de servidor en el registro de una sesión. Para mirar
+  la cola, solo `id`; para la respuesta (`net._http_response`), `status_code` y `left(content, …)`.
+- **Leer el rol del token sin comprobar la firma no protege nada**: con `verify_jwt` apagado,
+  `JSON.parse(atob(token.split('.')[1])).role === 'service_role'` deja pasar un token inventado (siete
+  funciones lo hacían). Se compara la llave entera con `llamaElSistema(req)`. Y con `verify_jwt`
+  encendido, la clave anónima es un JWT válido: un id en el cuerpo sigue sin probar nada.
+- **Para buscar funciones que no miran quién llama, no exijas que lean el cuerpo**: las que no lo leen
+  (`Deno.serve(async (_req) => …)`) se escapan de esa búsqueda.
+- **Probar con la credencial buena sin efectos**: usar `dry_run` si lo tiene, o llamar cuando lo
+  pendiente es cero (comprobado en la misma sentencia).
+- **Los secretos viven en dos sitios**: el entorno de las Edge Functions (`supabase secrets list`) y
+  el almacén de la base (`vault.secrets`, solo nombres). El 09-10-2026 se dio por "no configurado"
+  Twilio porque no estaba en el entorno, y sí estaba en el almacén, usado por las funciones de la base.
+  Antes de decir que algo no está, mira los dos.
+- **Al buscar en código que lleva secretos, el `grep` los imprime**: filtra la salida desde el
+  principio (`sed -E 's/[a-f0-9]{64}/<<SECRETO>>/g'`).
+- **Un id de usuario que llega en el cuerpo de la petición no prueba nada**: `generate-shifty-breakdown`
+  se fiaba de él, y cualquiera que supiera el id de un interno podía generar el desglose de una
+  factura. La identidad sale de la sesión validada contra Auth (`_shared/quien-llama.ts`).
 
 ---
 
@@ -213,6 +293,12 @@ las 72 tablas con RLS pero sin ninguna política. Ver `Docs/docs/shared/PENDIENT
 ---
 
 ## 5. Al revisar si algo es seguro
+
+**Una revisión entera del sistema** (no de una tabla) se hace con `security/PLAN-REVISION-SEGURIDAD.md`:
+bloques, método y estado de cada punto. La prueba de ataque de verdad, con sesión de empresa y de
+trabajador de prueba contra identificadores ajenos, es `security/probar-como-atacante.sql`.
+Desde el 30-10-2026 una función nueva **nace sin permiso para `anon`** (privilegios por defecto): si
+tiene que ser pública, el `grant` se escribe a propósito.
 
 Cuatro comprobaciones, en este orden:
 
@@ -321,9 +407,32 @@ candidato dejó de cargar y nadie se enteró hasta que lo vio Crescente.
 1. **Busca el nombre pelado entrecomillado**, no `rpc(` delante. En los cuatro repos de producto, en
    el sales-tool y en las funciones edge.
 2. **Mira con qué clave llama cada función edge.** Con la de servicio, los permisos no le afectan.
-3. **Después de quitarlo, mira los logs**: `permission denied for function` en `postgres_logs`. Es
+3. **Mira si la usa una tabla por dentro**: un índice, un valor por defecto, una comprobación
+   (`CHECK`) o una política. Ahí la función se ejecuta con el rol de quien escribe en la tabla, y si
+   ese rol (a menudo `anon`, desde un formulario) pierde el permiso, **falla el alta entera**, no la
+   función. El 09-10-2026 se le quitó a `anon` el permiso de `_canonical_es_phone`, que usa un índice
+   de `recruitment_leads`: 7 altas de leads de formularios fallaron hasta el 10-10 y no se pudieron
+   recuperar. Se ve con `pg_depend` (`refclassid = 'pg_proc'` contra índices, `pg_attrdef`,
+   `pg_constraint` y `pg_policy`). Las funciones de las políticas de `storage.objects` las ejecuta
+   además el gestor de ficheros.
+4. **Después de quitarlo, mira los logs**: `permission denied for function` en `postgres_logs`. Es
    la única comprobación que no se puede engañar, porque la hace el tráfico de verdad. Si aparece
-   algo, se devuelve el permiso en el momento y se mira por qué se escapó.
+   algo, se devuelve el permiso en el momento y se mira por qué se escapó. **Y vuelve a mirar al
+   día siguiente**: un formulario que se usa poco tarda horas en dar la señal.
+
+### Corregir un dato de una persona sin que el valor viaje
+
+Aprendido el 09-10-2026 al corregir 8 NIF leyendo su documento. El valor nuevo no debe pasar por la
+conversación, por un registro de actividad ni por un mensaje de error (regla 20):
+- Se escribe en un fichero temporal (sin imprimirlo) y se ejecuta con
+  `supabase db query --linked -f <fichero>` desde una carpeta enlazada al proyecto, con la salida
+  pasada por un filtro que tape el dato (`sed -E 's/[0-9XYZ][0-9]{7}[A-Z]/<<NIF>>/g'`): si algo falla,
+  el error lleva la consulta entera dentro.
+- El rastro en `activity_log` dice qué se hizo, por qué y de dónde salió, **nunca el valor**.
+- Las imágenes de documentos se descargan a una carpeta temporal y se borran en cuanto se han leído;
+  los ficheros con los valores, igual al terminar.
+- Si una función del equipo exige sesión de una persona, no se suplanta a nadie: o se hace con un
+  rastro honesto (`actor_type = 'system'` y el motivo), o lo hace una persona desde el panel.
 
 ### Cómo se comprueba que ha quedado bien
 
@@ -442,3 +551,249 @@ incidente no se puede ni acotar el daño.
 - **Si la tarea manda datos a un tercero nuevo**, se para y se pregunta qué contrato hay.
 - **Si algo de esto no se puede contestar**, se dice, y se decide con Crescente. No se construye
   encima de una pregunta sin responder: eso es exactamente como se acumulan los frentes abiertos.
+
+---
+
+## 9. La revisión por rondas: un bucle que se mejora solo
+
+Pedido por Crescente el 30-10-2026: *"que cada ronda apunte lo que hace falta para que la
+siguiente sea más completa, y que no se vuelvan a crear estas inseguridades"*. Una ronda no termina
+cuando se arregla lo encontrado: termina cuando **lo encontrado ya no se puede volver a colar sin
+que salte un aviso**.
+
+### Cómo se hace una ronda
+
+1. **Medir, todo de golpe** (solo lectura):
+   - `select * from fn_security_round();`: funciones `SECURITY DEFINER` que pueden llamar las apps,
+     políticas y vistas con algo mal y que nadie ha revisado (o que han cambiado desde entonces,
+     porque se compara la huella del código). **La ronda está limpia con cero filas.**
+   - `shared/auditar-seguridad.sql`, entero.
+   - `security/probar-como-atacante.sql`: llama de verdad, con sesión de empresa y de trabajador de
+     prueba, a las funciones de lectura con identificadores de la empresa real con más turnos.
+   - Funciones del servidor: `list_edge_functions` contra `security/funciones-servidor-revisadas.tsv`.
+     Se lee entera cada una cuya huella (`ezbr_sha256`) no coincida o que no esté en la lista, **con
+     `verify_jwt` encendido o apagado** (ver la trampa 3 de abajo).
+   - Ficheros: qué ve un trabajador puro, una empresa y alguien sin cuenta en cada almacén privado.
+2. **Leer, una a una**, lo que haya salido. Un aviso no es un agujero hasta que se ha leído entero
+   con sus funciones auxiliares (§5 del plan).
+3. **Arreglar sin romper**: mapa de impacto (código de `main`, crons, políticas, índices, funciones
+   INVOKER que la llamen, registros de 24 h con el rol de quien llama), y la puerta más estrecha.
+4. **Atacar otra vez**: como trabajador puro, como empresa de prueba y sin cuenta (bloqueado), y
+   como el dueño legítimo (pasa). `fn_trigger_calls_without_grant()` a cero y los crons afectados en
+   verde en su siguiente ejecución.
+4 bis. **Que las apps sigan funcionando** (pedido por Crescente el 30-10-2026: *"fundamental que a
+   los trabajadores les siga funcionando la app"*). Una ronda no se cierra sin esto:
+   - Comparar, en `edge_logs`, los 401, 403 y 5xx que reciben las apps reales (agente `ShiftyWork`
+     en iOS y `okhttp` en Android) en las horas de después del cambio contra las de antes, por ruta.
+     Cualquier ruta nueva con errores se mira en el momento; si es nuestra, se deshace (la caja negra
+     `function_versions` tiene la versión anterior de cada función).
+   - **Entre ronda y ronda, la lista de permisos denegados** (pedido por Crescente el 30-10-2026:
+     *"que no hayamos tapado una función por error"*). En la herramienta de registros, `source =
+     'postgres_logs'` con `permission denied`, agrupado por mensaje, con cuántas veces y la última.
+     Cada objeto que salga se mira: si la última vez es anterior a la ronda y el rol que lo pide no
+     tenía permiso ya antes, es ruido (una app sin sesión). Si es nuevo o va a más, se cruza con
+     `edge_logs` para ver quién lo pide y, si lo hemos tapado nosotros, se deshace en el momento.
+     Cuidado con las tablas con permiso por columnas (`feature_flags`): `has_table_privilege` dice
+     que no y la app lee bien; se mira en `information_schema.column_privileges`.
+   - La herramienta de registros lee una tabla única, `logs`, filtrando por `source`; si responde
+     "no existe", es la consulta mal escrita, **no** "cero denegados". El 30-10-2026 se dio por cero
+     sin haberlo leído.
+   - Las funciones del servidor que usan las apps, por ruta y estado en `function_edge_logs`.
+   - Nada se cierra a `authenticated` sin buscar antes su nombre en Worker-App (los dos lados) y en
+     los registros de 24 h con el agente de la app: la versión instalada en los móviles puede ser
+     más vieja que `main`.
+   - Medido el 30-10-2026 tras cinco rondas: unas 56.000 peticiones de las apps, 7 rechazos (sesiones
+     caducadas y códigos mal puestos, igual que antes) y 2 lecturas fallidas en un mismo segundo que
+     no se repitieron.
+   - Las consultas pesadas de una ronda (el ataque en bloque) se lanzan de una en una: pueden coincidir
+     con un pico de las apps.
+5. **Apuntar lo revisado** en `security_function_reviews` (firma, huella, veredicto, motivo, ronda).
+   Lo que se apunta no vuelve a salir mientras no cambie; si alguien lo cambia, vuelve solo.
+6. **Mejorar la red** (lo que hace que esto sea un bucle y no una auditoría):
+   - **Si encontraste algo que el medidor no marcó, el medidor estaba ciego.** Antes de cerrar la
+     ronda se añade el patrón a `fn_security_function_flags`, `fn_security_policy_flags`,
+     `fn_security_view_flags`, a `auditar-seguridad.sql` o a `probar-como-atacante.sql`, y se
+     comprueba que ahora sí lo marca. `fn_review_function` usa la misma definición, así que lo
+     nuevo también salta al crear una función.
+   - **Si el medidor marcó algo que estaba bien**, se afina para que no lo vuelva a marcar (un
+     medidor que siempre da avisos enseña a ignorarlo).
+   - Se apunta en "Lo aprendido, ronda a ronda" (abajo) y en `security/REVISION-SEGURIDAD-<fecha>.md`.
+7. **Otra ronda**, hasta que el medidor dé cero, el ataque no saque nada y no quede ningún ángulo
+   del plan (`security/PLAN-REVISION-SEGURIDAD.md`) en 🔎 sin mirar.
+
+### Las reglas que dejaron las rondas, para no volver a crear el agujero
+
+1. **Una función que solo lanza un cron o el servidor nace sin permiso para las apps**:
+   `revoke execute ... from public, anon, authenticated`. Los nombres `auto_`, `expire_`,
+   `process_`, `claim_`, `invoke_`, `run_`, `renew_`, `timeout_`, `refund_` o terminados en
+   `_cron`/`_batch` lo marcan solos. Ronda 1: once crons, entre ellos marcar facturas como pagadas,
+   y `send_bot_message`, con la que cualquiera escribía como el bot de Shifty.
+2. **Quien hace la acción sale de la sesión, nunca de un parámetro.** Si la firma lleva
+   `p_updated_by`, `p_changed_by`, `p_author_id`…, dentro se compara con `auth.uid()` o se pisa
+   con ella. Ronda 2: un trabajador cambiaba su IBAN dejando en el historial que lo había hecho un
+   interno, justo el rastro que se mira en una disputa de pago.
+3. **Que la pantalla sea interna no protege la función.** Una función que usa una pantalla del
+   panel exige `_require_active_internal_user()` por dentro: cualquiera con la clave pública la llama
+   sin pasar por la pantalla. Ronda 1: notas y estados de la red de vendedores, proveedores de
+   gastos, llamadas de activación.
+4. **Una política nunca es `true` en una tabla con datos de una empresa o una persona**, y "es de la
+   empresa" se pregunta con `get_my_company_ids()`, que mira que el acceso siga activo. Ronda 2:
+   respuestas NPS de empresas legibles por cualquier trabajador; enlaces de alta de equipo que seguía
+   viendo y cambiando un usuario desactivado.
+5. **`verify_jwt` encendido no protege nada por sí solo**: la clave pública es un JWT válido. La
+   identidad sale de `auth.getUser()` o de `_shared/quien-llama.ts`.
+6. **Funciones nuevas nacen cerradas a `anon`** (privilegios por defecto desde el 30-10-2026).
+7. **Toda función del servidor arranca con su puerta**, aunque tenga `verify_jwt`: `sistemaOInterno` si
+   la lanzan crons o el panel interno, la sesión y el dueño del dato si la usa una app, la firma del
+   proveedor si es un webhook. Un secreto se compara entero y en tiempo constante, nunca un trozo de
+   la llave (ronda 4: el código de firma de contratos se podía fabricar con la cabecera pública de un
+   token). Y antes de desplegar, `scripts/comprobar-puertas-funciones.sh` en Web-Panel.
+8. **Lo que no se usa, se retira.** Una función del servidor sin llamadas en apps, crons ni base es
+   superficie sin dueño: se cambia por una que conteste 410 (su código queda en git) y se apunta en el
+   registro. Borrarla del todo es decisión de Crescente.
+
+9. **Una tabla que la app escribe directamente necesita una guarda de columnas.** La RLS dice qué
+   filas, no qué columnas: una empresa que puede editar su jornada podía cambiarse la comisión o el
+   estado. El patrón es un disparador que deja pasar todo lo que no viene de una sesión de app y,
+   si viene de una, rechaza los cambios en columnas de dinero o estado salvo a internos
+   (`fn_guard_job_day_internal_columns`, `fn_guard_cost_center_internal_columns`).
+10. **Todo lo que manda un SMS, un correo o gasta IA lleva tope.** Por número o persona, por IP y en
+    total, con ventanas de una hora como mucho (`check_rate_limit` limpia lo de más de 2 h). La IP
+    buena es `cf-connecting-ip` (`_shared/ip-de-quien-llama.ts`; en la base, `fn_request_client_ip`):
+    la primera de `x-forwarded-for` la pone quien llama. El tope falla abierto: si se cae, no corta
+    el servicio.
+11. **Una redirección pública solo va a destinos que ya estaban escritos**, y lo que cambia algo de
+    una persona (una baja) va por POST, nunca por un GET que abren escáneres y vistas previas.
+
+12. **Si una tabla la escriben las apps solo por funciones, su regla directa se cierra.** Una regla de
+    alta o de cambio que nadie usa (comprobado en `edge_logs`: ningún POST o PATCH de las apps a esa
+    tabla en 24 h) es una puerta que salta la función y sus comprobaciones. Se pone a `false` y queda
+    la función, que es `SECURITY DEFINER`. Rondas 25 a 27: altas de la Seguridad Social, favoritos e
+    historial.
+
+13. **Quitar el acceso a alguien del equipo corta también su cuenta.** Hay funciones del servidor que
+    miran "es interno" sin mirar `is_active`; por eso `admin_set_internal_user_active` cierra sus
+    sesiones y bloquea la cuenta (si no es además trabajador, empresa o socio). No se desactiva a nadie
+    con un UPDATE a mano.
+14. **Lo que vive en `public` y no es nuestro también sale por la API.** Las extensiones de Supabase
+    (`plpgsql_check`) no se pueden cerrar con permisos; la API tiene una comprobación previa,
+    `fn_api_pre_request` (`pgrst.db_pre_request`), que corta `/rpc/plpgsql_*`. Si algún día da guerra:
+    `alter role authenticator reset pgrst.db_pre_request; notify pgrst, 'reload config'`.
+15. **"Es de esta empresa" en una regla se escribe con el ayudante, nunca con una subconsulta suelta.**
+    `company_user_id = (select cu.id from company_users cu where cu.auth_user_id = auth.uid())` falla
+    dos veces: no mira `is_active` (un usuario dado de baja seguía viendo sus chats) y revienta con
+    quien tiene varias empresas ("more than one row"). Se usa `IN (select get_my_company_user_ids())`
+    o `get_my_company_ids()`. Lo mismo para "es interno": `(select is_internal_user())`.
+16. **Un tercero con llave (un partner, una integración) solo abre sesión en lo que es SUYO.** Que
+    la llamada esté firmada prueba quién es el partner, no que la cuenta le pertenezca. Antes de
+    generar un enlace de acceso se compara la empresa de esa cuenta con el partner, y nunca se abre
+    sesión de un interno. 31-10-2026: `partner_create_or_login_company` devolvía "existing" para
+    cualquier usuario de empresa activo con ese correo, y `partner-sso-handoff` le daba el enlace:
+    los dos partners activos podían entrar como cualquiera de 474 clientes.
+17. **Un formulario público que no prueba la identidad no ata a nadie que ya exista.** Si quien
+    escribe un teléfono no ha demostrado que es suyo (código, sesión), el formulario solo crea fichas
+    nuevas; a una persona que ya está en Shifty no se la mete en nada, ni se le manda nada. 31-10-2026:
+    el enlace de alta de equipo metía en el equipo de esa empresa a cualquier trabajador cuyo teléfono
+    se escribiera, y le llegaba el correo.
+18. **La RLS "edita tu propia fila" deja editar TODAS las columnas de la fila.** Lo que la persona no
+    debe cambiar (lo verificado, lo que mueve dinero, lo que decide el sistema) necesita un disparador
+    que lo guarde, columna a columna. 31-10-2026: con el documento aprobado, el trabajador reescribía
+    su DNI (que viaja a la hoja de Lanak) y su fecha de nacimiento (que salta la edad) con una
+    escritura directa; la guarda existía solo para el nombre. Para encontrarlas: escribir cada
+    columna sensible como el propio usuario, en una transacción que se deshace, y leer el valor después.
+19. **Todo lo que manda un correo, SMS o WhatsApp a una dirección que escribe quien llama lleva tope
+    por persona**, aunque exija sesión: una empresa se crea sola desde la web. 31-10-2026:
+    `send-signature-otp` mandaba desde soporte@ a cualquier dirección sin límite.
+20. **Una lista de claves "ocultas" en una política envejece mal.** `app_config` se abre a cualquier
+    sesión salvo una lista de claves prohibidas, y cada clave interna nueva queda a la vista hasta
+    que alguien la añade (31-10-2026: el contrato del bot de empresas, 900 KB, y los remitentes de
+    WhatsApp). Al crear una clave interna se añade a la lista en el mismo cambio; lo limpio sería
+    pasar a una lista de las que sí se pueden leer.
+21. **Un servicio fuera de Supabase que escribe con la llave de servidor es una puerta como una
+    función del servidor**, y no sale en ninguna lista de la base. Se busca en el código de las apps
+    toda dirección que no sea de Supabase (Railway, Vercel…) y se lee su código: qué pide, dónde
+    escribe. 31-10-2026: el compresor de vídeo guardaba en el almacén y la carpeta que dijera quien
+    llamara, sin credencial.
+22. **"La persona puede editar su fila" deja editar el contenido de sus avisos**, y si un disparador
+    reenvía al cambiar el contenido, eso es mandar mensajes en nuestro nombre. En tablas que las apps
+    solo marcan (leído, pulsado), el permiso va por columna.
+23. **Al cambiar la condición de una política PERMISIVA de `storage.objects`, la condición tiene que
+    seguir nombrando su almacén con un Y**, nunca con un O. "No es este almacén O eres interno" abre la
+    subida a todos los demás almacenes. Tras cambiarla, se repite la prueba de subida en los 40.
+
+
+### Trampas de las propias rondas
+
+1. **La cuenta de prueba 666 555 444 es doble**: trabajador y usuario de una empresa de prueba. Ve
+   lo de esa empresa, y eso parece un agujero sin serlo (ronda 3: "un trabajador ve contratos y
+   facturas"). Para probar como trabajador se usa un trabajador de prueba **puro**, sin fila en
+   `company_users` ni en `internal_users`; `probar-como-atacante.sql` ya lo elige así.
+2. **Los nombres de parámetro engañan**: `p_cancelled_by_type` o `p_created_by_type_filter` no son
+   un autor. El medidor solo marca los que son `uuid`.
+3. **Las revisiones antiguas de funciones del servidor solo miraron las de `verify_jwt` apagado.**
+   Las 128 con `verify_jwt` encendido se revisaron por primera vez en la ronda 3.
+4. **Una guarda que no se puede poner dentro** (la función la usan 17 funciones con la sesión de
+   cualquiera): `current_setting('request.path')` dice si la llamada vino directa de la API.
+   Es el último recurso; lo limpio es quitarle el permiso a las apps. Se pregunta con el ayudante
+   `fn_api_direct_call('nombre')`, y la prueba de ataque tiene que poner esa ruta o no la prueba.
+5. **El ataque solo es tan bueno como los identificadores que usa.** En la ronda 1 el cálculo de
+   pago de una jornada ajena no salió porque la jornada elegida no tenía horas y la respuesta venía
+   vacía; en la ronda 3, con otra jornada, devolvió el coeficiente del cliente. Se eligen
+   identificadores "llenos" (turnos con horas, jornadas con horario) y, si una función devuelve
+   vacío con todos, se mira con qué identificador sí devolvería algo.
+6. **Lo que el ataque no cubre**: funciones con parámetros que no son identificadores (texto,
+   fechas, listas) y las que escriben. Esas solo las cubre el medidor y la lectura.
+7. **Lo que la protección automática de esta sesión no deja hacer** (borrar del todo, escribir
+   secretos): no se intenta por otro camino; se hace lo reversible y se deja el paso a Crescente.
+
+8. **Contar filas tocadas no prueba nada**: muchos vigilantes devuelven el valor viejo sin dar error,
+   así que el UPDATE "toca" la fila y no cambia nada. El ataque lee el valor después (ronda 21).
+9. **Una política `true` en un catálogo no es inocua si el catálogo lleva un precio.** Puestos y vestimentas parecían nombres; el puesto lleva `fixed_hourly_rate`. Y una política que solo mira el almacén (`bucket_id = ...`) en uno público deja colgar cualquier fichero con nuestra dirección: la subida se ata a la carpeta del dueño (hilo, persona, local).
+10. **Las tablas sin `company_id` ni `worker_id` se escapan del ataque por columna.** Los fichajes (`clock_events`) solo llevan `shift_id`; hay que atacarlas por la relación (turno, hilo, anuncio).
+11. **Una vista de recuento siempre devuelve una fila**: con todo a cero cuando no ves nada. Se leen los valores, no el número de filas.
+12. **Si una sola columna está protegida, se rechaza la modificación entera** y las demás parecen protegidas sin estarlo. Se prueba columna a columna (así salieron el método de pago a la ETT y la estimación de facturación del centro).
+13. **Probar llamando a las funciones con la conexión del MCP engaña con `session_user`.** Esa
+    conexión entra como `postgres`, así que una guarda que mira `session_user` (como
+    `_voice_is_service`) deja pasar la prueba aunque por la API frene. Lo que salga así se repite por
+    HTTP con la clave pública o se lee la guarda antes de darlo por agujero (31-10-2026,
+    `voice_calls_review_list`).
+14. **Contar filas no es leer columnas.** Una tabla con permisos por columna (`job_days`) deja contar
+    todas las filas y aun así no dejar leer la comisión. Antes de apuntar "se ve X", se pide la
+    columna concreta o se mira `has_column_privilege`.
+15. **Probar con identificadores vacíos engaña**: casi todas las funciones salen pronto con un nulo
+    y parecen seguras. La prueba buena llama a cada una con los identificadores reales de **otra**
+    empresa y otro trabajador de prueba, y filtra las que solo repiten el id dentro de un "no
+    autorizado" (falsos positivos: `delete_worker_preferences`, `get_my_offer_apply_state`).
+
+### Lo aprendido, ronda a ronda
+
+| Ronda | Fecha | Encontrado | Qué se añadió a la red |
+|---|---|---|---|
+| 1 | 30-10-2026 | 14 agujeros con sesión y ~35 funciones de servidor abiertas; 187 triggers y 453 tablas con permisos que la API no usa | Privilegios por defecto sin `anon`; `security_function_reviews`; `fn_security_function_flags` (servidor por nombre, escribe sin guarda, lee por id sin guarda, sin cuenta sin guarda) dentro de `fn_review_function`; `probar-como-atacante.sql` |
+| 2 | 30-10-2026 | Autor por parámetro en el IBAN y 6 cambios de ficha; NPS de empresas, borradores de marketing y análisis de locales legibles por cualquiera; enlaces de equipo para desactivados | `actor_por_parametro`; `fn_security_policy_flags` (política abierta con datos, empresa sin activo) |
+| 3 | 30-10-2026 | Vistas: bien. Ataque ampliado (161 funciones, trabajador puro): el cálculo de pago de cualquier jornada daba el coeficiente del cliente. Ficheros: bien. Hueco del plan: funciones del servidor con `verify_jwt` | `fn_security_view_flags`; `fn_api_direct_call`; el ataque simula la ruta de la API, usa trabajador puro y varios identificadores; `funciones-servidor-revisadas.tsv` con la huella de cada una |
+| 4 | 30-10-2026 | Las 128 funciones del servidor con `verify_jwt` nunca revisadas: 19 agujeros (código de firma de contratos fabricable, avisos falsos a personas, DNI en la respuesta, correos a cualquiera, gasto de IA) | Puerta común en 32; `funciones-servidor-revisadas.tsv` con las 287; `scripts/comprobar-puertas-funciones.sh` en Web-Panel; regla 7 |
+| 5 | 30-10-2026 | 12 funciones del servidor sin uso, retiradas (410); siete más con la puerta corta o sin tope de texto; el número de documento en el historial | Regla 8; trampa 7 |
+| 6 | 30-10-2026 | Topes: SMS de código, correo de verificación, altas sin cuenta, formularios de la web, invitar al equipo, CV; columnas de dinero y estado escribibles desde la app; vídeos de entrevista de cualquier tipo; redirección y baja por GET en el rastreador de correos | Reglas 9, 10 y 11 |
+| 21 | 30-10-2026 | Mover filas a otra empresa con un UPDATE: nada (los disparadores devuelven la empresa sin error). Trampa: contar filas tocadas no basta, hay que leer el valor después | Trampa 8 |
+| 22 | 30-10-2026 | Funciones con ids dentro de texto o JSON: las 14 se defienden con ayudantes que el patrón no conocía | — |
+| 23 | 30-10-2026 | Un trabajador subía su documento con el número, el nombre y la fecha "leídos" escritos por él; una aprobación a mano sin releer los pasaba a la ficha. El vigilante los vacía al subir. El medidor aprende `tp_my_member` | Regla 12 |
+| 24 | 30-10-2026 | Tiempo real: tablas con RLS y canales privados cerrados; el "está escribiendo" va por un canal público con nombre de pila (leve, pide build) | — |
+| 25 | 30-10-2026 | Una empresa cambiaba a mano el estado de sus altas y bajas de la Seguridad Social; ahora solo por su función. La nota de competencias la calcula la app (leve) | Regla 12 |
+| 26 | 30-10-2026 | Una empresa podía meter en favoritos a cualquier trabajador por la tabla, saltándose la función que exige relación (y eso abría su ficha); solo lo frenaba por casualidad un aviso que fallaba | Regla 12 |
+| 27 | 30-10-2026 | Un trabajador podía escribir historial falso a su nombre; cerrado. Solicitudes, candidaturas, entrevistas, contratos y usuarios directos: bien frenados | Regla 12 |
+| 28 | 30-10-2026 | Datos personales en cualquier tabla o vista: cada uno ve solo lo suyo | — |
+| 29 | 30-10-2026 | Guion de ataque completo repetido: 161 funciones, las mismas 9 respuestas benignas. **Ronda limpia de punta a punta** | — |
+| 30 | 30-10-2026 | 35 funciones del servidor miran "es interno" sin `is_active`; desactivar no cortaba la cuenta | Regla 13; Stripe x2 con interno activo |
+| 31 | 30-10-2026 | Enlaces firmados a ficheros privados: la ruta sale de la base con la sesión de quien pide | — |
+| 32 | 30-10-2026 | `plpgsql_check` en `public` dejaba leer sin cuenta el código de las funciones por la API | Regla 14 |
+| 33 | 30-10-2026 | Rutas de servidor de la web y del panel: con tope | — |
+| 34 | 30-10-2026 | Embudo comercial (`crm_dash_canal`) legible por cualquiera con cuenta | Pasada a `security_invoker` |
+| 35 | 30-10-2026 | Avisos de terceros: todos con firma o secreto (Brevo, a mano) | — |
+| 36 | 30-10-2026 | Bots: las herramientas atan turno e incidencia a quien escribe, aunque el modelo pida otro | — |
+| 37 | 30-10-2026 | Enumeración de teléfonos, correos y CIF: con tope | — |
+| 38 | 30-10-2026 | Ataque completo repetido. **Ronda limpia de punta a punta** | — |
+| 39 | 30-10-2026 | Catálogos de puestos (con tarifa fija) y vestimentas de todas las empresas legibles por cualquiera con cuenta; subida libre a cualquier ruta del almacén público del chat (alojar un PDF de phishing) | `fn_my_worker_company_ids`; `fn_chat_image_path_allowed` y política restrictiva `chat_images_subida_por_hilo`; trampa 9 |
+| 40 | 30-10-2026 | Ronda completa de punta a punta (funciones, tablas, ficheros, altas, medidor, servidor, denegados, apps). **Limpia** | — |
+| 41 | 30-10-2026 | Ronda completa con otra empresa real y otras cuentas de prueba, y llamadas sin cuenta. **Limpia: segunda seguida** | — |
+| T | 30-10-2026 | **Rondas por temas** (14 temas, cada uno hasta dos vueltas limpias seguidas; 4 vueltas en total). Hallazgos: chat y avisos sin mirar si el usuario de empresa sigue activo (y error con varias empresas); la empresa cambiaba a mano su método de pago a la ETT y su estimación de facturación; correos completos de destinatarios de facturas en el historial. Todos arreglados. Apuntado: correos y teléfonos en la URL de consultas de funciones del servidor | Regla 15; trampas 10, 11 y 12 |

@@ -6,9 +6,10 @@ description: >
   Docs. Incluye el criterio para decidir dónde va cada cosa, cómo se escribe una regla para que se
   cumpla, cómo se poda cuando crece, y las trampas del mecanismo (los imports no ahorran contexto,
   dos ficheros que se contradicen no tienen jerarquía). Úsala SIEMPRE que vayas a añadir, mover o
-  borrar una regla, a escribir un aprendizaje nuevo, a crear una skill, o cuando alguien diga
-  "apunta esto", "que no se te olvide", "añádelo al claude.md", "documenta esto", "crea una skill"
-  o "esto se está desordenando".
+  borrar una regla, a crear una skill o a reordenar la documentación, y cuando alguien diga
+  "añádelo al claude.md", "documenta esto", "crea una skill" o "esto se está desordenando".
+  Para apuntar una corrección o un aprendizaje concreto ("apunta esto", "que no se te olvide")
+  la skill es aprender, que se apoya en esta para decidir el sitio.
 paths:
   - "**/CLAUDE.md"
   - "**/SKILL.md"
@@ -44,7 +45,7 @@ Cuatro sitios, y el criterio para elegir es **cuándo hace falta ese conocimient
 | **`CLAUDE.md`**, segunda mitad | Con el resto del fichero | Lo que solo tiene sentido en ese proyecto: carpetas, componentes, colores, su stack (200-400 líneas) | `Docs/repos/<proyecto>.md` |
 | **`.claude/skills/*/SKILL.md`** | Solo el nombre y la descripción al arrancar. El cuerpo, **cuando hace falta** | El detalle por área: la base, el dinero, el soporte, la marca. Sin límite práctico | `Docs/skills/shared/` o `Docs/skills/<repo>/` |
 | **`AGENTS.md` y `.agents/skills/`** | Cargadores y enlaces para Codex | Solo apuntan a `CLAUDE.md` y `.claude/skills/`; nunca contienen otra copia de las reglas | Se generan desde `Docs/repos/` y el workflow |
-| **`agent_docs/`** | Nunca solo. Se lee cuando las reglas o una skill te mandan | El contrato entre las 4 apps, los volcados de esquema, las fichas de feature, los incidentes | `Docs/docs/` |
+| **`agent_docs/`** | Nunca solo. Se lee cuando las reglas o una skill te mandan | El contrato entre las apps, los volcados de esquema, las fichas de feature, los incidentes | `Docs/docs/` |
 
 **`AGENTS.md` manda a Codex a leer `CLAUDE.md`**, generado a la vez. Las skills de
 `.agents/skills/` son enlaces a `.claude/skills/`. Nunca se mantienen reglas duplicadas.

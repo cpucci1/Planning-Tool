@@ -45,9 +45,37 @@ siguiente alarma, la de verdad, se lea con desconfianza.
 Es la prioridad. **Si se cambia una copia y no las otras, el sistema contesta cosas distintas
 según por dónde entres, sin dar ningún error.**
 
-Los tres casos conocidos, y su tamaño cuando se midieron: la comisión en 46 funciones, la
-detección del actor en 158, la guarda `is_test` en 145. Hay helpers para las tres y casi nadie
-los usa.
+**Empieza por el trinquete**, que ya lo mide solo cada día (y avisa a #alarmas si una cifra sube):
+
+```sql
+-- Las dos últimas mediciones, lado a lado. Cualquier fila que suba es un hallazgo.
+with m as (
+  select metric, value, measured_at,
+         dense_rank() over (order by date_trunc('minute', measured_at) desc) r
+    from public.logic_duplication_snapshots)
+select a.metric, b.value antes, a.value ahora, a.value - b.value cambio
+  from m a join m b on b.metric = a.metric and b.r = 2
+ where a.r = 1
+ order by (a.value - b.value) desc, a.metric;
+```
+
+Si una cifra **sube**, busca en la caja negra qué funciones se crearon o cambiaron esa semana
+(`function_versions`, por `changed_at`) y pásales `fn_logic_duplication_flags(nombre, cuerpo)`, que
+lleva los mismos patrones que el trinquete: di cuál la subió. Ejemplo real: del 09 al 10-10-2026
+subieron `activity_log_a_mano` (+9), `zona_horaria_a_mano` (+3) y `estados_a_fuego` (+3), todo por
+funciones nuevas (llamadas de voz, gasto de IA, horas de empresa). Qué mide cada
+métrica y cuál es su fuente única lo devuelve `fn_logic_duplication_metrics()`. La lista completa
+de fuentes únicas está en `shared/FUENTES-UNICAS.md`, y el plan, en
+`shared/PLAN-UNA-LOGICA-UN-SITIO.md`: **di en el informe qué paso del plan toca ahora.**
+
+⚠️ **Una métrica por patrón se calibra leyendo, antes de fijar la línea base.** Aprendido el
+09-10-2026: la primera versión del trinquete contaba la propia fuente buena como copia
+(`fn_shift_timezone`), la versión del Score que manda como vieja, un comentario como sector escrito,
+y se le escapaban 48 funciones con alias de tabla y 234 que comparan el estado del turno. Antes de
+dar por buena una métrica nueva: dos o tres ejemplos que cuenta y dos o tres que no, leídos.
+
+Para buscar familias nuevas que nadie ha nombrado todavía, la consulta de fragmentos repetidos
+está en `shared/auditoria-una-logica-2026-10-09/base-de-datos.md` (Q5).
 
 Qué se busca:
 
@@ -59,7 +87,7 @@ Qué se busca:
   app). Se unifican en una con la fuente como parámetro.
 - **Pantallas o componentes gemelos entre las cuatro apps.** Mismo objetivo resuelto dos veces con
   diferencias menores.
-- **La misma cosa llamada de dos maneras.** El vocabulario está en `shared/glossary.md`.
+- **La misma cosa llamada de dos maneras.** El vocabulario está en `shared/core/GLOSSARY.md`.
 
 **La comprobación de funciones ambiguas es obligatoria y su consulta está escrita en la skill
 `shifty-base-de-datos`, §7 regla 1 bis. Cópiala de allí.** Cero filas. Si salen familias, cada una
@@ -67,7 +95,8 @@ es una llamada que hoy falla en silencio y el front se traga. Y al retirar una v
 mirar antes qué hará la que se queda con sus valores por defecto: hay casos donde desambiguar
 activaría un borrado de datos.
 
-Pasar también `plpgsql_check`. Cero filas en las dos.
+Pasar también `plpgsql_check`, con la consulta global de la misma §7 (paso 1); sus falsos
+positivos conocidos están ahí. Cero filas nuevas en las dos.
 
 ---
 
@@ -98,8 +127,8 @@ cuando esté aprobada, la siguiente.
 ## Pasada 3 — La documentación
 
 - **Documentos que mienten.** Afirmaciones de estado que ya no son verdad: "en producción",
-  "pendiente", "flag encendido", "v2". No repitas este trabajo: lo hace la skill
-  `sincronizar-doc`, invócala.
+  "pendiente", "flag encendido", "v2". Compruébalas contra producción (flags, crons, funciones
+  desplegadas) y propón la corrección en la ficha.
 - **Los dos catálogos generados**, que son los que más silenciosamente se desfasan y los que más
   caro salen: si una función existe y no está en el catálogo, el siguiente que lo lea escribirá
   una segunda versión de lo mismo. Comprobar la línea "Fecha del volcado" de

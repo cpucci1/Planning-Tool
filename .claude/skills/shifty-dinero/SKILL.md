@@ -57,6 +57,12 @@ anuncio y la jornada, el incentivo de primer turno, la pantalla del anuncio y
 - **Ejemplo directo:** 80 € de bruto. Comisión del 25 % = 20 €. Total empresa = 100 €.
 - **INCORRECTO en ETT:** aplicar el 25 % solo al bruto. Se deja fuera el coste de la ETT.
 
+### Coeficiente de Lanak al conciliar (2026-10-19)
+
+Crescente confirma que Lanak utiliza siempre **1,505**. Un 1,51 guardado en Shifty no acredita que Lanak haya aplicado otro coeficiente.
+- **CORRECTO:** contrastar la liquidación de Lanak con 1,505 y separar las diferencias del cálculo de Shifty, sin modificar facturas emitidas.
+- **INCORRECTO:** presentar 1,505 como hipótesis por confirmar con Lanak al conciliar Vega, por confundir el valor guardado en Shifty con el criterio del proveedor.
+
 ⚠️ **Hay un texto que dice lo contrario y está mal**, en la parte propia de la app de empresas. Manda esta tabla. Si lo ves, se corrige en `Docs/repos/Client-App.md`, nunca en el fichero del repo: ese lo genera el sync y el arreglo se pierde.
 
 ### El coeficiente va exacto: 1,505 es 1,505
@@ -73,6 +79,13 @@ cuatro vistas de precio redondeaban el coeficiente a dos decimales y cobraban me
 - Lo usan las cuatro vistas, la cotización del creador y el detalle del anuncio. **Nunca volver a
   escribir el coeficiente ni su redondeo a mano.** En pantalla se enseña con sus tres decimales.
 - El porqué y lo que se descartó, en `decisiones/D-004-el-coeficiente-de-la-ett-no-se-redondea.md`.
+
+### Los puestos temporales tienen su propia comisión (2026-10-28)
+
+Vive en el anuncio del puesto, dentro de la misma cadena. Nace con la de la empresa salvo que el
+equipo ponga otra al crearlo, y se cambia solo con `tp_admin_set_commission` (motivo y rastro).
+**Cambiar la comisión de la empresa no la toca**, y cambiar la del temporal no toca la de la
+empresa. Detalle en `features/puestos-temporales.md`.
 
 ### El porcentaje no está congelado
 
@@ -110,12 +123,29 @@ Detalle completo en `Docs/docs/features/equipo-propio-billing.md`.
 
 ## 3. La tarifa por hora
 
+### Respuestas generales a trabajadores
+
+Clara puede comunicar el rango general autorizado por Crescente, sin consultar un anuncio. Regla, ejemplo y límites en `docs/features/clara-quality-reviews/TARIFAS-GENERALES-2026-10-08.md` (en repos destino, `agent_docs/features/`). Es información al trabajador: no cambia tarifas guardadas, cálculo, mínimos de convenio ni precios a empresas. Para un anuncio concreto sigue mandando su tarifa actual comprobada.
+
 ### La regla
 
-La tarifa **solo se puede subir, nunca bajar**. Y si la empresa tiene **pago fijo por posición**
-activado (`companies.fixed_position_pay_enabled`, hoy **6 empresas reales**), la fija el puesto
+La tarifa **solo se puede subir. La única forma de bajarla es sin candidatos, sin invitados y sin
+nadie elegido** en el anuncio, y nunca por debajo del suelo (decidido por Crescente el 17-10-2026).
+Quien ya se ha apuntado, está invitado o en el banquillo ha visto un pago concreto: bajárselo sin
+avisar le cambia lo que se le ofreció. Y si la empresa tiene **pago fijo por posición** activado
+(`companies.fixed_position_pay_enabled`, hoy **6 empresas reales**), la fija el puesto
 (`position_types.fixed_hourly_rate`, puesta en 38 posiciones de 8 empresas) y se copia al crear el
-anuncio: **ni la empresa ni el panel la pueden editar**.
+anuncio: **ni la empresa ni el panel la pueden editar, ni subir ni bajar**.
+
+**La regla vive en un solo sitio: `fn_job_offer_rate_change_check(anuncio)`.** Dice si se puede subir
+(`can_increase`: sin pago fijo, anuncio en borrador/publicado/oculto, nadie elegido, ningún turno vivo y
+días por delante), si se puede bajar (`can_decrease`: además sin candidatos ni invitaciones vivas, con
+el mínimo del convenio conocido y por encima del suelo) y hasta dónde (`min_hourly_rate`: el mínimo
+del convenio del anuncio y el suelo del creador de `fn_resolve_min_hourly_rate`, redondeado a 0,50),
+con el porqué en `blocked_reason` y `decrease_blocked_reason`. La usan `update_job_offer_hourly_rate`
+para imponer y `get_job_offer_details_for_company` para enseñar (`hourly_rate_stats.rate_change`): la
+pantalla no decide nada, enseña lo que dice la base. **Nunca volver a escribir esa comprobación a
+mano** en otra función ni en una pantalla.
 
 **La única excepción, desde el 2026-09-22: un interno puede subirla en una jornada suelta.** Se pide
 con `p_override_fixed_pay` y **exige un motivo escrito** de al menos 10 caracteres, que queda en el
@@ -132,11 +162,12 @@ puerta para el agente, no para la pantalla. No añadirla al panel ni a la app de
 | Camino | Solo subir | Tarifa fija | Convenio | Permisos | Candidatos | Rastro |
 |---|---|---|---|---|---|---|
 | `update_job_day_hourly_rate` | sí | sí | sí | sí | sí | sí |
-| `update_job_offer_hourly_rate` | sí | sí | sí | sí | sí | sí |
+| `update_job_offer_hourly_rate` | sí (bajar solo sin candidatos, invitados ni elegidos) | sí | sí | sí | sí | sí |
 | `update_multiple_job_days_hourly_rate` | **no** | **no** | **no** | sí | **no** | **no** |
 | El modal escribiendo directo | **no** | **no** | **no** | **no** | **no** | **no** |
 
-**`update_job_day_hourly_rate` es la implementación de referencia.** Comprueba la sesión, los
+**`update_job_day_hourly_rate` es la implementación de referencia** para un día suelto (solo deja
+bajar a un interno con su excepción; para el anuncio entero manda `fn_job_offer_rate_change_check`). Comprueba la sesión, los
 permisos, bloquea si la empresa tiene pago fijo, exige que la tarifa suba, respeta el mínimo del
 convenio, se niega si ya hay alguien seleccionado o turnos vivos, y deja rastro con quién, cuándo y
 de qué a qué. **Cualquier camino nuevo debe hacer las siete cosas.** Es también la única que sabe
@@ -213,11 +244,25 @@ turnos sin forma de cobrarlos.
   preguntar o escalar.
 - **`cost_centers.payment_terms_days` NO es cuándo cobra el trabajador.** Es un campo B2B: los días
   que tiene la empresa para pagar a Shifty o a Lanak. **El trabajador no debe verlo nunca.**
-- **El importe de la app es BRUTO.** El neto es el bruto menos **IRPF solamente**. La Seguridad
-  Social la paga la empresa **por encima** del salario, nunca se le descuenta al trabajador. Sí
-  cotiza y le cuenta para su vida laboral y el paro.
+- **El importe de la app es BRUTO.** Al banco llega el neto: el bruto menos **su parte de la
+  Seguridad Social y el IRPF**. **Decisión de Crescente (30-10-2026): al trabajador se le estima un
+  8,5 % ±1 %** cuando paga la ETT colaboradora; lo exacto está en su nómina. Hasta el 30-10 se decía
+  que solo se le descontaba el IRPF, y era falso. El porcentaje vive en el pagador
+  (`payers.worker_net_deduction_pct` y `worker_net_deduction_margin_pct`) y la cuenta la hace la base
+  (`fn_worker_net_estimate`): ni la app ni un bot la calculan. Con pago directo no se estima: lo dice
+  la nómina de la empresa. La parte de la Seguridad Social de la empresa va aparte, por encima del
+  salario. Ficha: `features/pago-del-turno-en-la-app.md`.
+- **"Pagado" con la ETT, desde que sale la remesa (30-10-2026).** El trabajador ve "Pagado" desde el
+  día en que la ETT manda al banco la remesa de ese turno (`fn_shift_ett_payout_sent_on`), sin esperar
+  a la confirmación, que llegaba de 4 a 14 días tarde. No cambia `payment_status_id`.
 - **En pago directo, `payment_status_id = 8` ("Pagado") lo marca la propia empresa** desde su panel.
   Es autodeclarado, no una transferencia verificada: no sirve para afirmarle a nadie que ya cobró.
+  Lo marca al mandar el resumen a su gestoría, normalmente días antes de pagar.
+- **Desde el 14-10-2026 la fecha límite del pago directo la calcula la base** (`fn_shift_direct_payout_due_date`).
+  Sale del texto de `payment_conditions` traducido por la IA a reglas (`payment_schedule`). Mientras no
+  pase esa fecha, el trabajador ve "Procesando pago, como tarde el X" aunque la empresa lo haya marcado.
+  Lo que ve lo decide `fn_worker_payment_status`, y **nunca se vuelve a escribir a mano**. Si la condición
+  no está entendida, se enseña lo de siempre (decisión A de Crescente). Ficha: `features/fecha-pago-directo.md`.
 - **El estado de Shifty no acredita la recepción de un pago de Lanak.**
   `payment_status_id = 8` existe también en turnos ETT; es falso que todos
   permanezcan en `7`. Antes de afirmar

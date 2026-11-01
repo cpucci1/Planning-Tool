@@ -23,12 +23,43 @@ comando=$(printf '%s' "$entrada" | jq -r '.tool_input.command // empty' 2>/dev/n
 # ¿Es un commit? Se mira asi de tonto a proposito: cualquier otra cosa sale sin coste.
 printf '%s' "$comando" | grep -qE '(^|[;&|[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(-[^[:space:]]+[[:space:]]+)*commit' || exit 0
 
-# ¿En que repositorio? Si el comando trae `-C <ruta>`, esa manda; si no, el directorio de la sesion.
-repo=$(printf '%s' "$comando" | sed -nE 's/.*git[[:space:]]+-C[[:space:]]+([^[:space:]]+).*/\1/p' | head -1)
-[ -z "$repo" ] && repo=$(printf '%s' "$entrada" | jq -r '.cwd // empty' 2>/dev/null)
+# ¿En que repositorio? Manda el `-C <ruta>` del commit; si no hay, un `cd <ruta>` del comando; si
+# no, el directorio de la sesion.
+sin_comillas() { sed -E "s/^[\"']//; s/[\"']$//"; }
+repo=$(printf '%s' "$comando" | grep -oE 'git[[:space:]]+-C[[:space:]]+[^[:space:]]+([[:space:]]+-[^[:space:]]+)*[[:space:]]+commit' \
+  | sed -nE 's/^git[[:space:]]+-C[[:space:]]+([^[:space:]]+).*/\1/p' | head -1 | sin_comillas)
+[ -z "$repo" ] && repo=$(printf '%s' "$comando" | sed -nE 's/(^|.*[;&|[:space:]])cd[[:space:]]+([^;&|[:space:]]+).*/\2/p' | head -1 | sin_comillas)
+cwd_sesion=$(printf '%s' "$entrada" | jq -r '.cwd // empty' 2>/dev/null)
+if [ -n "$repo" ] && [[ "$repo" != /* ]] && [ -n "$cwd_sesion" ]; then repo="$cwd_sesion/$repo"; fi
+[ -z "$repo" ] && repo="$cwd_sesion"
 [ -z "$repo" ] && exit 0
 [ -d "$repo" ] || exit 0
 git -C "$repo" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+
+# ⚠️ EL HUECO QUE TENIA HASTA EL 2026-10-10: el hook salta ANTES de que corra el comando, asi que
+# ⚠️ en `git add x && git commit` (la forma normal de commitear de un agente) o en `commit -a`, lo
+# ⚠️ preparado todavia no incluye x, y el candado miraba un indice vacio: dejaba pasar hasta una
+# ⚠️ clave de servicio. Ahora se ensaya el `git add` del propio comando sobre una COPIA del indice
+# ⚠️ (no toca el de verdad) y se mira eso. Solo se ensaya un `git add` sin `$`, comillas
+# ⚠️ invertidas, redirecciones ni subcomandos: lo demas no se ejecuta nunca desde aqui.
+indice_real=$(git -C "$repo" rev-parse --path-format=absolute --git-path index 2>/dev/null)
+ensayo=$(mktemp 2>/dev/null) || ensayo=""
+trap '[ -n "$ensayo" ] && rm -f "$ensayo"' EXIT
+if [ -n "$ensayo" ] && [ -n "$indice_real" ]; then
+  if [ -f "$indice_real" ]; then cp "$indice_real" "$ensayo"; else rm -f "$ensayo"; fi
+  ensayado=0
+  while IFS= read -r trozo; do
+    trozo=$(printf '%s' "$trozo" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+    if printf '%s' "$trozo" | grep -qE '^git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+add([[:space:]]|$)' &&
+       ! printf '%s' "$trozo" | grep -q '[`$<>()]'; then
+      argumentos=$(printf '%s' "$trozo" | sed -E 's/^git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+add//')
+      ( cd "$repo" && eval "set -- $argumentos" && GIT_INDEX_FILE="$ensayo" git add "$@" ) >/dev/null 2>&1 && ensayado=1
+    elif printf '%s' "$trozo" | grep -qE '^git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit([[:space:]].*)?[[:space:]](-[a-zA-Z]*a[a-zA-Z]*|--all)([[:space:]]|$)'; then
+      GIT_INDEX_FILE="$ensayo" git -C "$repo" add -u >/dev/null 2>&1 && ensayado=1
+    fi
+  done < <(printf '%s\n' "$comando" | awk '{ gsub(/&&|\|\||;/, "\n"); print }')
+  if [ "$ensayado" = 1 ]; then export GIT_INDEX_FILE="$ensayo"; fi
+fi
 
 preparados=$(git -C "$repo" diff --cached --name-only --diff-filter=ACMR 2>/dev/null)
 [ -z "$preparados" ] && exit 0
@@ -113,7 +144,59 @@ if [ -n "$anadido" ]; then
     apunta_duda "Parece que estas decidiendo quien es Gold a mano. Eso lo decide fn_is_gold, que redondea por dentro: doce copias daban resultados distintos."
   printf '%s' "$anadido" | grep -qiE 'night[_ ]?rate|nocturnidad' && printf '%s' "$anadido" | grep -qE '[*+][[:space:]]*1\.[0-9]' &&
     apunta_duda "Parece que estas calculando la tarifa de noche a mano. Eso lo hace fn_effective_hourly_rate."
+
+  # Lo que encontro la auditoria del 2026-10-09 (shared/PLAN-UNA-LOGICA-UN-SITIO.md): sitios donde
+  # una pantalla decide o escribe lo que deberia decidir la base.
+  # ⚠️ Escrituras directas a tablas operativas (regla 3): sin RPC no queda rastro, y ya habia dos
+  # ⚠️ caminos para cambiar la comision, uno sin motivo ni rastro.
+  printf '%s' "$anadido" | grep -qE "\.from\([[:space:]]*['\"](shifts|job_days|job_days_candidates|job_offers|companies|cost_centers|workers|worker_documents|company_worker_blocks|cost_center_contracts|payers)['\"][[:space:]]*\)[[:space:]]*\.(update|insert|delete|upsert)\(" &&
+    apunta_duda "Escribes directamente en una tabla operativa desde el codigo. Se usa la RPC, que deja rastro en activity_log (regla 3). Mira shared/FUENTES-UNICAS.md por si ya existe."
+  # ⚠️ Decisiones que viajan como parametro: la pantalla decide si un cierre queda en revision o
+  # ⚠️ que es "cancelar tarde", y cada pantalla decidia distinto.
+  printf '%s' "$anadido" | grep -qE "p_is_disputed[[:space:]]*:|p_min_hours(_for_compensation)?[[:space:]]*:" &&
+    apunta_duda "Mandas desde la pantalla una decision que es de la base (si un cierre queda en revision, o el umbral de cancelacion tardia). Lo decide fn_shift_close_disputes / fn_late_cancel_compensation."
+  # ⚠️ El coeficiente escrito a mano: el dia que se negocie otro, el contrato y los simuladores mienten.
+  printf '%s' "$anadido" | grep -qE "1[.,]505|COEF_ETT|MADRID_COEFFICIENT" &&
+    apunta_duda "Escribes el coeficiente a mano (1,505). Se lee el de la empresa (company_coefficients / fn_company_base_coefficient)."
 fi
+
+# ── 6. DUPLICADOS DEL FINDER ─────────────────────────────────────────────────────────────────
+# "Fichero 2.tsx": macOS los crea al copiar. El 2026-10-09 habia 12 dentro de main, uno de ellos
+# distinto del original, y nadie sabia cual era el bueno.
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  printf '%s' "$(basename "$f")" | grep -qE ' [0-9]+\.[A-Za-z]+$' &&
+    apunta_duda "$f es una copia del Finder (nombre acabado en ' 2'). Si es lo bueno, ponle su nombre; si no, no la commitees."
+done <<< "$preparados"
+
+# ── 7. LLAMADAS A UNA IA SIN FRENO DE GASTO ──────────────────────────────────────────────────
+# El 2026-10-09 un barrido reintento sin limite y llamo a Gemini 8.863 veces en un dia, sin que
+# nada lo parara ni avisara. Desde entonces toda llamada a un proveedor de IA pasa por los helpers
+# compartidos, que consultan el presupuesto antes y apuntan el gasto despues: callLlm/embedTexts
+# (_shared/llm.ts), fetchIa o conPresupuestoIa (_shared/ia-gasto.ts). Una llamada con fetch a pelo
+# se salta los dos.
+#   · FRENA: una linea nueva que hace fetch( directamente contra un proveedor de IA.
+#   · PREGUNTA: un fichero que nombra un proveedor o su SDK y no usa ningun helper (puede ser una
+#     consulta que no cuesta, como listar modelos; o puede ser una llamada por una constante).
+ia_hosts='generativelanguage\.googleapis\.com|aiplatform\.googleapis\.com|api\.openai\.com|api\.anthropic\.com|api\.x\.ai|api\.groq\.com|api\.mistral\.ai|openrouter\.ai|api\.deepseek\.com|api\.cohere\.'
+ia_sdk='new (GoogleGenAI|GoogleGenerativeAI|OpenAI|Anthropic)\(|(npm:|esm\.sh/|jsr:)(@google/genai|@google/generative-ai|openai|@anthropic-ai/sdk)'
+ia_helpers='fetchIa\(|conPresupuestoIa\(|callLlm\(|embedTexts\('
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    *_test.ts|*_test.js|*.test.ts|*.test.tsx|*/_shared/llm.ts|*/_shared/ia-gasto.ts) continue ;;
+    *.ts|*.tsx|*.js|*.jsx|*.mjs) : ;;
+    *) continue ;;
+  esac
+  nuevas=$(git -C "$repo" diff --cached -U0 -- "$f" 2>/dev/null | grep '^+' | grep -v '^+++')
+  [ -z "$nuevas" ] && continue
+  if printf '%s' "$nuevas" | grep -E "$ia_hosts" | grep -E '(^|[^A-Za-z_])fetch\(' | grep -vqE 'fetchIa\('; then
+    apunta_freno "$f llama a un proveedor de IA con fetch directo. Usa fetchIa (mismo uso que fetch) de _shared/ia-gasto.ts, o callLlm de _shared/llm.ts: sin eso no hay tope de gasto ni registro, que es como se escapo el gasto del 09-10-2026."
+  elif printf '%s' "$nuevas" | grep -qE "$ia_hosts|$ia_sdk"; then
+    git -C "$repo" show ":$f" 2>/dev/null | grep -qE "$ia_helpers" ||
+      apunta_duda "$f nombra un proveedor de IA (o su SDK) y no usa ningun helper con freno de gasto. Si llama al modelo, que sea con fetchIa, conPresupuestoIa o callLlm (skill shifty-codigo-limpio, 'Llamar a una IA'). Si solo lista modelos, sigue."
+  fi
+done <<< "$preparados"
 
 # ── El veredicto ─────────────────────────────────────────────────────────────────────────────
 if [ -n "$frenos" ]; then

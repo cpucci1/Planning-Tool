@@ -7,7 +7,8 @@ description: >
   vende, los clientes citables, y las cifras públicas que no se sostienen. Úsala SIEMPRE antes de
   escribir un post, un correo, una secuencia, un titular, una landing, una propuesta o una nota de
   prensa, y cuando alguien diga "escríbeme un post", "hazme el copy", "mejora este texto", "prepara
-  un email para un cliente" o "qué ponemos en la web".
+  un email para un cliente" o "qué ponemos en la web". También antes de diseñar un Excel, PDF,
+  informe, presupuesto, presentación o cualquier material visual de Shifty para clientes.
 ---
 
 # Marca y copy de Shifty
@@ -16,7 +17,19 @@ description: >
 > `Docs/docs/brand/voice-and-tone.md`.** Si dudas de una regla, reléela antes de escribir.
 > Aplica a cualquier texto que vaya a ver alguien de fuera.
 
+## Identidad visual antes de diseñar
+
+Para materiales visuales, leer también `docs/brand/materiales-clientes.md` en Docs
+(`agent_docs/brand/materiales-clientes.md` dentro de una app). No basta con leer la voz de marca.
+`shared/design-system.md` describe la interfaz del panel; no decide por sí solo la apariencia
+de un documento comercial. Verificar la paleta y una vista renderizada antes de entregar.
+
 ---
+
+### Nombre de marca (2026-10-18)
+Usa siempre **Shifty Work**, también en explicaciones al fundador y al revisar materiales históricos.
+- CORRECTO: «Shifty Work conecta hoteles con profesionales para sus turnos».
+- INCORRECTO: Abreviar el nombre a «Shifty», como ocurrió en la propuesta para Meliá al seguir la denominación de documentación anterior. Los nombres técnicos de archivos y proyectos se conservan.
 
 ## 1. Lo que no se dice nunca
 
@@ -70,7 +83,7 @@ qué pasa exactamente, se reescribe.
 - **Nada de gerundios al principio de frase.** "Optimizando tu equipo…" no; "Optimiza tu equipo" sí.
 - **Sin guiones largos.** A Crescente le suenan a texto de IA.
 
-### Al escribir a alguien de fuera, dos errores que Crescente ha corregido
+### Al escribir a alguien de fuera, los errores que Crescente ha corregido
 
 **2026-09-22, sobre un correo a un cliente potencial que llevaba 18 días esperando.**
 
@@ -82,6 +95,16 @@ qué pasa exactamente, se reescribe.
    mejor, sin que te lo hayan preguntado, **suena a folleto**. Su palabra: *"muy sales pitch de
    libro"*. El primer correo **no vende**: se pone en contacto, **pregunta qué están buscando** y
    ofrece ayuda. El producto se cuenta cuando sepas qué necesitan.
+3. **Escribe con la voz de quien firma, no con la de quien llevó la cuenta.** (2026-10-22) Antes de
+   redactar, mira en el CRM quién hizo cada llamada, correo o reunión. Si fue un compañero, quien
+   firma se presenta y lo nombra: *"mi compañero Mathias estuvo con vosotros en junio"*. Y no des
+   por hecho que se acuerdan de nosotros: la referencia va en media frase, como contexto, no como
+   gancho.
+   - CORRECTO: *"Soy Crescente, cofundador de Shifty Work. En junio mi compañero Mathias estuvo con
+     Paco y contigo, por si te suena."*
+   - INCORRECTO: *"Nos vimos en junio en vuestras oficinas"*, en un mensaje de LinkedIn de
+     Crescente a Matthew Trainor (Grupo Con Fuego). A esa reunión fue Mathias, no Crescente: el
+     mensaje le atribuía a él una reunión que no tuvo.
 
 **Cómo se escribe entonces:** quién eres, por qué escribes, una pregunta abierta de qué necesitan,
 y una salida fácil (te llamo o me contestas). Cuatro o cinco líneas. Si ocupa más de una pantalla
@@ -90,6 +113,24 @@ de móvil, sobra la mitad.
 ❌ *"En Shifty publicas el turno y en pocas horas se te apuntan profesionales ya verificados. Tú
 eliges a quién quieres, y el alta la gestionamos nosotros a través de una ETT colaboradora."*
 ✅ *"¿Sigues necesitándolo? Cuéntame qué buscas exactamente y te digo si te lo podemos cubrir."*
+
+### El correo después de una llamada: precios, plazos y lo que falta (2026-10-13)
+
+**Corregido por Crescente sobre el correo a CABRÓN Mexican Parrilla**, un lead que tras la llamada
+pidió la información para darse de alta. **Cómo funciona Shifty va en la presentación adjunta, no
+en el correo.** El correo es para precios, plazos y lo que necesitamos para empezar, escrito como lo
+mandaría una persona. Breve no es telegráfico: si no se entiende, no sirve. Y un párrafo de "publicas
+el turno, se apuntan, eliges" metido de la nada suena a máquina: su palabra, *"¿un humano enviaría
+eso así de la nada?"*.
+
+- **CORRECTO:** una línea de contexto que remite al adjunto, **solo el precio final** por hora de cada puesto, todo
+  incluido (salario × 1,505 × 1,25, ver `shifty-dinero` §7), sin explicar qué incluye ni enseñar
+  el salario, el pago en una frase (mensual a 7 días tras verificar el crédito en unas 48 h, o adelantar la
+  parte laboral, el 80 %, si hay prisa) sin entrar en las dos facturas, y la lista de lo que
+  necesitamos: CIF, código de cuenta de cotización, CNAE y evaluación de riesgos laborales.
+- **INCORRECTO:** *"Como hablamos por teléfono: 10 €/hora más nuestro 25 %."* No explica nada, y
+  así no funciona el precio: el 25 % va sobre el coste con la ETT, no sobre el salario, y el
+  porcentaje de comisión es pricing interno que no sale de casa.
 
 ---
 
