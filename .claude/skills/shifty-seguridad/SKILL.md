@@ -717,6 +717,10 @@ que salte un aviso**.
 22. **"La persona puede editar su fila" deja editar el contenido de sus avisos**, y si un disparador
     reenvía al cambiar el contenido, eso es mandar mensajes en nuestro nombre. En tablas que las apps
     solo marcan (leído, pulsado), el permiso va por columna.
+24. **Enganchar una cuenta a una ficha por teléfono se hace con el número completo, nunca con "acaba
+    en".** `LIKE '%' || telefono` deja que una ficha con el teléfono corto o guardado sin prefijo se la
+    quede un móvil de otro país acabado igual. Se usa `fn_mismo_telefono(a, fn_telefono_completo(prefijo,
+    numero))` (01-11-2026: alta, portal de la ETT y partners).
 23. **Al cambiar la condición de una política PERMISIVA de `storage.objects`, la condición tiene que
     seguir nombrando su almacén con un Y**, nunca con un O. "No es este almacén O eres interno" abre la
     subida a todos los demás almacenes. Tras cambiarla, se repite la prueba de subida en los 40.
@@ -764,6 +768,9 @@ que salte un aviso**.
     y parecen seguras. La prueba buena llama a cada una con los identificadores reales de **otra**
     empresa y otro trabajador de prueba, y filtra las que solo repiten el id dentro de un "no
     autorizado" (falsos positivos: `delete_worker_preferences`, `get_my_offer_apply_state`).
+16. **Llamar muchas funciones seguidas en la misma transacción contamina la prueba.** Una que escribe
+    (meter en el equipo, cambiar el pagador) cambia lo que devuelven las siguientes, y aparecen
+    "fugas" que no lo son. Cada positivo se repite con la función sola antes de darlo por bueno.
 
 ### Lo aprendido, ronda a ronda
 
