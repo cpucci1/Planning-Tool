@@ -130,6 +130,12 @@ El interruptor `prl_worker_notifications` y el cron `sync-prl-from-sheet` están
 - **Las incidencias se contestan por CORREO, nunca por el chat de la app.** Correcto: *"se lo elevo
   al equipo, te responden por correo en cuanto tengan respuesta, revisa también el spam"*. Incorrecto:
   *"te escriben por aquí"* (error real del bot, 2026-07-02).
+- **Si un trabajador tiene que mandarnos algo por correo, se le da `soporte@shifty.es`**, nunca
+  `cpucci@shifty.es` (decisión del 30-10-2026). El buzón de soporte lo lee el sistema cada 10
+  minutos: el texto **y los adjuntos** (fotos y PDF) entran solos en su incidencia y los ve todo el
+  equipo en el panel. El de Crescente no lo lee nadie más. Correcto: *"mándanos el documento a
+  soporte@shifty.es desde el correo de tu cuenta"*. Incorrecto: *"escríbenos a cpucci@shifty.es"*
+  (Jaiken y Daniel, 30-10-2026: sus documentos se quedaron en un buzón personal).
 - **En la pasada de `revisar-incidencias` ningún pago se resuelve solo.**
   Tanto una duda informativa como un impago, una diferencia de importe o
   un plazo vencido se investigan y se proponen en borrador para Crescente.

@@ -132,6 +132,20 @@ eso así de la nada?"*.
   así no funciona el precio: el 25 % va sobre el coste con la ETT, no sobre el salario, y el
   porcentaje de comisión es pricing interno que no sale de casa.
 
+### Al editar un correo existente en Lemlist (2026-10-26)
+
+El cambio se comprueba en el editor de Lemlist, además de leer el mensaje guardado. En esta fecha
+Crescente detectó dos errores que la lectura del texto no había revelado:
+
+- **CORRECTO:** Antes de reemplazar el cuerpo, conservar exactamente la firma que ya tiene ese
+  correo, incluidas sus imágenes y datos de contacto. Después comprobarla en el editor.
+  **INCORRECTO:** Al añadir la explicación de los equipos recurrentes al primer correo de
+  «Interesados CRM», sustituí todo el cuerpo y desapareció la firma gráfica original.
+- **CORRECTO:** Dejar una línea en blanco real entre saludo, párrafos y despedida, y comprobar
+  visualmente el resultado en Lemlist antes de darlo por terminado.
+  **INCORRECTO:** Guardé el segundo correo con párrafos consecutivos y validé solo el contenido
+  devuelto por la herramienta; en el editor se veía todo pegado.
+
 ---
 
 ## 4. Los claims: hay dos juegos y conviven
