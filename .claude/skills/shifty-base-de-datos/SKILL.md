@@ -265,6 +265,18 @@ Cada una ha costado un incidente real.
   separan por `source`. El 2026-10-20 se recomendaron para reinvitar 6 "rechazados" de AGA y 5
   habían declinado ellos la invitación. El detalle y cómo reconocer cada una está en
   `status-ids.md`, "Invitación y solicitud no son lo mismo".
+- **Una candidatura tiene como mucho UN turno, y la fila se reutiliza.** `shifts.job_day_candidate_id`
+  es único, y al reinvitar o volver a seleccionar a alguien se usa su misma fila de
+  `job_days_candidates`, que sigue enganchada al turno que canceló. Así que **"ya tiene turno" se
+  pregunta siempre por un turno VIVO, nunca por que exista uno**; si está cancelado o en no-show, se
+  reactiva ese mismo turno (no se inserta otro: el índice lo impide).
+  - CORRECTO: lo que hace `select_job_day_candidates_bulk` (panel) y, desde el 03-11-2026,
+    `select_job_day_candidates_for_worker` (aceptar invitación o plaza de lista de espera): mirar el
+    estado del turno colgado y reactivarlo con `SHIFT_REACTIVATED`.
+  - INCORRECTO: el 03-11-2026 Karen (La Musa) canceló su turno del 6-11, la reinvitaron y aceptó dos
+    veces. La función de aceptar veía "ya hay turno" (el cancelado), se saltaba el día sin rastro y la
+    app le decía que todo había ido bien. Abrió dos incidencias. Cualquier función nueva que cree
+    turnos desde una candidatura tiene que pasar esta prueba: cancelar, reinvitar, aceptar.
 - **`unpublished` NO es inactivo.** Cerrado a solicitudes nuevas, pero sus turnos confirmados siguen
   activos. Incluirlo en el monitor en directo.
 - **Desde el 2026-10-01, la empresa que acepta las horas sin disputa deja el turno cuadrado en el
