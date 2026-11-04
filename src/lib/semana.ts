@@ -19,9 +19,9 @@
  * métricas, y tiene que dar lo mismo en los tres.
  */
 
-import { MIN_REST_MIN } from './roster'
+import { MIN_REST_MIN, descansoSemanalPedidoMin } from './roster'
 import { formatMin } from './time'
-import type { DayIndex, Person, Roster, Shift } from './types'
+import type { DayIndex, Person, Role, Roster, Shift } from './types'
 
 // ─────────────────────────────────────────────────────────────
 // Códigos de turno
@@ -199,7 +199,11 @@ export interface Rueda {
  * Los parciales no entran: su contrato es de unos días concretos (un fin de
  * semana, unas noches), y cambiárselos sería cambiarles el contrato.
  */
-export function calcularRueda(roster: Roster, settings: { minRestBetweenShifts: boolean }): Rueda {
+export function calcularRueda(
+  roster: Roster,
+  settings: { minRestBetweenShifts: boolean },
+  roles: readonly Role[] = [],
+): Rueda {
   // La jornada completa es el contrato más largo del cuadrante (40 h con la lista por defecto).
   const jornadaCompleta = roster.people.reduce((a, p) => Math.max(a, p.contractHours), 0)
   const porPersona = new Map<string, Shift[]>()
@@ -234,7 +238,8 @@ export function calcularRueda(roster: Roster, settings: { minRestBetweenShifts: 
       continue
     }
     const filas = gente.map((p) => trabajo(p.id))
-    const orden = mejorOrden(filas, settings.minRestBetweenShifts)
+    const descansoMin = descansoSemanalPedidoMin(roles.find((r) => r.id === gente[0].roleId))
+    const orden = mejorOrden(filas, settings.minRestBetweenShifts, descansoMin)
     if (!orden) {
       out.sinRotar.push(...gente.map((p) => p.id))
       fijos.push(...gente.map((p) => p.id))
@@ -273,6 +278,51 @@ function transicion(a: (Shift | undefined)[], b: (Shift | undefined)[], conDesca
   return cola + cabeza
 }
 
+/** Inicio y fin de cada turno de una fila, en minutos desde el lunes a las 00:00 de esa semana. */
+function tramos(fila: (Shift | undefined)[], semana: number): [number, number][] {
+  const out: [number, number][] = []
+  fila.forEach((sh, d) => {
+    if (!sh || sh.blocks.length === 0) return
+    const base = (semana * 7 + d) * 1440
+    out.push([base + Math.min(...sh.blocks.map((x) => x.startMin)), base + Math.max(...sh.blocks.map((x) => x.endMin))])
+  })
+  return out
+}
+
+/**
+ * El descanso seguido más largo que tiene la semana `cur` cuando va entre
+ * `prev` y `next` en la rueda (ronda 9, hallazgo 4 de cálculo). Cuenta los
+ * descansos que tocan la semana: el que viene de `prev`, los de dentro y el
+ * que sigue hacia `next`. Antes solo se miraban las 12 h del cambio, y una
+ * fila cuyo descanso largo era el del domingo al lunes de SU misma semana lo
+ * perdía al ir seguida de otra: salían semanas de 34,5 h.
+ */
+function descansoMaxEnRueda(prev: (Shift | undefined)[], cur: (Shift | undefined)[], next: (Shift | undefined)[]): number {
+  const t = [...tramos(prev, -1), ...tramos(cur, 0), ...tramos(next, 1)].sort((a, b) => a[0] - b[0])
+  const iniSemana = 0
+  const finSemana = 7 * 1440
+  let max = 0
+  for (let i = 1; i < t.length; i++) {
+    const desde = t[i - 1][1]
+    const hasta = t[i][0]
+    // Solo los huecos que caen, al menos en parte, dentro de la semana `cur`.
+    if (hasta > iniSemana && desde < finSemana) max = Math.max(max, hasta - desde)
+  }
+  return t.length === 0 ? Number.POSITIVE_INFINITY : max
+}
+
+/** ¿Tiene cada semana del ciclo su descanso semanal? */
+function cicloConDescanso(filas: (Shift | undefined)[][], orden: number[], descansoMin: number): boolean {
+  const n = orden.length
+  for (let i = 0; i < n; i++) {
+    const prev = filas[orden[(i - 1 + n) % n]]
+    const cur = filas[orden[i]]
+    const next = filas[orden[(i + 1) % n]]
+    if (descansoMaxEnRueda(prev, cur, next) < descansoMin) return false
+  }
+  return true
+}
+
 /**
  * El orden cíclico de las filas (quién pasa a qué semana) que respeta las 12 h
  * en todos los cambios y deja menos días seguidos. Con pocos se prueban todos;
@@ -281,6 +331,7 @@ function transicion(a: (Shift | undefined)[], b: (Shift | undefined)[], conDesca
 function mejorOrden(
   filas: (Shift | undefined)[][],
   conDescanso: boolean,
+  descansoMin: number,
 ): { orden: number[]; maxSeguidos: number } | null {
   const n = filas.length
   const t: (number | null)[][] = filas.map((a) => filas.map((b) => transicion(a, b, conDescanso)))
@@ -299,7 +350,7 @@ function mejorOrden(
         const cierre = t[camino[n - 1]][camino[0]]
         if (cierre === null) return
         const m = Math.max(maxHasta, cierre)
-        if (m < mejorMax) {
+        if (m < mejorMax && cicloConDescanso(filas, camino, descansoMin)) {
           mejorMax = m
           mejor = [...camino]
         }
@@ -340,6 +391,7 @@ function mejorOrden(
     }
     const cierre = t[camino[n - 1]][0]
     if (cierre === null) return null
+    if (!cicloConDescanso(filas, camino, descansoMin)) return null
     mejor = camino
     mejorMax = Math.max(max, cierre)
   }

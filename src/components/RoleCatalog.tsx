@@ -217,7 +217,7 @@ export function RoleCatalog({
                   >
                     {/* En móvil el nombre se queda con su propia línea: con el
                         coste al lado, "Responsable de turno" y el € se tocaban. */}
-                    <span className="w-full min-w-0 sm:w-auto sm:flex-1">
+                    <span className="w-full min-w-0 lg:w-auto lg:flex-1">
                       <InlineName
                         value={role.name}
                         onCommit={(v) => patch(role.id, { name: v })}
@@ -309,7 +309,7 @@ export function RoleCatalog({
                         <NumberInput
                           value={role.weeklyHours ?? 40}
                           onChange={(v) => patch(role.id, { weeklyHours: v > 0 ? Math.min(40, Math.round(v)) : undefined })}
-                          min={10}
+                          min={4}
                           max={40}
                           step={1}
                           aria-label={`Horas a la semana de cada ${role.name}`}

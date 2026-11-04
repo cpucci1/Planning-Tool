@@ -19,9 +19,9 @@
 /** Personas por jornada del ejemplo. Las etiquetas van tal cual a la portada. */
 export const PORTADA_CONTRATOS: { label: string; desde: number; hasta: number; count: number }[] = [
   { label: '40 h', desde: 40, hasta: 40, count: 8 },
-  { label: '25-39', desde: 25, hasta: 39, count: 5 },
-  { label: '20-24', desde: 20, hasta: 24, count: 2 },
-  { label: '< 20', desde: 0, hasta: 19, count: 4 },
+  { label: '25-39 h', desde: 25, hasta: 39, count: 5 },
+  { label: '20-24 h', desde: 20, hasta: 24, count: 2 },
+  { label: '< 20 h', desde: 0, hasta: 19, count: 4 },
 ]
 
 /** Semanas punta del ejemplo, de las 52. */
@@ -29,11 +29,10 @@ export const PORTADA_SEMANAS_PUNTA = 11
 
 /**
  * Coste de empresa del ejemplo, con los costes de muestra (`DEMO_COSTES_HORA`)
- * y la Seguridad Social. La semana, redondeada a 50 €; el año es esa semana
- * por 52, para que la cuenta salga a quien la haga (ronda 8, m1).
+ * y la Seguridad Social. Al euro, igual que dentro de la herramienta (ronda 9).
  */
-export const PORTADA_COSTE_SEMANA_EUR = 9150
-export const PORTADA_COSTE_ANO_EUR = 475800
+export const PORTADA_COSTE_SEMANA_EUR = 9154
+export const PORTADA_COSTE_ANO_EUR = 476008
 
 /** Los cuatro puestos que más cuestan en el ejemplo, en % del que más. */
 export const PORTADA_COSTE_PUESTOS: { roleId: string; pct: number }[] = [

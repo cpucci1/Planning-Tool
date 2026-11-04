@@ -720,7 +720,7 @@ export function StepDemand() {
               <span className="text-brand">
                 marca hasta dónde quieres que llegue tu plantilla fija.
               </span>{' '}
-              Las semanas que asomen por encima son picos, y esos se cubren con extras en vez de
+              Las semanas que asomen por encima son picos, y esos se cubren con refuerzos en vez de
               contratando de más.
             </span>
           </p>

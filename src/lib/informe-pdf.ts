@@ -24,7 +24,7 @@
 
 import type { InformeInput, VersionInforme } from './informe'
 import { WEEKS_PER_YEAR, describeMix, fteFrom, jornadasTexto, temporadaDelLocal } from './contracts'
-import { coberturaAusencias } from './ausencias'
+import { coberturaAusencias, fraseAntesDelRefuerzo } from './ausencias'
 import { describirDuraciones, serviciosDelCobro } from './demand'
 import { DAYS, SLOTS_PER_DAY, formatMin, slotStartMin } from './time'
 import type { DayIndex, OpeningHours, StaffPlan } from './types'
@@ -522,7 +522,7 @@ export async function construirInforme(
       : 'Tu plantilla cubre incluso la semana más exigente'
   const picoCuerpo =
     peaks.peakWeeks.length > 0
-      ? `En esas semanas faltan ${nf.format(peaks.peakHoursPerYear)} horas que tu plantilla fija no llega a cubrir${input.horasComplementariasPicos > 0 ? `: ${nf.format(input.horasComplementariasPicos)} las pueden hacer tus parciales con horas complementarias y quedan ${nf.format(input.horasRefuerzo)} de refuerzo` : ''}. ${picoSoloHoras ? `La peor semana pide ${nf.format(peaks.worstWeek!.extraHours)} h más, ${jornadasTexto(peaks.worstWeek!.jornadasPorHoras ?? peaks.worstWeek!.extraHours / 40)}, sin más gente a la vez que una semana normal: son más horas de los mismos, no más personas, y contratar para el pico no hace falta. Pagarlas con contratos fijos serían ${input.extraPeopleIfHired} ${plural(input.extraPeopleIfHired, 'contrato', 'contratos')} con ${nf.format(horasContratoPico)} h a la semana` : `Contratar para el pico exige ${input.extraPeopleIfHired} ${plural(input.extraPeopleIfHired, 'persona fija más', 'personas fijas más')} con ${nf.format(horasContratoPico)} h de contrato a la semana${peaks.worstWeek ? ` (la peor semana pide ${nf.format(peaks.worstWeek.extraHours)} h más, ${jornadasTexto(peaks.worstWeek.jornadasPorHoras ?? peaks.worstWeek.extraHours / 40)}, con hasta ${peaks.worstWeek.extraPeople} ${plural(peaks.worstWeek.extraPeople, 'persona', 'personas')} más a la vez)` : ''}`} en nómina ${nominaTexto} para cubrir solo ${peaks.peakWeeks.length} ${plural(peaks.peakWeeks.length, 'semana punta', 'semanas punta')}: pagas ${nf1.format(peaks.weeksPaidPerWeekWorked)} semanas de sueldo por cada semana en la que de verdad hacen falta.`
+      ? `En esas semanas faltan ${nf.format(peaks.peakHoursPerYear)} horas que tu plantilla fija no llega a cubrir${fraseAntesDelRefuerzo(input.horasSinTurnoPicos ?? 0, input.horasComplementariasPicos) ? `: ${fraseAntesDelRefuerzo(input.horasSinTurnoPicos ?? 0, input.horasComplementariasPicos)}, y quedan ${nf.format(input.horasRefuerzo)} de refuerzo` : ''}. ${picoSoloHoras ? `La peor semana pide ${nf.format(peaks.worstWeek!.extraHours)} h más, ${jornadasTexto(peaks.worstWeek!.jornadasPorHoras ?? peaks.worstWeek!.extraHours / 40)}, sin más gente a la vez que una semana normal: son más horas de los mismos, no más personas, y contratar para el pico no hace falta. Pagarlas con contratos fijos serían ${input.extraPeopleIfHired} ${plural(input.extraPeopleIfHired, 'contrato', 'contratos')} con ${nf.format(horasContratoPico)} h a la semana` : `Contratar para el pico exige ${input.extraPeopleIfHired} ${plural(input.extraPeopleIfHired, 'persona fija más', 'personas fijas más')} con ${nf.format(horasContratoPico)} h de contrato a la semana${peaks.worstWeek ? ` (la peor semana pide ${nf.format(peaks.worstWeek.extraHours)} h más, ${jornadasTexto(peaks.worstWeek.jornadasPorHoras ?? peaks.worstWeek.extraHours / 40)}, con hasta ${peaks.worstWeek.extraPeople} ${plural(peaks.worstWeek.extraPeople, 'persona', 'personas')} más a la vez)` : ''}`} en nómina ${nominaTexto} para cubrir solo ${peaks.peakWeeks.length} ${plural(peaks.peakWeeks.length, 'semana punta', 'semanas punta')}: pagas ${nf1.format(peaks.weeksPaidPerWeekWorked)} semanas de sueldo por cada semana en la que de verdad hacen falta.`
       : `Al ${input.coveragePct}% has dimensionado la plantilla para la semana más exigente y la mantienes durante ${nominaTexto}. Bajar la línea permite comparar esa opción con cubrir los picos mediante refuerzos.`
   font('normal', 9)
   const picoLs = split(picoCuerpo, CW - 14)
@@ -915,9 +915,15 @@ export async function construirInforme(
         'Por cada hora de trabajo que pagas',
       ],
       [
-        'Horas de más',
+        // Mismo nombre y misma pista que la tarjeta de la pantalla (ronda 9),
+        // más corta: la tarjeta solo pinta dos líneas.
+        'En turno sin servicio',
         `${nf1.format(metricas.horasSobrantesTotal)} h`,
-        `Sobre las ${nf1.format(metricas.horasEnTurnos)} h que la gente está en el local`,
+        metricas.horasSobrantesTotal <= 0
+          ? 'Nada que recortar'
+          : plan.slackHours > metricas.horasSobrantesTotal + 0.25
+            ? `De ${nf1.format(plan.slackHours)} h pagadas sin servicio; ${nf1.format(plan.slackHours - metricas.horasSobrantesTotal)} son contrato sin turno`
+            : `Sobre las ${nf1.format(metricas.horasEnTurnos)} h que la gente está en el local`,
       ],
       /* "2 y 1 · Repartido de forma pareja" no se entendía (revisión ronda 6,
          m5): se dice qué son esos números. Con la rueda son medias, de ahí

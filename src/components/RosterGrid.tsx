@@ -135,6 +135,8 @@ interface RosterSummary {
   contractedHours: number
   neededHours: number
   slackHours: number
+  /** Horas que el servicio pide y nadie cubre en turno (ronda 9). */
+  sinCubrir: number
   /** Horas que la gente está en el local según los turnos. */
   shiftHours: number
 }
@@ -146,13 +148,14 @@ function planFromRoster(roster: Roster, needGrid: NeedGrid, model: StaffingModel
   for (const s of roster.shifts) shiftHours += s.hours
   // La misma cifra que el resumen de la plantilla (ronda 4): antes aquí era
   // contratadas menos necesarias, y las dos pantallas decían cosas distintas.
-  const { enElLocal, sinTurno } = horasPagadasSinServicio(roster, needGrid, model)
+  const { enElLocal, sinTurno, sinCubrir } = horasPagadasSinServicio(roster, needGrid, model)
   return {
     allocations: agruparContratos(roster.people),
     totalPeople: roster.people.length,
     contractedHours,
     neededHours,
     slackHours: enElLocal + sinTurno,
+    sinCubrir,
     shiftHours,
   }
 }
@@ -205,7 +208,7 @@ export function RosterGrid({ roster, model, needGrid, openBlocks, onRenamePerson
       if (people.length > 0) out.push({ key: block.id, name: block.name, color: block.color, people })
     }
     const rest = roster.people.filter((p) => !placed.has(p.id))
-    if (rest.length > 0) out.push({ key: '__sin-bloque', name: 'Sin bloque', color: 'var(--color-content-muted)', people: rest })
+    if (rest.length > 0) out.push({ key: '__sin-bloque', name: 'Sin zona', color: 'var(--color-content-muted)', people: rest })
     return out
   }, [model.blocks, model.roles, roster.people])
 
@@ -409,7 +412,7 @@ export function RosterGrid({ roster, model, needGrid, openBlocks, onRenamePerson
             value={fmtHours(plan.slackHours)}
             hint={
               plan.neededHours > 0
-                ? `${Math.round((plan.slackHours / plan.neededHours) * 100)} % más de lo que pide el servicio${
+                ? `${Math.round((Math.max(0, plan.slackHours - plan.sinCubrir) / plan.neededHours) * 100)} % más de lo que pide el servicio${
                     plan.contractedHours > plan.shiftHours
                       ? `, ${fmtHours(plan.contractedHours - plan.shiftHours)} sin turno`
                       : ''
@@ -451,7 +454,7 @@ export function RosterGrid({ roster, model, needGrid, openBlocks, onRenamePerson
           </ul>
           <p className="mt-2 opacity-80">
             Son horas que no caben en ninguna jornada de las que tienes activadas. Es justo lo que se
-            cubre con extras en lugar de contratar de más.
+            cubre con refuerzos en lugar de contratar de más.
           </p>
         </Note>
       )}
@@ -602,7 +605,7 @@ function PersonView({
                 </th>
               ))}
               <th className="w-[168px] border-y border-border-soft bg-surface-elevated px-5 py-2.5 text-right text-[0.7rem] font-bold tracking-wide text-content-secondary uppercase">
-                Contrato
+                Contrato · en turnos
               </th>
             </tr>
           </thead>
@@ -680,7 +683,7 @@ function PersonView({
                       })}
                       <td className="border-b border-border-soft px-5 py-2.5 text-right">
                         <span className="flex items-center justify-end gap-2">
-                          <Badge tone="neutral">{person.contractHours}h</Badge>
+                          <Badge tone="neutral">{person.contractHours} h</Badge>
                           <span className="text-[0.78rem] font-bold text-content-primary tabular-nums">
                             {fmtHours(person.assignedHours)}
                           </span>
@@ -741,9 +744,9 @@ function PersonView({
                       </p>
                     </div>
                     <div className="shrink-0 text-right">
-                      <Badge tone="neutral">{person.contractHours}h</Badge>
+                      <Badge tone="neutral">{person.contractHours} h</Badge>
                       <p className="mt-1 text-[0.76rem] font-bold text-content-primary tabular-nums">
-                        {fmtHours(person.assignedHours)}
+                        {fmtHours(person.assignedHours)} en turnos
                       </p>
                       {(role?.kind === 'estructura' || role?.fullTimeOnly) && (
                         <p className="mt-0.5 text-[0.68rem] leading-tight font-bold text-content-muted">
@@ -884,7 +887,7 @@ function DayView({
                         {person.label}
                       </span>
                       <span className="block truncate text-[0.7rem] font-medium text-content-secondary">
-                        {person.contractHours}h · {fmtHours(person.assignedHours)}
+                        {person.contractHours} h · {fmtHours(person.assignedHours)} en turnos
                       </span>
                     </span>
                   </div>

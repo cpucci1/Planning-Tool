@@ -316,9 +316,9 @@ function avisosContratoFlojo(roster: Roster, model: StaffingModel, settings: Set
     const cifras = `tiene un contrato de ${fmtNumero(person.contractHours)} h y solo ${fmtNumero(person.assignedHours)} h de turnos`
 
     const porQue = esMando(role)
-      ? `es un mando y su zona abre menos horas de las que da su jornada. Baja su jornada en el catálogo de puestos, o activa los contratos a medida en el paso de equipo.`
+      ? `es un mando y su zona abre menos horas de las que da su jornada. Baja su jornada en Tus puestos, o activa los contratos a medida en el paso de equipo.`
       : role?.fullTimeOnly
-      ? `su puesto está marcado como solo jornada completa, así que no baja a un contrato parcial aunque le quepa. Si quieres que baje, apaga ese interruptor en el catálogo de puestos.`
+      ? `su puesto está marcado como solo jornada completa, así que no baja a un contrato parcial aunque le quepa. Si quieres que baje, apaga ese interruptor en Tus puestos.`
       : menorActivo !== null && person.contractHours <= menorActivo
         ? `es el contrato más pequeño que tienes activo. Activa uno menor en los ajustes del paso de equipo si quieres ajustarlo.`
         : `sus turnos no se han podido juntar con los de nadie más sin romper el descanso o las libranzas.`
@@ -550,7 +550,7 @@ function avisosMandos(roster: Roster, model: StaffingModel): Aviso[] {
         personLabel: null,
         mensaje:
           `En ${zona} ${libra}la jornada del mando no llega a todas las horas de apertura: en esas ${fmtNumero(m.minutosSinMando / 60)} h a la semana queda al frente ` +
-          `${quien}.${plus} Si quieres un mando siempre, sube los mandos de la zona en el catálogo de puestos.`,
+          `${quien}.${plus} Si quieres un mando siempre, sube los mandos de la zona en Tus puestos.`,
         days: dias,
       })
     }

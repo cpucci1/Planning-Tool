@@ -349,22 +349,38 @@ export function NumberInput({
   min?: number
   max?: number
 } & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'min' | 'max'>) {
+  // Mientras se escribe se guarda el texto tal cual: si se corrigiera al
+  // mínimo o al máximo en cada tecla, borrar el campo ponía un 10 y escribir
+  // 25 dejaba 40 (ronda 9). Se corrige al salir del campo.
+  const [draft, setDraft] = useState<string | null>(null)
+  const { onBlur, ...rest } = props
+  const clamp = (n: number) => Math.min(max, Math.max(min, n))
   return (
     <input
       type="number"
-      value={Number.isFinite(value) ? value : ''}
+      value={draft ?? (Number.isFinite(value) ? value : '')}
       min={min}
       max={max}
       onChange={(e) => {
-        const n = Number(e.target.value)
-        onChange(Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : min)
+        const raw = e.target.value
+        setDraft(raw)
+        const n = Number(raw)
+        if (raw !== '' && Number.isFinite(n) && n >= min && n <= max) onChange(n)
+      }}
+      onBlur={(e) => {
+        if (draft !== null) {
+          const n = Number(draft)
+          onChange(draft !== '' && Number.isFinite(n) ? clamp(n) : clamp(value))
+          setDraft(null)
+        }
+        onBlur?.(e)
       }}
       className={cn(
         'h-input w-full rounded-md border border-border bg-surface-elevated px-3 text-center text-[0.95rem] font-semibold text-content-primary',
         'transition-colors focus:border-border-focus focus:outline-none',
         className,
       )}
-      {...props}
+      {...rest}
     />
   )
 }

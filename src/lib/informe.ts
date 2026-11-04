@@ -78,6 +78,8 @@ export interface InformeInput {
   extraPeopleIfHired: number
   /** De las horas que faltan en las semanas punta, las que pueden hacer los parciales con complementarias y las que quedan de refuerzo. La misma cuenta que la pantalla. */
   horasComplementariasPicos: number
+  /** De esas horas, las que cubren contratos que ya se pagan sin turno (ronda 9). */
+  horasSinTurnoPicos?: number
   horasRefuerzo: number
 
   /* El dinero. `null` = el usuario no ha puesto precios, y entonces no hay ni

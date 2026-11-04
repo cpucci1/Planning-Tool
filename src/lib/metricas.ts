@@ -215,9 +215,14 @@ export function horasDeMasEnElLocal(roster: Roster, needGrid: NeedGrid, model: S
  * 93,5. Así, contratadas = necesidad + en el local de más + sin turno, exacto.
  */
 function horasDeMasNetas(staffed: number[][], needed: number[][]): number {
+  return Math.max(0, netoEnTurnos(staffed, needed))
+}
+
+/** Horas en turnos menos horas que pide el servicio, con signo: negativo si faltan. */
+function netoEnTurnos(staffed: number[][], needed: number[][]): number {
   let neto = 0
   for (let d = 0; d < 7; d++) for (let s = 0; s < SLOTS_PER_DAY; s++) neto += staffed[d][s] - needed[d][s]
-  return Math.max(0, (neto * SLOT_MINUTES) / 60)
+  return (neto * SLOT_MINUTES) / 60
 }
 
 /**
@@ -230,12 +235,17 @@ export function horasPagadasSinServicio(
   roster: Roster,
   needGrid: NeedGrid,
   model: StaffingModel,
-): { enElLocal: number; sinTurno: number } {
+): { enElLocal: number; sinTurno: number; sinCubrir: number } {
   let contratadas = 0
   let enTurnos = 0
   for (const p of roster.people) contratadas += p.contractHours
   for (const sh of roster.shifts) enTurnos += sh.hours
-  return { enElLocal: horasDeMasEnElLocal(roster, needGrid, model), sinTurno: Math.max(0, contratadas - enTurnos) }
+  const neto = netoEnTurnos(staffedPeopleGrid(roster), totalPeopleGrid(needGrid, model))
+  // `sinCubrir` (ronda 9, hallazgo 6 de cálculo): cuando los turnos no llegan
+  // a lo que pide el servicio, las horas de contrato sin turno se pagan pero
+  // NO son "de más" sobre el servicio. Con él la cuenta vuelve a ser exacta:
+  // contratadas = necesidad + en el local de más + sin turno - sin cubrir.
+  return { enElLocal: Math.max(0, neto), sinTurno: Math.max(0, contratadas - enTurnos), sinCubrir: Math.max(0, -neto) }
 }
 
 /** Por encima de esta parte de la necesidad, las horas de más se explican en pantalla. */
@@ -248,11 +258,13 @@ export const HORAS_DE_MAS_EXPLICAR = 0.1
  * la razón, con sus cifras. Null si no hace falta.
  */
 export function fraseHorasDeMas(
-  d: { enElLocal: number; sinTurno: number },
+  d: { enElLocal: number; sinTurno: number; sinCubrir?: number },
   neededHours: number,
   settings: Pick<Settings, 'minShiftMinutes' | 'minContractHours'>,
 ): string | null {
-  const total = d.enElLocal + d.sinTurno
+  // Lo que se paga POR ENCIMA del servicio: si quedan horas sin cubrir, las
+  // de contrato sin turno no son de más (ronda 9).
+  const total = Math.max(0, d.enElLocal + d.sinTurno - (d.sinCubrir ?? 0))
   if (neededHours <= 0 || total <= neededHours * HORAS_DE_MAS_EXPLICAR) return null
   const n = (v: number) => v.toLocaleString('es-ES', { maximumFractionDigits: 1 })
   const pct = Math.round((total / neededHours) * 100)

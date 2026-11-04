@@ -73,6 +73,8 @@ export type CodigoAdvertencia =
   | 'tickets-son-codigo'
   | 'historico-corto'
   | 'horario-poco-poblado'
+  | 'horario-deja-fuera'
+  | 'hora-con-zona'
   | 'varios-anos'
   | 'semana-incompleta'
   | 'periodo-del-fichero'
@@ -705,6 +707,39 @@ export function parsearFecha(valor: ValorCrudo, formato: FormatoFecha): FechaHor
   }
 
   return { y, m: mes, d: dia, minutos }
+}
+
+/**
+ * La zona que trae una hora escrita con ella, en minutos respecto a UTC: `Z`
+ * es 0, `+02:00` son 120 y `-0300` son -180. `null` si la hora no trae zona,
+ * que es lo normal en un TPV español: entonces la hora ya es la del local.
+ *
+ * Solo cuenta si la zona va pegada detrás de una hora (`19:30Z`,
+ * `2025-06-14T19:30:00.000+00:00`): un `-` suelto en otra parte de la celda no
+ * es una zona.
+ */
+export function zonaDeLaHora(valor: ValorCrudo): number | null {
+  if (typeof valor !== 'string') return null
+  const m = /\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?\s*(?:(Z)|([+-])(\d{2})(?::?(\d{2}))?)\s*$/i.exec(valor.trim())
+  if (!m) return null
+  if (m[1]) return 0
+  const h = Number(m[3])
+  const min = Number(m[4] ?? 0)
+  if (h > 14 || min > 59) return null
+  return (m[2] === '-' ? -1 : 1) * (h * 60 + min)
+}
+
+/**
+ * Pasa una fecha y hora escritas en otra zona a la hora local del navegador.
+ * Un export que da las cenas de las 21:30 de Madrid como `19:30Z` las tiene en
+ * UTC; contadas tal cual caerían dos horas antes. `Date` ya sabe el horario de
+ * verano y la zona del navegador (Canarias, si está allí), así que no se
+ * escribe ninguna regla a mano. Puede cambiar el día: las 23:30Z de un sábado
+ * de verano son las 01:30 del domingo en Madrid.
+ */
+export function aHoraLocal(y: number, m: number, d: number, minutos: number, zonaMin: number): { y: number; m: number; d: number; minutos: number } {
+  const t = new Date(Date.UTC(y, m - 1, d) + (minutos - zonaMin) * 60_000)
+  return { y: t.getFullYear(), m: t.getMonth() + 1, d: t.getDate(), minutos: t.getHours() * 60 + t.getMinutes() }
 }
 
 /** Hora en minutos desde las 00:00. hh:mm, hh:mm:ss, HHMM y Excel. */
@@ -1827,6 +1862,8 @@ export function construirDatasetConDiagnostico(
   }
   const lineas: Linea[] = []
   let sinHoraPropia = 0
+  /** Filas cuya hora traía zona y se ha pasado a la hora local. */
+  let horasConZona = 0
 
   for (let n = 0; n < filas.length; n++) {
     const fila = filas[n]
@@ -1837,7 +1874,7 @@ export function construirDatasetConDiagnostico(
       continue
     }
 
-    const fecha = iFecha >= 0 ? parsearFecha(fila[iFecha] ?? null, formatoFecha) : null
+    let fecha = iFecha >= 0 ? parsearFecha(fila[iFecha] ?? null, formatoFecha) : null
     if (!fecha) {
       descartes.anota('fecha-ilegible', numeroDeFila)
       continue
@@ -1846,6 +1883,7 @@ export function construirDatasetConDiagnostico(
     // La hora puede venir en su columna o dentro de la propia fecha
     // ("14/06/2025 21:40"), que es como la escupe medio TPV.
     let minutos = iHora >= 0 ? parsearHora(fila[iHora] ?? null) : null
+    const horaDeLaFecha = minutos === null
     if (minutos === null) {
       minutos = fecha.minutos
       if (minutos !== null && iHora < 0) sinHoraPropia++
@@ -1853,6 +1891,18 @@ export function construirDatasetConDiagnostico(
     if (minutos === null) {
       descartes.anota('hora-ilegible', numeroDeFila)
       continue
+    }
+
+    // La hora con zona (`19:30Z`, `+00:00`) se pasa a la hora del local. Sin
+    // zona se queda como viene, que ya es la del local. Una fecha a medianoche
+    // en punto (`2025-06-14T00:00:00Z`) es una fecha sin hora escrita en ISO,
+    // no un ticket de las 00:00 UTC: moverla la cambiaría de día.
+    const zona = zonaDeLaHora(horaDeLaFecha ? (fila[iFecha] ?? null) : (fila[iHora] ?? null))
+    if (zona !== null && !(horaDeLaFecha && minutos === 0)) {
+      const local = aHoraLocal(fecha.y, fecha.m, fecha.d, minutos, zona)
+      fecha = { ...fecha, y: local.y, m: local.m, d: local.d }
+      minutos = local.minutos
+      horasConZona++
     }
 
     // Los comensales de la línea, con su signo: un negativo es una devolución
@@ -2142,6 +2192,17 @@ export function construirDatasetConDiagnostico(
     })
   }
 
+  if (horasConZona > 0) {
+    const zonaLocal = Intl.DateTimeFormat().resolvedOptions().timeZone
+    advertencias.push({
+      codigo: 'hora-con-zona',
+      mensaje:
+        `${horasConZona.toLocaleString('es-ES', { useGrouping: true })} ${horasConZona === 1 ? 'hora venía' : 'horas venían'} con zona horaria ` +
+        `(por ejemplo, en UTC) y se han convertido a la hora de este ordenador${zonaLocal ? ` (${zonaLocal})` : ''}, ` +
+        'con su horario de verano. Si tu local está en otra zona, abre el fichero desde un ordenador que esté en la del local.',
+    })
+  }
+
   if (sinHoraPropia > 0 && iHora < 0) {
     advertencias.push({
       codigo: 'sin-hora',
@@ -2416,13 +2477,24 @@ export function construirDatasetConDiagnostico(
 
   // El horario se deduce SOLO de las semanas con datos: las que se rellenan a
   // cero justo debajo bajarían la mediana de cada franja a nada.
-  const { detectedHours, poblado } = deducirHorario(weeks, opciones.lagMinutes ?? DEFAULT_LAG_MINUTES)
+  const { detectedHours, poblado, diasConCobrosFuera } = deducirHorario(weeks, opciones.lagMinutes ?? DEFAULT_LAG_MINUTES)
   if (weeks.length > 0 && !poblado) {
     advertencias.push({
       codigo: 'horario-poco-poblado',
       mensaje:
-        'Tu histórico tiene pocos comensales por franja, así que el horario se ha deducido con el ' +
+        'Tu histórico tiene pocos comensales por franja, así que el horario de algunos días se ha deducido con el ' +
         'listón más bajo. Repásalo en el paso de horario antes de seguir.',
+    })
+  }
+  if (diasConCobrosFuera.length > 0) {
+    const lista = diasConCobrosFuera
+      .map((x) => `el ${NOMBRE_DIA[x.dia]} (${Math.round(x.fuera * 100)} %)`)
+      .join(', ')
+    advertencias.push({
+      codigo: 'horario-deja-fuera',
+      mensaje:
+        `El horario deducido deja fuera una parte de los cobros de algunos días: ${lista}. ` +
+        'Esos cobros no cuentan para la plantilla. Repasa el horario de esos días antes de seguir.',
     })
   }
 
@@ -2635,13 +2707,56 @@ export function construirDatasetConDiagnostico(
  * Las dos avisan (`horario-poco-poblado`): un horario deducido con el listón
  * bajo hay que mirarlo, y la pantalla de horario está justo al lado para
  * corregirlo.
+ *
+ * El listón se elige DÍA A DÍA, no para toda la semana (ronda 9). Antes bastaba
+ * con que un solo día pasara de 3 en alguna franja para quedarse con el 3, y los
+ * demás días salían cerrados sin decir nada: una cafetería de lunes a sábado de
+ * 8 a 16 con unos 28 cobros al día abría solo el viernes de 9:30 a 11:30. Ahora
+ * cada día baja el listón hasta que su horario recoja al menos el
+ * `RECOGIDO_MIN` de sus cobros, y si ni con el más bajo lo consigue se avisa
+ * (`horario-deja-fuera`) con el día y el porcentaje que queda fuera.
  */
+const LISTONES = [3, 2, 1] as const
+
+/** Parte de los cobros de un día que su horario tiene que recoger para darlo por bueno. */
+const RECOGIDO_MIN = 0.9
+
+/** Un día cuenta para el aviso si tiene al menos esta parte de los cobros del día más fuerte. */
+const DIA_RELEVANTE = 0.1
+
+const NOMBRE_DIA = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'] as const
+
+/** Cobros de un día que caen dentro de su horario, y los del día entero. */
+function cobrosRecogidos(dia: number[], bloques: { startMin: number; endMin: number }[]): { dentro: number; total: number } {
+  let dentro = 0
+  let total = 0
+  for (let s = 0; s < dia.length; s++) {
+    const v = dia[s] ?? 0
+    if (v <= 0) continue
+    total += v
+    const t = GRID_START_MIN + s * SLOT_MINUTES
+    if (bloques.some((b) => t >= b.startMin && t < b.endMin)) dentro += v
+  }
+  return { dentro, total }
+}
+
+export interface DiaConCobrosFuera {
+  /** 0 = lunes. */
+  dia: number
+  /** Parte de los cobros del día que el horario deja fuera, de 0 a 1. */
+  fuera: number
+}
+
 function deducirHorario(
   weeks: WeekDemand[],
   lagMinutes: number,
-): { detectedHours: DemandDataset['source']['detectedHours']; poblado: boolean } {
+): {
+  detectedHours: DemandDataset['source']['detectedHours']
+  poblado: boolean
+  diasConCobrosFuera: DiaConCobrosFuera[]
+} {
   if (weeks.length === 0) {
-    return { detectedHours: Array.from({ length: 7 }, () => []), poblado: true }
+    return { detectedHours: Array.from({ length: 7 }, () => []), poblado: true, diasConCobrosFuera: [] }
   }
 
   const porFranja = (elegir: (valoresOrdenados: number[]) => number) =>
@@ -2656,16 +2771,52 @@ function deducirHorario(
   const cobrosMediana = porFranja((v) => v[Math.floor(v.length / 2)])
   const mediana = applyLag(cobrosMediana, lagMinutes)
 
-  for (const liston of [3, 2, 1]) {
-    const horario = inferHours(mediana, liston)
-    if (horario.some((d) => d.length > 0)) {
-      // La apertura, cuando se sientan los primeros, no cuando pagan (ronda 7, M1).
-      return { detectedHours: aperturaConEstancia(horario, cobrosMediana, ESTANCIAS_DEFECTO, Math.min(liston, 2)), poblado: liston === 3 }
+  // Un horario por listón, y cada día se queda con el más alto que recoja casi
+  // todos sus cobros. Si ninguno llega, el que más recoja (a igualdad, el más
+  // alto: un horario más largo sin recoger más es ruido).
+  const porListon = LISTONES.map((l) => inferHours(mediana, l))
+  const elegido: number[] = Array.from({ length: 7 }, (_, d) => {
+    let mejor = -1
+    let mejorDentro = -1
+    for (let i = 0; i < LISTONES.length; i++) {
+      const bloques = porListon[i][d]
+      if (bloques.length === 0) continue
+      const { dentro, total } = cobrosRecogidos(mediana[d], bloques)
+      if (total > 0 && dentro >= RECOGIDO_MIN * total) return i
+      if (dentro > mejorDentro) {
+        mejor = i
+        mejorDentro = dentro
+      }
     }
+    return mejor
+  })
+
+  if (elegido.every((i) => i < 0)) {
+    const maximo = applyLag(porFranja((v) => v[v.length - 1]), lagMinutes)
+    return { detectedHours: inferHours(maximo, 1), poblado: false, diasConCobrosFuera: [] }
   }
 
-  const maximo = applyLag(porFranja((v) => v[v.length - 1]), lagMinutes)
-  return { detectedHours: inferHours(maximo, 1), poblado: false }
+  // La apertura, cuando se sientan los primeros, no cuando pagan (ronda 7, M1),
+  // con el listón de cada día.
+  const conApertura = LISTONES.map((l, i) =>
+    elegido.includes(i) ? aperturaConEstancia(porListon[i], cobrosMediana, ESTANCIAS_DEFECTO, Math.min(l, 2)) : null,
+  )
+  const detectedHours = elegido.map((i, d) => (i < 0 ? [] : conApertura[i]![d]))
+
+  // Qué días se dejan fuera una parte de sus cobros que importa. Se mide con
+  // el horario antes de adelantar la apertura, que es contra el que se eligió.
+  const totales = mediana.map((dia) => dia.reduce((a, b) => a + Math.max(0, b), 0))
+  const masFuerte = Math.max(...totales)
+  const diasConCobrosFuera: DiaConCobrosFuera[] = []
+  for (let d = 0; d < 7; d++) {
+    if (totales[d] <= 0 || totales[d] < DIA_RELEVANTE * masFuerte) continue
+    const { dentro, total } = cobrosRecogidos(mediana[d], elegido[d] < 0 ? [] : porListon[elegido[d]][d])
+    const fuera = 1 - dentro / total
+    if (fuera > 1 - RECOGIDO_MIN) diasConCobrosFuera.push({ dia: d, fuera })
+  }
+
+  const poblado = elegido.every((i) => i <= 0)
+  return { detectedHours, poblado, diasConCobrosFuera }
 }
 
 /**

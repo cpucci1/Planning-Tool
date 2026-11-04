@@ -158,6 +158,7 @@ async function main() {
     personasPico,
     picoTipico: sumDemand.peak.people,
     margenPct: settings.safetyMarginPct,
+    capacidadEsSemanaTipo: settings.sizingMode === 'conservador',
   })
 
   title('PICOS QUE NO CUBRE LA PLANTILLA')
@@ -179,18 +180,18 @@ async function main() {
     real: roster.people.filter((p) => p.contractHours >= c.desde && p.contractHours <= c.hasta).length,
   }))
   for (const c of contratos) {
-    console.log(`  ${c.label.padEnd(6)} portada ${c.count} · cálculo ${c.real}`)
+    console.log(`  ${c.label.padEnd(8)} portada ${c.count} · cálculo ${c.real}`)
     if (c.count !== c.real) fallosPortada.push(`contratos ${c.label}: pon ${c.real}`)
   }
   if (contratos.reduce((a, c) => a + c.real, 0) !== plan.totalPeople) fallosPortada.push('las jornadas de la portada no suman la plantilla')
   if (PORTADA_SEMANAS_PUNTA !== peaks.peakWeeks.length) fallosPortada.push(`semanas punta: pon ${peaks.peakWeeks.length}`)
   const cost = summarizeCost(roster, model, settings)
   if (cost) {
-    const sem = Math.round(cost.weeklyEur / 50) * 50
-    // El anual de la portada es el semanal de la portada por sus semanas (ronda 8,
-    // m1): redondear los dos por separado daba 9.150 y 476.000, que no se
-    // multiplican, y es la primera cuenta que hace quien lee.
-    const ano = sem * Math.round(cost.annualEur / Math.round(cost.weeklyEur))
+    // Al euro, las mismas cifras que enseña el resultado (ronda 9): la portada
+    // promete "es lo mismo que verás" y redondeada a 50 € decía 9.150 y
+    // 475.800 cuando dentro salía 9.154 y 476.008.
+    const sem = Math.round(cost.weeklyEur)
+    const ano = Math.round(cost.annualEur)
     console.log(`  coste portada ${PORTADA_COSTE_SEMANA_EUR} €/sem y ${PORTADA_COSTE_ANO_EUR} €/año · cálculo ${sem} y ${ano}`)
     if (sem !== PORTADA_COSTE_SEMANA_EUR) fallosPortada.push(`coste semanal: pon ${sem}`)
     if (ano !== PORTADA_COSTE_ANO_EUR) fallosPortada.push(`coste anual: pon ${ano}`)

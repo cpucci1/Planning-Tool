@@ -39,6 +39,7 @@ import {
   parsearNumero,
   redondearConservandoTotal,
   aplicarHueco,
+  zonaDeLaHora,
   type Advertencia,
   type Descarte,
   type MotivoDescarte,
@@ -1033,6 +1034,131 @@ async function pruebaRonda8() {
   igual('y se usa tal cual', base.dataset.source.ventasSemanaNormal, iva.ventasSemanaNormalConIva)
 }
 
+// ─────────────────────────────────────────────────────────────
+// 18. Ronda 9: el horario se deduce día a día, y la hora con zona
+// ─────────────────────────────────────────────────────────────
+
+/** Fila de un ticket por comensal: `n` filas a la misma hora. */
+function filasDeCobros(fecha: string, hora: string, n: number): string[] {
+  return Array.from({ length: n }, () => `${fecha};${hora};1`)
+}
+
+function fechaES(t: Date): string {
+  return `${String(t.getUTCDate()).padStart(2, '0')}/${String(t.getUTCMonth() + 1).padStart(2, '0')}/${t.getUTCFullYear()}`
+}
+
+function horaDeFranja(min: number): string {
+  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
+}
+
+async function pruebaHorarioPorDia() {
+  titulo('18 · Ronda 9: el listón del horario se elige día a día')
+
+  // Cafetería de lunes a sábado de 8 a 16, unos 28 cobros al día. El viernes
+  // de 10:00 a 11:00 pasa de 3 por franja, y con el listón para toda la semana
+  // eso dejaba abierto solo el viernes y cerrados los otros cinco días.
+  const patron = [2, 2, 1, 2, 2, 2, 1, 2, 2, 1, 2, 2, 2, 1, 2, 2]
+  const lineas = ['Fecha;Hora;Comensales']
+  for (let w = 0; w < 12; w++) {
+    for (let d = 0; d < 6; d++) {
+      const t = new Date(Date.UTC(2025, 5, 2 + w * 7 + d))
+      patron.forEach((v, i) => {
+        const min = 8 * 60 + i * 30
+        const n = d === 4 && (min === 10 * 60 || min === 10 * 60 + 30) ? 4 : v
+        lineas.push(...filasDeCobros(fechaES(t), horaDeFranja(min + 5), n))
+      })
+    }
+  }
+  const f = await leerFichero(ficheroDe(aUtf8(lineas.join('\n')), 'cafeteria.csv'))
+  const r = construirDatasetConDiagnostico(f.filas, f.columnas, { fileName: f.nombre })
+  const h = r.dataset.source.detectedHours
+
+  igual('abren los seis días, de lunes a sábado', h.slice(0, 6).filter((d) => d.length > 0).length, 6)
+  igual('y el domingo sigue cerrado', h[6].length, 0)
+  comprobar(
+    'cada día abre a las 8:00 o antes y cierra a las 15:00 o después',
+    h.slice(0, 6).every((d) => d.length > 0 && d[0].startMin <= 8 * 60 && d[d.length - 1].endMin >= 15 * 60),
+    JSON.stringify(h.slice(0, 6).map((d) => d.map((b) => [b.startMin, b.endMin]))),
+  )
+  comprobar(
+    'el lunes no se queda con el horario corto del viernes',
+    (h[0][0]?.endMin ?? 0) - (h[0][0]?.startMin ?? 0) >= 6 * 60,
+  )
+  comprobar('no avisa de cobros fuera: el horario los recoge', !tieneAviso(r.advertencias, 'horario-deja-fuera'))
+
+  // Un sábado con cobros sueltos lejos del servicio: ni con el listón más bajo
+  // entran en el horario, y eso se dice con el día y cuánto se queda fuera.
+  const sab = ['Fecha;Hora;Comensales']
+  for (let w = 0; w < 6; w++) {
+    const t = fechaES(new Date(Date.UTC(2025, 5, 7 + w * 7)))
+    for (let i = 0; i < 8; i++) sab.push(...filasDeCobros(t, horaDeFranja(12 * 60 + i * 30 + 5), 3))
+    for (const hora of ['09:05', '18:05', '21:05']) sab.push(...filasDeCobros(t, hora, 2))
+  }
+  const f2 = await leerFichero(ficheroDe(aUtf8(sab.join('\n')), 'sabados.csv'))
+  const r2 = construirDatasetConDiagnostico(f2.filas, f2.columnas, { fileName: f2.nombre })
+  const aviso = r2.advertencias.find((a) => a.codigo === 'horario-deja-fuera')
+  comprobar('avisa de que el horario deja fuera cobros', aviso !== undefined)
+  comprobar('nombra el sábado y el porcentaje', /sábado \(20 %\)/.test(aviso?.mensaje ?? ''), aviso?.mensaje ?? '')
+  comprobar('y el sábado sigue abierto con su servicio', r2.dataset.source.detectedHours[5].length > 0)
+}
+
+async function pruebaZonaHoraria() {
+  titulo('19 · Ronda 9: la hora con zona se pasa a la hora local')
+
+  const tzAntes = process.env.TZ
+  process.env.TZ = 'Europe/Madrid'
+  try {
+    igual('19:30Z es UTC', zonaDeLaHora('19:30Z'), 0)
+    igual('ISO con +00:00 es UTC', zonaDeLaHora('2025-06-14T19:30:00.000+00:00'), 0)
+    igual('+02:00 son 120 minutos', zonaDeLaHora('19:30+02:00'), 120)
+    igual('-0300 son -180', zonaDeLaHora('21:40-0300'), -180)
+    igual('sin zona no hay zona', zonaDeLaHora('19:30'), null)
+    igual('la fecha española con hora no trae zona', zonaDeLaHora('14/06/2025 21:40'), null)
+    igual('el reloj de 12 horas tampoco', zonaDeLaHora('2:05 PM'), null)
+    igual('ni un número de Excel', zonaDeLaHora(0.5), null)
+
+    // Verano (UTC+2) e invierno (UTC+1): la cena de las 21:30 sale bien en los dos.
+    const csv = ['Fecha;Hora;Comensales', '14/06/2025;19:30Z;6', '13/12/2025;20:30:00+00:00;4', '14/06/2025;14:00;3'].join('\n')
+    const f = await leerFichero(ficheroDe(aUtf8(csv), 'utc.csv'))
+    const r = construirDatasetConDiagnostico(f.filas, f.columnas, { fileName: f.nombre })
+    const junio = r.dataset.weeks.find((w) => w.startDate === '2025-06-09')
+    const diciembre = r.dataset.weeks.find((w) => w.startDate === '2025-12-08')
+    igual('las 19:30Z de junio son las 21:30 del sábado', junio?.days[5][31], 6)
+    igual('y no se quedan a las 19:30', junio?.days[5][27], 0)
+    igual('las 20:30Z de diciembre son también las 21:30', diciembre?.days[5][31], 4)
+    igual('la hora sin zona se queda como viene', junio?.days[5][16], 3)
+    comprobar('avisa de que se han convertido', tieneAviso(r.advertencias, 'hora-con-zona'))
+    comprobar(
+      'y dice cuántas',
+      /^2 horas venían con zona horaria/.test(r.advertencias.find((a) => a.codigo === 'hora-con-zona')?.mensaje ?? ''),
+    )
+
+    // La fecha ISO con la hora dentro: las 23:30Z de un sábado de verano son la
+    // 01:30 del domingo, que es del sábado noche.
+    const iso = ['Fecha;Comensales', '2025-06-14T23:30:00Z;2', '2025-06-14T12:00:00.000Z;5'].join('\n')
+    const f2 = await leerFichero(ficheroDe(aUtf8(iso), 'iso.csv'))
+    const r2 = construirDatasetConDiagnostico(f2.filas, f2.columnas, { fileName: f2.nombre })
+    const sem = r2.dataset.weeks[0]
+    igual('la 01:30 local cae en la noche del sábado', sem.days[5][39], 2)
+    igual('las 12:00Z son las 14:00', sem.days[5][16], 5)
+
+    // Sin zona, nada cambia y no hay aviso.
+    const f3 = await leerFichero(ficheroDe(aUtf8(CSV_MADRUGADA), 'noche.csv'))
+    const r3 = construirDatasetConDiagnostico(f3.filas, f3.columnas, { fileName: f3.nombre })
+    comprobar('un fichero sin zona no avisa', !tieneAviso(r3.advertencias, 'hora-con-zona'))
+
+    // En Canarias el navegador está una hora por detrás.
+    process.env.TZ = 'Atlantic/Canary'
+    const f4 = await leerFichero(ficheroDe(aUtf8(csv), 'utc.csv'))
+    const r4 = construirDatasetConDiagnostico(f4.filas, f4.columnas, { fileName: f4.nombre })
+    const junio4 = r4.dataset.weeks.find((w) => w.startDate === '2025-06-09')
+    igual('en Canarias las 19:30Z de junio son las 20:30', junio4?.days[5][29], 6)
+  } finally {
+    if (tzAntes === undefined) delete process.env.TZ
+    else process.env.TZ = tzAntes
+  }
+}
+
 async function main() {
   pruebaNumeros()
   await pruebaLatin1()
@@ -1051,6 +1177,8 @@ async function main() {
   await pruebaPeriodoDelFichero()
   await pruebaRonda7()
   await pruebaRonda8()
+  await pruebaHorarioPorDia()
+  await pruebaZonaHoraria()
 
   console.log(`\n\x1b[1m${pasadas} comprobaciones pasadas, ${fallos.length} fallidas\x1b[0m`)
   if (fallos.length > 0) {

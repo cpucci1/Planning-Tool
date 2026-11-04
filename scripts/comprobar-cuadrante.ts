@@ -43,7 +43,7 @@
 import { analyzeFile } from '../src/lib/fakeAI'
 import { applyLag, clampToHours, typicalWeek } from '../src/lib/demand'
 import { applyOpeningMinimums, buildNeedGrid, expandHours } from '../src/lib/staffing'
-import { buildRoster, esMando, mediaNocturnaMin, minutosDeNocheBloques, minutosSinMando, topeDiarioMin } from '../src/lib/roster'
+import { buildRoster, descansoSemanalPedidoMin, esMando, mediaNocturnaMin, minutosDeNocheBloques, minutosSinMando, topeDiarioMin } from '../src/lib/roster'
 import { descansoSemanalMasLargoMin, revisarCuadrante } from '../src/lib/avisos'
 import { analyzePeaks, summarizePlan } from '../src/lib/contracts'
 import { calcularMetricas, contarPartidas } from '../src/lib/metricas'
@@ -174,6 +174,32 @@ function comprobar(c: Caso) {
           const hueco = 1440 + Math.min(...manana.blocks.map((x) => x.startMin)) - Math.max(...hoy.blocks.map((x) => x.endMin))
           if (hueco < 12 * 60) falla(`${p.label} descansa ${fmt(hueco / 60)} h del día ${d} al ${(d + 1) % 7} (semana ${w + 1} de la rueda)`)
         }
+      }
+    }
+  }
+
+  // El descanso semanal en cada semana REAL de la rueda (ronda 9): medido aquí
+  // por separado, con los turnos de la semana anterior, la suya y la siguiente.
+  {
+    const rueda = calcularRueda(r, c.settings, c.model.roles)
+    const tramosDe = (turnos: typeof r.shifts, id: string, semana: number) =>
+      turnos
+        .filter((s) => s.personId === id && s.blocks.length > 0)
+        .map((s) => [
+          (semana * 7 + s.day) * 1440 + Math.min(...s.blocks.map((x) => x.startMin)),
+          (semana * 7 + s.day) * 1440 + Math.max(...s.blocks.map((x) => x.endMin)),
+        ])
+    for (let w = 0; w < rueda.semanas; w++) {
+      const antes = turnosEnSemana(r, rueda, w + rueda.semanas - 1)
+      const esta = turnosEnSemana(r, rueda, w)
+      const despues = turnosEnSemana(r, rueda, w + 1)
+      for (const p of r.people) {
+        if (!rueda.grupos.some((g) => g.personIds.includes(p.id))) continue
+        const t = [...tramosDe(antes, p.id, -1), ...tramosDe(esta, p.id, 0), ...tramosDe(despues, p.id, 1)].sort((a, b) => a[0] - b[0])
+        let max = 0
+        for (let i = 1; i < t.length; i++) if (t[i][0] > 0 && t[i - 1][1] < 7 * 1440) max = Math.max(max, t[i][0] - t[i - 1][1])
+        const pide = descansoSemanalPedidoMin(c.model.roles.find((x) => x.id === p.roleId))
+        if (t.length > 0 && max < pide) falla(`${p.label} descansa como mucho ${fmt(max / 60)} h seguidas en la semana ${w + 1} de la rueda (pide ${fmt(pide / 60)})`)
       }
     }
   }

@@ -41,7 +41,7 @@ import {
   usaSentados,
 } from '@/lib/necesidad'
 import { buildRoster, type ContextoCuadrante } from '@/lib/roster'
-import { analyzePeaks, contratoMinimoHoras, summarizePlan } from '@/lib/contracts'
+import { analyzePeaks, contratoMinimoHoras, summarizePlan, temporadaDelLocal } from '@/lib/contracts'
 import { decodificarPlan, type PlanCompartido } from '@/lib/compartir'
 import { aplicarHueco, construirDatasetConDiagnostico } from '@/lib/parseFichero'
 import type { Descarte, FilaCruda, FormatoFecha, FuenteLeida, OpcionPeriodo, ResultadoDataset } from '@/lib/parseFichero'
@@ -1047,9 +1047,11 @@ export function usePlannerState() {
       picoTipico: needSummaryDemand.peak.people,
       margenPct: settings.safetyMarginPct,
       contratoMinimoHoras: contratoMinimoHoras(settings),
+      capacidadEsSemanaTipo: settings.sizingMode === 'conservador',
+      semanasDePago: temporadaDelLocal(specials).semanasDePago,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weeks, coverage, needSummaryDemand, lagged, hours, model, kitchenHours, settings.mealMinutes, settings.lagMinutes, settings.safetyMarginPct, settings.contratosAMedida, settings.minContractHours, settings.contracts])
+  }, [weeks, coverage, needSummaryDemand, lagged, hours, model, kitchenHours, settings.mealMinutes, settings.lagMinutes, settings.safetyMarginPct, settings.contratosAMedida, settings.minContractHours, settings.contracts, settings.sizingMode, specials])
 
   // ─────────────────────────────────────────────────────────────
   // Guardado en el servidor

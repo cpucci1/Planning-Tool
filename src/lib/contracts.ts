@@ -106,9 +106,9 @@ export function summarizePlan(
   const peopleFromDays = desglose.pico + desglose.calendario
 
   // Horas pagadas sin servicio, de una sola fuente (G12): las que la gente
-  // está en el local de más (la misma cifra que la tarjeta "Horas de más") más
+  // está en el local de más (la misma cifra que la tarjeta "En turno sin servicio") más
   // las de contrato que no tienen turno.
-  const { enElLocal, sinTurno } = horasPagadasSinServicio(roster, needGrid, model)
+  const { enElLocal, sinTurno, sinCubrir } = horasPagadasSinServicio(roster, needGrid, model)
 
   return {
     allocations,
@@ -117,7 +117,7 @@ export function summarizePlan(
     neededHours: needSummary.totalHours,
     assignedHours,
     slackHours: enElLocal + sinTurno,
-    slackDesglose: { enElLocal, sinTurno },
+    slackDesglose: { enElLocal, sinTurno, sinCubrir },
     drivers: {
       fteFromHours: Math.round((needSummary.totalHours / fullTimeHours) * 10) / 10,
       peopleFromPeak: desglose.pico,
@@ -254,6 +254,19 @@ export function analyzePeaks(
     margenPct?: number
     /** Horas del contrato más pequeño que se firma (ajustes de Equipo). Para costar el pico contratado. */
     contratoMinimoHoras?: number
+    /**
+     * Con "Con más margen" la semana tipo sale de un percentil por franja y
+     * suma más que la línea: la plantilla ya cubre esa semana entera. Sin
+     * esto, semanas por debajo de la semana tipo salían como punta y se
+     * vendía refuerzo para ellas (ronda 9, hallazgo 3 de cálculo).
+     */
+    capacidadEsSemanaTipo?: boolean
+    /**
+     * Semanas que se pagan al año (`temporadaDelLocal`). Un fijo cobra estas,
+     * no las semanas con datos: un local que cierra 8 semanas sin ser de
+     * temporada salía con 44 / 8 y paga 52 (ronda 9, hallazgo 8).
+     */
+    semanasDePago?: number
   } = {},
 ): PeakAnalysis {
   // Días raros fuera (revisión ronda 3, G10): un sábado con diez veces lo de
@@ -263,7 +276,7 @@ export function analyzePeaks(
   const margen = 1 + Math.max(0, opciones.margenPct ?? 0) / 100
   // Lo que cubre la plantilla fija: la línea más el margen. Con la misma vara
   // a los dos lados: las semanas de más y las horas por cobro.
-  const capacidad = threshold * margen
+  const capacidad = (opciones.capacidadEsSemanaTipo ? Math.max(threshold, typicalWeekCovers) : threshold) * margen
   const peaks = weeks.filter((w) => w.total > capacidad)
 
   // Las horas extra de una semana punta se estiman con la misma productividad
@@ -329,7 +342,7 @@ export function analyzePeaks(
     avgExtraPeople: extraByWeek.length ? Math.max(1, Math.round(avgPeakHours / fullTimeHours)) : 0,
     // Contratar para el pico significa pagar esas personas las 52 semanas del
     // año, no solo las de punta. Esa es la comparación honesta.
-    weeksPaidPerWeekWorked: peaks.length > 0 ? Math.round(weeks.length / peaks.length) : 0,
+    weeksPaidPerWeekWorked: peaks.length > 0 ? Math.round((opciones.semanasDePago ?? weeks.length) / peaks.length) : 0,
     weeksCovered: weeks.length - peaks.length,
     extraHoursByWeek: peaks.map((w, i) => ({ isoWeek: w.isoWeek, extraHours: extraByWeek[i] })),
     diasRaros,

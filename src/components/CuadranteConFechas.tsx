@@ -171,14 +171,14 @@ export function CuadranteConFechas({
               Los parciales no rotan: su contrato es de unos días concretos (un fin de semana, unas
               tardes entre semana), y cambiárselos sería cambiarles el contrato.
               {maxSeguidos > 6
-                ? ` Ojo: al pasar de una semana a otra, alguien encadena hasta ${maxSeguidos} días seguidos. Es legal (el descanso se puede juntar en dos semanas), pero conviene avisarle.`
+                ? ` Ojo: al pasar de una semana a otra, alguien encadena hasta ${maxSeguidos} días seguidos. Cada semana conserva su descanso semanal, pero conviene avisarle.`
                 : ''}
             </p>
           )}
           {rueda && rueda.sinRotar.length > 0 && (
             <p className="mt-1">
-              {rueda.sinRotar.length} personas no rotan porque el cierre del domingo y la apertura
-              del lunes no dejan doce horas entre una semana y la siguiente.
+              {rueda.sinRotar.length} personas no rotan porque al pasar de una semana a otra se
+              quedarían sin las doce horas entre jornadas o sin su descanso semanal.
             </p>
           )}
         </Note>

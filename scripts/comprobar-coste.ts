@@ -258,6 +258,7 @@ function sextaRonda(weeks: WeekDemand[], hours: OpeningHours, model: StaffingMod
       personasPico: (days) => summarize(necesidadDeServicio(curvaDeTrabajo(days, hours, s), model, null, KITCHEN_BLOCK_ID), model).peak.people,
       picoTipico: sumD.peak.people,
       margenPct: m,
+      capacidadEsSemanaTipo: s.sizingMode === 'conservador',
     })
     console.log(`    margen ${m} %: ${pk.peakHoursPerYear} h de pico al año, peor semana ${pk.worstWeek?.extraPeople ?? 0} personas`)
     if (anteriores.length) ok(pk.peakHoursPerYear <= anteriores[anteriores.length - 1], `con margen ${m} % las horas de pico no suben (${pk.peakHoursPerYear} frente a ${anteriores[anteriores.length - 1]})`)

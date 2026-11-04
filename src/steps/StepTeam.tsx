@@ -44,6 +44,8 @@ import { tramoSuperado } from '@/lib/staffing'
 import type { Settings } from '@/lib/types'
 
 const nf = new Intl.NumberFormat('es-ES', { useGrouping: true })
+/** Un decimal, como en el resultado: allí sale 488,5 h y aquí salía 489 (ronda 9). */
+const nf1 = new Intl.NumberFormat('es-ES', { useGrouping: true, maximumFractionDigits: 1 })
 
 /** El sábado es el día que todo el mundo reconoce como el fuerte. */
 const SHOWCASE_DAY = 5
@@ -94,8 +96,8 @@ function BlockBars() {
   return (
     <div>
       <div className="mb-2.5 flex items-center gap-1.5 text-[0.75rem] font-bold tracking-wide text-content-secondary uppercase">
-        Horas por bloque
-        <InfoTip title="Horas por bloque">
+        Horas por zona
+        <InfoTip title="Horas por zona">
           Horas de trabajo semanales que necesita cada área. Es la suma de todos sus puestos, franja
           a franja. Si Cocina se dispara, mira sus tramos: normalmente sobra una partida en las
           horas flojas.
@@ -112,7 +114,7 @@ function BlockBars() {
                 key={Math.round(r.hours)}
                 className="animate-count shrink-0 text-[0.82rem] font-bold text-content-secondary tabular-nums"
               >
-                {nf.format(Math.round(r.hours))} h
+                {nf1.format(r.hours)} h
                 <span className="ml-1.5 font-semibold text-content-muted">
                   {Math.round((r.hours / total) * 100)}%
                 </span>
@@ -138,7 +140,7 @@ function LiveNumbers() {
   if (!s) return null
 
   const peak = s.peak
-  const hours = Math.round(s.totalHours)
+  const hours = Math.round(s.totalHours * 10) / 10
   // Con un decimal, como en el resultado (ronda 6, m6 de pantallas): aquí
   // salía 13 y en "Por qué" 12,2 con las mismas horas.
   const fte = Math.round((s.totalHours / 40) * 10) / 10
@@ -174,7 +176,7 @@ function LiveNumbers() {
           label="Horas/semana"
           value={
             <span key={hours} className="animate-count">
-              {nf.format(hours)}
+              {nf1.format(hours)}
             </span>
           }
           hint="Horas de trabajo necesarias en total"
@@ -276,7 +278,7 @@ function LivePanelMobile() {
   const s = p.needSummary
   if (!s) return null
 
-  const hours = Math.round(s.totalHours)
+  const hours = Math.round(s.totalHours * 10) / 10
 
   return (
     // Sola en la pantalla: en este paso la barra del shell no sale (ronda 3,
@@ -305,7 +307,7 @@ function LivePanelMobile() {
                   personas iban colgando en una línea suelta y el "toca para
                   ver el detalle" salía cortado. La flecha ya dice que se abre. */}
               <span className="block truncate text-[0.72rem] font-semibold text-content-muted">
-                <span key={hours} className="animate-count">{nf.format(hours)}</span> h a la semana
+                <span key={hours} className="animate-count">{nf1.format(hours)}</span> h a la semana
                 {p.plan && (
                   <>
                     {' · '}
@@ -807,9 +809,11 @@ function MealCard() {
           label="Una cena dura"
           hint={
             tieneMerienda
-              ? conCopas
-                ? 'Mesas que pagan de 20:00 a 01:00.'
-                : 'Mesas que pagan de las 20:00 en adelante.'
+              ? `${conCopas ? 'Mesas que pagan de 20:00 a 01:00.' : 'Mesas que pagan de las 20:00 en adelante.'}${
+                  // Sin casilla de merienda a la vista quedaba un hueco de 17:30
+                  // a 20:00 sin explicar (ronda 9): se dice dónde cuenta.
+                  conMerienda ? '' : ` Lo que se cobra de 17:30 a 20:00 cuenta como merienda, de ${meal.merienda} min.`
+                }`
               : conCopas
                 ? 'Mesas que pagan de 18:00 a 01:00.'
                 : 'Mesas que pagan de las 18:00 en adelante.'
@@ -889,7 +893,7 @@ export function StepTeam() {
           <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-[0.85rem] leading-snug font-medium text-content-secondary">
               Con estos tramos pides{' '}
-              <strong className="text-content-primary">{nf.format(Math.round(hours))} h</strong> de
+              <strong className="text-content-primary">{nf1.format(hours)} h</strong> de
               trabajo a la semana. Vamos a repartirlas en turnos y contratos.
             </p>
             <Button

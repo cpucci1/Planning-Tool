@@ -37,7 +37,7 @@ function numeroEs(n: number): string {
  * dos digan lo mismo turno a turno.
  */
 export function filasDelCuadrante(roster: Roster, model: StaffingModel): string[][] {
-  const out: string[][] = [['Bloque', 'Puesto', 'Persona', 'Contrato', 'Horas asignadas', ...DAYS]]
+  const out: string[][] = [['Zona', 'Puesto', 'Persona', 'Contrato', 'Horas asignadas', ...DAYS]]
   const porPersonaDia = new Map<string, typeof roster.shifts>()
   for (const s of roster.shifts) {
     const k = `${s.personId}|${s.day}`
@@ -68,7 +68,7 @@ export function filasDelCuadrante(roster: Roster, model: StaffingModel): string[
       }
     }
   }
-  for (const p of roster.people) if (!colocadas.has(p.id)) out.push(fila('Sin bloque', p))
+  for (const p of roster.people) if (!colocadas.has(p.id)) out.push(fila('Sin zona', p))
   return out
 }
 
@@ -178,7 +178,7 @@ export interface ExportInput {
   contractedHours: number
   slackHours: number
   /** El reparto de `slackHours` que ya trae el plan (`summarizePlan`), la misma fuente que la pantalla. */
-  slackDesglose?: { enElLocal: number; sinTurno: number }
+  slackDesglose?: { enElLocal: number; sinTurno: number; sinCubrir?: number }
   /** Semanas que se pagan al año (`temporadaDelLocal`); sin él, las 52. */
   semanasDePago?: number
   /** Semanas que el local cierra (`temporadaDelLocal`): sus vacaciones no se cubren otra vez (ronda 7, G1). */
@@ -198,7 +198,7 @@ export function buildPlanCsv(input: ExportInput): string {
   // puesto mientras la sección de coste decía "sin costes".
   const conCostes = input.cost !== null
   add(
-    'Bloque',
+    'Zona',
     'Puesto',
     'Personas',
     'Horas contratadas/semana',
@@ -276,7 +276,7 @@ export function buildPlanCsv(input: ExportInput): string {
     )
     if (!input.cost.complete) add('Puestos sin coste definido', input.cost.missing.join(', '))
   } else {
-    add('Sin costes: el cálculo de costes está apagado o falta el coste por hora en el catálogo de puestos')
+    add('Sin costes: el cálculo de costes está apagado o falta el coste por hora en Tus puestos')
   }
 
   add('')
@@ -332,7 +332,7 @@ export function buildPlanCsv(input: ExportInput): string {
   add('Horas en turnos/semana', Math.round(input.roster.people.reduce((x, p) => x + p.assignedHours, 0) * 10) / 10)
   add('Horas contratadas/semana', Math.round(input.contractedHours * 10) / 10)
   // Las horas pagadas sin servicio, partidas en lo que la gente está en el
-  // local de más (lo mismo que "Horas de más" en pantalla) y lo que es
+  // local de más (lo mismo que "En turno sin servicio" en pantalla) y lo que es
   // contrato sin turno. Las dos suman la de abajo.
   // Del reparto del plan, que es el que enseña la pantalla; sin él (un plan de
   // antes), se deduce con la misma cuenta.
@@ -340,7 +340,7 @@ export function buildPlanCsv(input: ExportInput): string {
     input.slackDesglose?.sinTurno ??
     Math.max(0, input.contractedHours - input.roster.people.reduce((a, p) => a + p.assignedHours, 0))
   const enElLocal = input.slackDesglose?.enElLocal ?? input.slackHours - sinTurno
-  add('Horas en el local de más/semana', Math.round(enElLocal * 10) / 10)
+  add('Horas en turno sin servicio/semana', Math.round(enElLocal * 10) / 10)
   add('Horas de contrato sin turno/semana', Math.round(sinTurno * 10) / 10)
   add('Horas pagadas sin servicio/semana', Math.round(input.slackHours * 10) / 10)
 

@@ -316,12 +316,39 @@ export function bolsaComplementarias(
 export function picosConComplementarias(
   extraHoursByWeek: { extraHours: number }[],
   horasSemana: number,
-): { horasPico: number; cubiertas: number; restantes: number } {
+  horasSinTurnoSemana = 0,
+): { horasPico: number; sinTurno: number; cubiertas: number; restantes: number } {
+  // Primero las horas de contrato que ya se pagan y no llevan turno (ronda 9,
+  // hallazgo 5 de cálculo): un hotel con solo contratos de 40 h pagaba 257 h
+  // a la semana sin turno y aun así vendía 930 h de refuerzo. Después, las
+  // complementarias de los parciales.
+  const libres = Math.max(0, horasSinTurnoSemana)
   let horasPico = 0
+  let sinTurno = 0
   let cubiertas = 0
   for (const w of extraHoursByWeek) {
     horasPico += w.extraHours
-    cubiertas += Math.min(w.extraHours, horasSemana)
+    const conContrato = Math.min(w.extraHours, libres)
+    sinTurno += conContrato
+    cubiertas += Math.min(w.extraHours - conContrato, horasSemana)
   }
-  return { horasPico, cubiertas, restantes: Math.max(0, horasPico - cubiertas) }
+  return { horasPico, sinTurno, cubiertas, restantes: Math.max(0, horasPico - sinTurno - cubiertas) }
+}
+
+/** Horas de contrato sin turno de la gente de equipo (los mandos no cubren picos de sala o cocina). */
+export function horasSinTurnoDeEquipo(people: Pick<Person, 'contractHours' | 'assignedHours'>[]): number {
+  return people.reduce((a, p) => a + Math.max(0, p.contractHours - p.assignedHours), 0)
+}
+
+/**
+ * "11 las cubren horas de contrato que ya pagas sin turno y 20 tus parciales
+ * con complementarias": la misma frase en "Los picos", "Con Shifty" y el PDF.
+ * Vacía si no se cubre nada antes del refuerzo.
+ */
+export function fraseAntesDelRefuerzo(horasSinTurno: number, horasComplementarias: number): string {
+  const n = (v: number) => v.toLocaleString('es-ES', { maximumFractionDigits: 0 })
+  const partes: string[] = []
+  if (horasSinTurno > 0) partes.push(`${n(horasSinTurno)} las cubren horas de contrato que ya pagas sin turno`)
+  if (horasComplementarias > 0) partes.push(`${n(horasComplementarias)} ${horasSinTurno > 0 ? 'tus parciales' : 'las pueden hacer tus parciales'} con horas complementarias`)
+  return partes.join(' y ')
 }

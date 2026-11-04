@@ -45,6 +45,8 @@ import {
   coberturaAusencias,
   jornadasParaCubrir,
   picosConComplementarias,
+  horasSinTurnoDeEquipo,
+  fraseAntesDelRefuerzo,
   temporadaAlta,
   vacacionesEnSemanasFlojas,
 } from '@/lib/ausencias'
@@ -244,7 +246,11 @@ export function StepResult() {
   const peakWeekCount = peaks.peakWeeks.length
   // Un solo porcentaje en toda la herramienta: sobre lo que pide el servicio,
   // el mismo que la frase de debajo (ronda 5, G1 de pantallas).
-  const slackPct = plan.neededHours > 0 ? Math.round((plan.slackHours / plan.neededHours) * 100) : 0
+  // Lo pagado por encima del servicio: sin las horas que quedan sin cubrir (ronda 9).
+  const slackPct =
+    plan.neededHours > 0
+      ? Math.round((Math.max(0, plan.slackHours - (plan.slackDesglose?.sinCubrir ?? 0)) / plan.neededHours) * 100)
+      : 0
   const partidas = roster ? contarPartidas(roster) : 0
   const fraseDeMas = plan.slackDesglose ? fraseHorasDeMas(plan.slackDesglose, plan.neededHours, settings) : null
 
@@ -316,6 +322,9 @@ export function StepResult() {
     const cola = ns.length > 8 ? `y ${resto} más` : `y la ${ns[ns.length - 1]}`
     return `las semanas ${visibles.join(', ')} ${cola}`
   })()
+  // "No van seguidas" solo si es verdad: con una temporada (49 a 52) la frase
+  // se contradecía con el bloque de fijos discontinuos de más abajo (ronda 9).
+  const puntaSueltas = peaks.peakWeeks.every((w, i, ns) => i === 0 || w !== ns[i - 1] + 1)
 
   /**
    * Coste, solo con los precios por categoría que haya rellenado el usuario
@@ -379,11 +388,11 @@ export function StepResult() {
   // coste de empresa, sumarle la Seguridad Social otra vez la contaba dos veces.
   const multiplicadorHoraTrabajada = factorCoste * (WEEKS_PER_YEAR / ausencias.tiempo.semanasTrabajadas)
   /** Las horas complementarias de los parciales, el escalón antes de contratar o pedir extras (punto 23). */
-  const bolsa = bolsaComplementarias(
-    roster.people.filter((per) => !esMando(model.roles.find((r) => r.id === per.roleId))),
-    settings,
-  )
-  const picosBolsa = picosConComplementarias(peaks.extraHoursByWeek ?? [], bolsa.horasSemana)
+  const deEquipo = roster.people.filter((per) => !esMando(model.roles.find((r) => r.id === per.roleId)))
+  const bolsa = bolsaComplementarias(deEquipo, settings)
+  /** Horas de contrato de la gente de equipo que ya se pagan y no llevan turno (ronda 9). */
+  const horasSinTurnoEquipo = horasSinTurnoDeEquipo(deEquipo)
+  const picosBolsa = picosConComplementarias(peaks.extraHoursByWeek ?? [], bolsa.horasSemana, horasSinTurnoEquipo)
   /**
    * Las horas de los picos con una sola cuenta en todas las pantallas (ronda 3,
    * punto 3): las que faltan en las semanas punta, las que pueden hacer los
@@ -393,7 +402,9 @@ export function StepResult() {
    */
   const horasFaltanPicos = peaks.peakHoursPerYear
   const horasRefuerzo = Math.min(horasFaltanPicos, Math.round(picosBolsa.restantes))
-  const horasComplementariasPicos = horasFaltanPicos - horasRefuerzo
+  const horasSinTurnoPicos = Math.min(horasFaltanPicos - horasRefuerzo, Math.round(picosBolsa.sinTurno))
+  const horasComplementariasPicos = horasFaltanPicos - horasRefuerzo - horasSinTurnoPicos
+  const antesDelRefuerzo = fraseAntesDelRefuerzo(horasSinTurnoPicos, horasComplementariasPicos)
 
   /**
    * ¿El hueco de "dónde sobra gente" empieza antes de abrir? Entonces es la
@@ -422,7 +433,7 @@ export function StepResult() {
     (per) => (p.personNames[per.id] ?? '').trim().length > 0,
   ).length
   /** La rueda de semanas: quién hace qué semana del cuadrante (lib/semana.ts). */
-  const rueda = calcularRueda(roster, settings)
+  const rueda = calcularRueda(roster, settings, model.roles)
   const metricas = calcularMetricas(roster, needGrid, model, lagged, rueda)
   /** Quien se queda sin ningún finde porque su semana no rota: hay que decirlo, no esconderlo. */
   const findesSinRueda = metricas.findes.filter(
@@ -499,7 +510,7 @@ export function StepResult() {
           ? model.roles.filter((r) => r.fullTimeOnly).map((r) => r.name).join(', ')
           : 'ningún puesto',
       step: 'demand',
-      where: 'Demanda, catálogo de puestos',
+      where: 'Tus puestos',
     },
     ...model.blocks
       .filter((b) => (settings.minStaffByBlock[b.id] ?? 0) > 0)
@@ -521,7 +532,7 @@ export function StepResult() {
         where: 'Demanda, pantalla de horario',
       })),
     { label: 'Tramos de personal', value: `${model.tiers.length} tramos`, step: 'team', where: 'Equipo, la tabla principal' },
-    { label: 'Puestos', value: `${model.roles.length} puestos`, step: 'demand', where: 'Demanda, catálogo de puestos' },
+    { label: 'Puestos', value: `${model.roles.length} puestos`, step: 'demand', where: 'Tus puestos' },
     { label: 'Semanas excluidas', value: `${specials.filter((x) => x.excluded).length}`, step: 'demand', where: 'Demanda, semanas raras' },
   ]
 
@@ -586,6 +597,7 @@ export function StepResult() {
     peaks,
     extraPeopleIfHired,
     horasComplementariasPicos,
+    horasSinTurnoPicos,
     horasRefuerzo,
     cost,
     ratioPersonal,
@@ -684,7 +696,7 @@ export function StepResult() {
               </strong>{' '}
               del histórico con gente tuya.{' '}
               {plural(peakWeekCount, 'En la otra', `En las otras ${peakWeekCount}`)} necesitarás
-              más gente, y para eso están los extras.
+              más gente, y para eso están los refuerzos.
             </>
           ) : (
             <>
@@ -726,7 +738,7 @@ export function StepResult() {
           // con la misma cifra de la tarjeta de ausencias, para que el titular
           // no diga 21 y más abajo aparezcan jornadas de más sin explicar.
           ausencias.jornadasExtra >= 0.05
-            ? `Cada puesto con su desglose de jornada, para la semana tipo con todos presentes. Para cubrir vacaciones, festivos y bajas te harán falta además ${Math.round(ausencias.jornadasExtra * 10) / 10 === 1 ? '' : 'unas '}${jornadasTexto(ausencias.jornadasExtra)}, con gente tuya o con extras: lo ves en "Cuando falta alguien".`
+            ? `Cada puesto con su desglose de jornada, para la semana tipo con todos presentes. Para cubrir vacaciones, festivos y bajas te harán falta además ${Math.round(ausencias.jornadasExtra * 10) / 10 === 1 ? '' : 'unas '}${jornadasTexto(ausencias.jornadasExtra)}, con gente tuya o con refuerzos: lo ves en "Cuando falta alguien".`
             : 'Cada puesto con su desglose de jornada. Es la lista que necesitas para contratar.'
         }
       />
@@ -1724,11 +1736,10 @@ export function StepResult() {
                 <p className="mt-2 text-[0.86rem] leading-relaxed font-medium text-content-body">
                   Durante {peakWeekCount} {plural(peakWeekCount, 'semana', 'semanas')} de las{' '}
                   {weeks.length} analizadas.
-                  {horasComplementariasPicos > 0 && (
+                  {antesDelRefuerzo && (
                     <>
                       {' '}
-                      {nf.format(horasComplementariasPicos)} las pueden hacer tus parciales con horas
-                      complementarias;{' '}
+                      {antesDelRefuerzo[0].toUpperCase() + antesDelRefuerzo.slice(1)};{' '}
                       <strong className="text-content-primary">
                         quedan {nf.format(horasRefuerzo)} de refuerzo
                       </strong>
@@ -1756,8 +1767,11 @@ export function StepResult() {
 
             {peakWeekCount > 1 && semanasPuntaTexto && (
               <p className="mt-6 max-w-3xl text-[0.9rem] leading-relaxed font-semibold text-content-inverted/75">
-                Además, no van seguidas: son {semanasPuntaTexto}. La necesidad aparece en momentos
-                concretos, no como un puesto estable durante todo el año.
+                {puntaSueltas
+                  ? <>Además, no van seguidas: son {semanasPuntaTexto}. La necesidad aparece en momentos
+                    concretos, no como un puesto estable durante todo el año.</>
+                  : <>Son {semanasPuntaTexto}. Fuera de ellas, la necesidad no está: no es un puesto
+                    estable durante todo el año.</>}
               </p>
             )}
 
@@ -1808,6 +1822,19 @@ export function StepResult() {
             }
           />
           <div className="space-y-4 border-t border-border-soft px-6 py-5">
+            {horasSinTurnoPicos > 0 && (
+              <div>
+                <h4 className="h4">Horas de contrato que ya pagas sin turno</h4>
+                <p className="mt-2 text-[0.9rem] leading-relaxed text-content-secondary">
+                  Tu gente de equipo tiene{' '}
+                  <strong className="text-content-primary">{nf1.format(horasSinTurnoEquipo)} h a la semana</strong>{' '}
+                  de contrato que no están en ningún turno. Van primero: en tus semanas punta cubren{' '}
+                  <strong className="text-content-primary">{nf.format(horasSinTurnoPicos)} de las{' '}
+                  {nf.format(horasFaltanPicos)} h</strong> que faltan, si el puesto de quien las tiene
+                  encaja con el que pide la semana.
+                </p>
+              </div>
+            )}
             {bolsa.parciales > 0 && (
               <div>
                 <h4 className="h4 flex flex-wrap items-center gap-2">
@@ -1825,7 +1852,8 @@ export function StepResult() {
                   hasta <strong className="text-content-primary">{nf1.format(bolsa.horasSemana)} h más a la semana</strong>{' '}
                   con las pactadas, sin llegar ninguno a la jornada completa. En tus semanas punta eso
                   cubre <strong className="text-content-primary">{nf.format(horasComplementariasPicos)} de las{' '}
-                  {nf.format(horasFaltanPicos)} h</strong> que faltan; quedan{' '}
+                  {nf.format(horasFaltanPicos - horasSinTurnoPicos)} h</strong> que faltan
+                  {horasSinTurnoPicos > 0 ? ' tras las de contrato sin turno' : ''}; quedan{' '}
                   {nf.format(horasRefuerzo)} para refuerzos.
                   {bolsa.horasVoluntariasSemana > 0 && (
                     <>
@@ -1925,7 +1953,7 @@ export function StepResult() {
               <p className="mt-6 max-w-2xl text-[1rem] leading-relaxed font-medium text-content-inverted/85">
                 {peakWeekCount > 0
                   ? horasRefuerzo > 0
-                    ? `Tu plan ya ha localizado ${peakWeekCount} ${plural(peakWeekCount, 'semana', 'semanas')} en las que faltan ${nf.format(horasFaltanPicos)} horas${horasComplementariasPicos > 0 ? `: ${nf.format(horasComplementariasPicos)} las pueden hacer tus parciales con complementarias, y quedan ${nf.format(horasRefuerzo)} horas de refuerzo` : ' de refuerzo'}.`
+                    ? `Tu plan ya ha localizado ${peakWeekCount} ${plural(peakWeekCount, 'semana', 'semanas')} en las que faltan ${nf.format(horasFaltanPicos)} horas${antesDelRefuerzo ? `: ${antesDelRefuerzo}, y quedan ${nf.format(horasRefuerzo)} horas de refuerzo` : ' de refuerzo'}.`
                     : `Tu plan ha localizado ${peakWeekCount} ${plural(peakWeekCount, 'semana', 'semanas')} punta, y las horas que faltan las pueden hacer tus parciales con complementarias. Para bajas, vacaciones y reservas inesperadas sigues necesitando a alguien.`
                   : 'Aunque hoy cubras el histórico con plantilla fija, una baja o una reserva inesperada puede dejar un turno corto.'}{' '}
                 En Shifty publicas el turno, eliges profesionales verificados y la ETT colaboradora

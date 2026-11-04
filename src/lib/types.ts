@@ -473,7 +473,7 @@ export interface StaffPlan {
    * las que la gente está en el local de más (la misma cifra que "Horas de
    * más" de las métricas) y las de contrato sin turno. Ronda 3.
    */
-  slackDesglose?: { enElLocal: number; sinTurno: number }
+  slackDesglose?: { enElLocal: number; sinTurno: number; sinCubrir?: number }
   /**
    * Por qué salen tantas personas. La plantilla no la marcan las horas: la marca
    * el pico simultáneo. Si el sábado a las 14:00 hacen falta 7 camareros a la

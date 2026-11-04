@@ -257,8 +257,8 @@ function AddBlockModal({
     <Modal
       open
       onClose={onClose}
-      title="Añadir un bloque"
-      subtitle="Un bloque es un área del local. Sus puestos se agrupan juntos en la tabla."
+      title="Añadir una zona"
+      subtitle="Una zona es un área del local. Sus puestos se agrupan juntos en la tabla."
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onClose}>
@@ -442,7 +442,7 @@ export function TiersTable({
     const orphans = deVolumen.filter((r) => !blocks.some((b) => b.id === r.blockId))
     if (orphans.length) {
       gs.push({
-        block: { id: ORPHAN_BLOCK_ID, name: 'Sin bloque', color: 'var(--color-content-muted)' },
+        block: { id: ORPHAN_BLOCK_ID, name: 'Sin zona', color: 'var(--color-content-muted)' },
         roles: orphans,
       })
     }
@@ -755,7 +755,7 @@ export function TiersTable({
                         <>
                           <InlineName
                             value={g.block.name}
-                            ariaLabel={`Renombrar el bloque ${g.block.name}`}
+                            ariaLabel={`Renombrar la zona ${g.block.name}`}
                             onCommit={(v) => renameBlock(g.block.id, v)}
                             className="text-[0.8rem] font-extrabold text-content-primary"
                           />
@@ -778,8 +778,8 @@ export function TiersTable({
                                   roleCount: g.roles.length,
                                 })
                               }
-                              aria-label={`Eliminar el bloque ${g.block.name}`}
-                              title={`Eliminar el bloque ${g.block.name}`}
+                              aria-label={`Eliminar la zona ${g.block.name}`}
+                              title={`Eliminar la zona ${g.block.name}`}
                               className="rounded-md p-1 text-content-muted transition-colors hover:bg-surface-elevated hover:text-destructive focus-visible:outline-2 focus-visible:outline-brand"
                             >
                               <Trash2 size={13} />
@@ -802,8 +802,8 @@ export function TiersTable({
                   <button
                     type="button"
                     onClick={() => setBlockModal(true)}
-                    aria-label="Añadir una categoría nueva, por ejemplo Terraza"
-                    title="Añadir una categoría (ej. Terraza)"
+                    aria-label="Añadir una zona nueva, por ejemplo Terraza"
+                    title="Añadir una zona (ej. Terraza)"
                     className="mx-auto flex h-8 w-8 items-center justify-center rounded-pill text-content-secondary transition-colors hover:bg-brand-light hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                   >
                     <Plus size={16} strokeWidth={3} />
@@ -1118,15 +1118,15 @@ export function TiersTable({
       >
         {confirm?.kind === 'reset' && (
           <p className="text-[0.92rem] leading-relaxed text-content-body">
-            Se restauran los bloques, los puestos y los tramos de ejemplo. Todo lo que hayas
+            Se restauran las zonas, los puestos y los tramos de ejemplo. Todo lo que hayas
             cambiado en esta tabla se pierde.
           </p>
         )}
         {confirm?.kind === 'block' && (
           <p className="text-[0.92rem] leading-relaxed text-content-body">
             {confirm.roleCount === 0
-              ? 'Este bloque no tiene ningún puesto, así que no se pierde nada.'
-              : `Se van con él ${confirm.roleCount} ${confirm.roleCount === 1 ? 'puesto' : 'puestos'} y lo que hayas puesto en sus columnas: ${roles
+              ? 'Esta zona no tiene ningún puesto, así que no se pierde nada.'
+              : `Se van con ella ${confirm.roleCount} ${confirm.roleCount === 1 ? 'puesto' : 'puestos'} y lo que hayas puesto en sus columnas: ${roles
                   .filter((r) => r.blockId === confirm.block.id)
                   .map((r) => r.name)
                   .join(', ')}.`}

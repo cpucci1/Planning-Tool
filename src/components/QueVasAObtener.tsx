@@ -137,7 +137,7 @@ export function QueVasAObtener() {
             <div className="min-w-0 flex-1 space-y-2" aria-hidden="true">
               {CONTRACTS.map((c) => (
                 <div key={c.label} className="flex items-center gap-2">
-                  <span className="w-9 shrink-0 text-[0.68rem] font-bold text-content-secondary">
+                  <span className="w-12 shrink-0 whitespace-nowrap text-[0.68rem] font-bold text-content-secondary">
                     {c.label}
                   </span>
                   <span className="h-2 flex-1 overflow-hidden rounded-pill bg-surface">
