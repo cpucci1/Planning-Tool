@@ -1100,6 +1100,22 @@ async function pruebaHorarioPorDia() {
   comprobar('avisa de que el horario deja fuera cobros', aviso !== undefined)
   comprobar('nombra el sábado y el porcentaje', /sábado \(20 %\)/.test(aviso?.mensaje ?? ''), aviso?.mensaje ?? '')
   comprobar('y el sábado sigue abierto con su servicio', r2.dataset.source.detectedHours[5].length > 0)
+
+  // Ronda 10, hallazgo 6: un domingo con cobros sueltos, lejos unos de otros,
+  // sale cerrado. Eso no es "deja fuera el 100 %": sale cerrado y tiene cobros.
+  const dom = ['Fecha;Hora;Comensales']
+  for (let w = 0; w < 6; w++) {
+    const t = fechaES(new Date(Date.UTC(2025, 5, 7 + w * 7)))
+    const d = fechaES(new Date(Date.UTC(2025, 5, 8 + w * 7)))
+    for (let i = 0; i < 8; i++) dom.push(...filasDeCobros(t, horaDeFranja(12 * 60 + i * 30 + 5), 3))
+    for (const hora of ['09:05', '13:05', '17:05', '21:05']) dom.push(...filasDeCobros(d, hora, 2))
+  }
+  const f3 = await leerFichero(ficheroDe(aUtf8(dom.join('\n')), 'domingos.csv'))
+  const r3 = construirDatasetConDiagnostico(f3.filas, f3.columnas, { fileName: f3.nombre })
+  const aviso3 = r3.advertencias.find((a) => a.codigo === 'horario-deja-fuera')?.mensaje ?? ''
+  igual('el domingo sale cerrado', r3.dataset.source.detectedHours[6].length, 0)
+  comprobar('dice que el domingo sale cerrado y tiene cobros', /deja cerrado el domingo, pero ese día tiene cobros/.test(aviso3), aviso3)
+  comprobar('y no habla de un 100 %', !/100 %/.test(aviso3), aviso3)
 }
 
 async function pruebaZonaHoraria() {
@@ -1108,17 +1124,27 @@ async function pruebaZonaHoraria() {
   const tzAntes = process.env.TZ
   process.env.TZ = 'Europe/Madrid'
   try {
-    igual('19:30Z es UTC', zonaDeLaHora('19:30Z'), 0)
+    igual('19:30:00Z es UTC', zonaDeLaHora('19:30:00Z'), 0)
     igual('ISO con +00:00 es UTC', zonaDeLaHora('2025-06-14T19:30:00.000+00:00'), 0)
-    igual('+02:00 son 120 minutos', zonaDeLaHora('19:30+02:00'), 120)
-    igual('-0300 son -180', zonaDeLaHora('21:40-0300'), -180)
+    igual('ISO con +02:00 son 120 minutos', zonaDeLaHora('2025-06-14T13:00:00+02:00'), 120)
+    igual('ISO con T y sin segundos también', zonaDeLaHora('2025-06-14T13:00+02:00'), 120)
+    igual('ISO con Z', zonaDeLaHora('2025-06-14T13:00:00Z'), 0)
+    igual('-0300 con segundos son -180', zonaDeLaHora('21:40:00-0300'), -180)
+    // Ronda 10, hallazgo 1: una franja horaria no es una hora con zona.
+    igual('la franja 13:00-14:00 no trae zona', zonaDeLaHora('13:00-14:00'), null)
+    igual('la franja 23:00-00:00 no trae zona', zonaDeLaHora('23:00-00:00'), null)
+    igual('la franja 09:00-10:00 no trae zona', zonaDeLaHora('09:00-10:00'), null)
+    igual('la franja con espacios tampoco', zonaDeLaHora('13:00 - 14:00'), null)
+    igual('la franja con segundos tampoco', zonaDeLaHora('13:00:00-14:00'), null)
+    igual('sin T ni segundos el signo no es zona', zonaDeLaHora('19:30+02:00'), null)
+    igual('ni la Z suelta tras hh:mm', zonaDeLaHora('19:30Z'), null)
     igual('sin zona no hay zona', zonaDeLaHora('19:30'), null)
     igual('la fecha española con hora no trae zona', zonaDeLaHora('14/06/2025 21:40'), null)
     igual('el reloj de 12 horas tampoco', zonaDeLaHora('2:05 PM'), null)
     igual('ni un número de Excel', zonaDeLaHora(0.5), null)
 
     // Verano (UTC+2) e invierno (UTC+1): la cena de las 21:30 sale bien en los dos.
-    const csv = ['Fecha;Hora;Comensales', '14/06/2025;19:30Z;6', '13/12/2025;20:30:00+00:00;4', '14/06/2025;14:00;3'].join('\n')
+    const csv = ['Fecha;Hora;Comensales', '14/06/2025;19:30:00Z;6', '13/12/2025;20:30:00+00:00;4', '14/06/2025;14:00;3'].join('\n')
     const f = await leerFichero(ficheroDe(aUtf8(csv), 'utc.csv'))
     const r = construirDatasetConDiagnostico(f.filas, f.columnas, { fileName: f.nombre })
     const junio = r.dataset.weeks.find((w) => w.startDate === '2025-06-09')
@@ -1141,6 +1167,25 @@ async function pruebaZonaHoraria() {
     const sem = r2.dataset.weeks[0]
     igual('la 01:30 local cae en la noche del sábado', sem.days[5][39], 2)
     igual('las 12:00Z son las 14:00', sem.days[5][16], 5)
+
+    // Una columna de franjas horarias se lee por la hora de inicio, sin mover nada.
+    const franjas = ['Fecha;Franja;Comensales', '14/06/2025;13:00-14:00;7', '14/06/2025;23:00-00:00;3', '14/06/2025;09:00-10:00;2'].join('\n')
+    const f5 = await leerFichero(ficheroDe(aUtf8(franjas), 'franjas.csv'))
+    const r5 = construirDatasetConDiagnostico(f5.filas, f5.columnas, { fileName: f5.nombre })
+    const sem5 = r5.dataset.weeks[0]
+    igual('la franja 13:00-14:00 cae a las 13:00 del sábado', sem5.days[5][14], 7)
+    igual('la franja 23:00-00:00 cae a las 23:00', sem5.days[5][34], 3)
+    igual('la franja 09:00-10:00 cae a las 09:00', sem5.days[5][6], 2)
+    comprobar('y no avisa de hora con zona', !tieneAviso(r5.advertencias, 'hora-con-zona'))
+
+    // Ronda 10, hallazgo 7: solo la fila de títulos.
+    const f6 = await leerFichero(ficheroDe(aUtf8('Fecha;Hora;Importe\n'), 'vacio.csv'))
+    const r6 = construirDatasetConDiagnostico(f6.filas, f6.columnas, { fileName: f6.nombre })
+    igual(
+      'con solo títulos dice qué exportar',
+      r6.advertencias.map((a) => a.mensaje).join(' | '),
+      'Tu fichero solo trae la fila de títulos, sin ventas. Exporta del TPV el histórico con una fila por ticket y vuelve a subirlo.',
+    )
 
     // Sin zona, nada cambia y no hay aviso.
     const f3 = await leerFichero(ficheroDe(aUtf8(CSV_MADRUGADA), 'noche.csv'))

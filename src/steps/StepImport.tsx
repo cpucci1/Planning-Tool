@@ -699,7 +699,7 @@ export function StepImport() {
 
       {/* ── Pie ────────────────────────────────────────────────── */}
       <footer className="mt-16 border-t border-border-soft pt-8 text-center">
-        <img src="/shifty-logo.svg" alt="Shifty" className="mx-auto h-6 w-auto" />
+        <img src="/shifty-logo.svg" alt="Shifty Work" className="mx-auto h-8 w-auto" />
         <p className="mx-auto mt-3 max-w-md text-[0.82rem] leading-relaxed text-content-secondary">
           Shifty ayuda a restaurantes, cadenas y hoteles a cubrir turnos con profesionales
           verificados, sin sobredimensionar la plantilla fija.

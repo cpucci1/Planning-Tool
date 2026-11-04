@@ -234,6 +234,7 @@ export function RoleCatalog({
                         <NumberInput
                           value={role.hourlyCostEur ?? NaN}
                           onChange={(v) => patch(role.id, { hourlyCostEur: v > 0 ? v : null })}
+                          permitirVacio
                           min={0}
                           max={200}
                           step={0.5}

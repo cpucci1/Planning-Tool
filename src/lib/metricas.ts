@@ -260,26 +260,36 @@ export const HORAS_DE_MAS_EXPLICAR = 0.1
 export function fraseHorasDeMas(
   d: { enElLocal: number; sinTurno: number; sinCubrir?: number },
   neededHours: number,
-  settings: Pick<Settings, 'minShiftMinutes' | 'minContractHours'>,
+  settings: Pick<Settings, 'minShiftMinutes' | 'minContractHours' | 'contratosAMedida' | 'contracts'>,
 ): string | null {
   // Lo que se paga POR ENCIMA del servicio: si quedan horas sin cubrir, las
-  // de contrato sin turno no son de más (ronda 9).
-  const total = Math.max(0, d.enElLocal + d.sinTurno - (d.sinCubrir ?? 0))
+  // de contrato sin turno no son de más (ronda 9). Las partes salen de la
+  // MISMA resta que el total (ronda 10): primero se descuenta lo sin cubrir
+  // de las horas sin turno, y lo que sobre, de las del local. Así ninguna
+  // parte puede ser mayor que el total.
+  const sinCubrir = Math.max(0, d.sinCubrir ?? 0)
+  const sinTurno = Math.max(0, d.sinTurno - sinCubrir)
+  const enElLocal = Math.max(0, d.enElLocal - Math.max(0, sinCubrir - d.sinTurno))
+  const total = enElLocal + sinTurno
   if (neededHours <= 0 || total <= neededHours * HORAS_DE_MAS_EXPLICAR) return null
   const n = (v: number) => v.toLocaleString('es-ES', { maximumFractionDigits: 1 })
   const pct = Math.round((total / neededHours) * 100)
   const partes: string[] = []
-  if (d.enElLocal >= 0.5) {
+  if (enElLocal >= 0.5) {
     partes.push(
-      `${n(d.enElLocal)} h son de turnos más largos que el pico: nadie viene menos de ${n(settings.minShiftMinutes / 60)} h seguidas, ` +
+      `${n(enElLocal)} h son de turnos más largos que el pico: nadie viene menos de ${n(settings.minShiftMinutes / 60)} h al día, ` +
         'así que quien refuerza un pico corto se queda hasta cerrar el servicio',
     )
   }
-  if (d.sinTurno >= 0.5) {
-    partes.push(
-      `${n(d.sinTurno)} h son de contrato sin turno, porque los contratos se redondean hacia arriba ` +
-        `(a 4 h o menos de la jornada completa se firma la completa, y nadie baja de ${n(settings.minContractHours ?? 10)} h)`,
-    )
+  if (sinTurno >= 0.5) {
+    // El motivo depende de la causa: con contratos a medida es el redondeo;
+    // con una lista cerrada de jornadas, que no hay una más pequeña.
+    const aMedida = settings.contratosAMedida !== false
+    const jornadas = settings.contracts.filter((c) => c.enabled).map((c) => c.hours).sort((a, b) => a - b)
+    const motivo = aMedida
+      ? `porque los contratos se redondean hacia arriba (a 4 h o menos de la jornada completa se firma la completa, y nadie baja de ${n(settings.minContractHours ?? 10)} h)`
+      : `porque solo usas contratos de ${jornadas.map((h) => `${h} h`).join(', ').replace(/, ([^,]*)$/, ' y $1')} y cada persona va al más pequeño que le cabe`
+    partes.push(`${n(sinTurno)} h son de contrato sin turno, ${motivo}`)
   }
   return `Pagas ${n(total)} h más de las que pide el servicio, un ${pct} %. ${partes.join('; ')}.`
 }

@@ -107,7 +107,7 @@ export function InlineName({
         className={cn(
           wrap && 'absolute -top-1 -right-1 bg-surface-elevated shadow-sm',
           'shrink-0 rounded-md p-1 text-content-muted opacity-0 transition-opacity',
-          'hover:bg-surface hover:text-brand group-hover/name:opacity-100',
+          'hover:bg-surface hover:text-brand group-hover/name:opacity-100 [@media(hover:none)]:opacity-100',
           'focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-brand',
         )}
       >
@@ -341,6 +341,7 @@ export function NumberInput({
   onChange,
   min = 0,
   max = 999,
+  permitirVacio = false,
   className,
   ...props
 }: {
@@ -348,6 +349,8 @@ export function NumberInput({
   onChange: (v: number) => void
   min?: number
   max?: number
+  /** Dejar el campo en blanco vale (NaN): para datos que pueden no estar, como un precio (ronda 10). */
+  permitirVacio?: boolean
 } & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'min' | 'max'>) {
   // Mientras se escribe se guarda el texto tal cual: si se corrigiera al
   // mínimo o al máximo en cada tecla, borrar el campo ponía un 10 y escribir
@@ -370,7 +373,8 @@ export function NumberInput({
       onBlur={(e) => {
         if (draft !== null) {
           const n = Number(draft)
-          onChange(draft !== '' && Number.isFinite(n) ? clamp(n) : clamp(value))
+          if (draft.trim() === '' && permitirVacio) onChange(NaN)
+          else onChange(draft !== '' && Number.isFinite(n) ? clamp(n) : Number.isFinite(value) ? clamp(value) : value)
           setDraft(null)
         }
         onBlur?.(e)

@@ -30,10 +30,10 @@ import { DAYS, SLOTS_PER_DAY, formatMin, slotStartMin } from './time'
 import type { DayIndex, OpeningHours, StaffPlan } from './types'
 
 /* ── Paleta, calcada de los tokens de `src/index.css` ───────────────────── */
-const BRAND = '#6C0FD8'
-const BRAND_DARK = '#5A0CB5'
-const BRAND_SECONDARY = '#8244C7'
-const BRAND_LIGHT = '#F4ECFC'
+const BRAND = '#3C1663'
+const BRAND_DARK = '#2B1048'
+const BRAND_SECONDARY = '#6B4A93'
+const BRAND_LIGHT = '#F1ECF7'
 const INK = '#111118'
 const BODY = '#374151'
 const MUTED = '#71717A'
@@ -110,7 +110,9 @@ async function cargarLogoPng(
     const vb = /viewBox="([\d.\s-]+)"/.exec(svg)
     const [, , vw, vh] = vb ? vb[1].trim().split(/\s+/).map(Number) : [0, 0, 0, 0]
     if (!vw || !vh) return null
-    const conTamano = svg.replace('<svg', `<svg width="${vw}" height="${vh}"`)
+    // El logo de Shifty Work ya trae width y height; meterlos otra vez daba un
+    // SVG con atributos repetidos, que el navegador no pinta.
+    const conTamano = /<svg[^>]*\swidth=/.test(svg) ? svg : svg.replace('<svg', `<svg width="${vw}" height="${vh}"`)
 
     const img = new Image()
     const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(conTamano)}`
@@ -527,8 +529,8 @@ export async function construirInforme(
   font('normal', 9)
   const picoLs = split(picoCuerpo, CW - 14)
   const dineroPico =
-    cost && peaks.peakWeeks.length > 0
-      ? `En coste de empresa: ${picoSoloHoras ? 'si las metieras en nómina' : 'tenerlas fijas'} ${temporadaLocal.deTemporada ? 'toda la temporada' : 'todo el año'} son ${eur.format(horasContratoPico * semanasDePago * cost.avgHourlyEur)}; pagar solo las horas que te faltan, a lo que te cuesta una hora trabajada de tu gente (${eur2.format(cost.costeHoraTrabajadaEur)}), son ${eur.format(peaks.peakHoursPerYear * cost.costeHoraTrabajadaEur)}.`
+    cost && peaks.peakWeeks.length > 0 && peaks.peakHoursPerYear - (input.horasSinTurnoPicos ?? 0) > 0
+      ? `En coste de empresa: ${picoSoloHoras ? 'si las metieras en nómina' : 'tenerlas fijas'} ${temporadaLocal.deTemporada ? 'toda la temporada' : 'todo el año'} son ${eur.format(horasContratoPico * semanasDePago * cost.avgHourlyEur)}; pagar solo las horas que te faltan${(input.horasSinTurnoPicos ?? 0) > 0 ? ' (sin las de contrato sin turno, que ya pagas)' : ''}, a lo que te cuesta una hora trabajada de tu gente (${eur2.format(cost.costeHoraTrabajadaEur)}), son ${eur.format(Math.max(0, peaks.peakHoursPerYear - (input.horasSinTurnoPicos ?? 0)) * cost.costeHoraTrabajadaEur)} al año.`
       : null
   /* Cada texto se mide con la letra con la que se pinta: la frase del dinero
      va en negrita, y medida en normal se salía del recuadro por la derecha
@@ -568,8 +570,8 @@ export async function construirInforme(
         : ''
     const queIncluye =
       cost.weeklyBrutoEur !== null
-        ? `en coste de empresa: el sueldo bruto de tu catálogo (${eur.format(cost.weeklyBrutoEur)} a la semana) más un ${nf1.format(cost.cotizacionPct)} % de Seguridad Social, ${nominaTexto}${temporadaLocal.deTemporada ? ' con la plantilla en fijo discontinuo' : ''}`
-        : `en coste de empresa, con los precios por hora de tu catálogo, ${nominaTexto}${temporadaLocal.deTemporada ? ' con la plantilla en fijo discontinuo' : ''}`
+        ? `en coste de empresa: el sueldo bruto de tus puestos (${eur.format(cost.weeklyBrutoEur)} a la semana) más un ${nf1.format(cost.cotizacionPct)} % de Seguridad Social, ${nominaTexto}${temporadaLocal.deTemporada ? ' con la plantilla en fijo discontinuo' : ''}`
+        : `en coste de empresa, con los precios por hora de tus puestos, ${nominaTexto}${temporadaLocal.deTemporada ? ' con la plantilla en fijo discontinuo' : ''}`
     const ausencias = coberturaAusencias(roster.people, settings, 40, semanasDePago, temporadaLocal.semanasCerradas)
     const dineroTexto = `Esta plantilla cuesta ${eur.format(cost.weeklyEur)} a la semana y ${eur.format(cost.annualEur)} al año ${queIncluye}. Cada hora trabajada te sale por ${eur2.format(cost.costeHoraTrabajadaEur)}, porque las vacaciones y los festivos se pagan sin trabajarse.${ratio} Además, vacaciones, festivos y bajas dejan ${nf.format(Math.round(ausencias.horasACubrirAno))} h${ausencias.vacacionesEnCierreDias > 0 ? ` (sin los ${ausencias.vacacionesEnCierreDias} días de vacaciones que se toman con el local cerrado)` : ''} de ausencia al año que hay que cubrir, ${Math.round(ausencias.jornadasExtra * 10) / 10 === 1 ? '' : 'unas '}${jornadasTexto(ausencias.jornadasExtra)}${input.costeAusenciasEur !== null ? `; poniendo las vacaciones en tus semanas flojas, cubrir lo que queda son unos ${eur.format(input.costeAusenciasEur)} al año a ese mismo precio por hora` : ''}.${cost.nocturnidad.weeklyEur > 0 ? ` Lleva dentro ${eur.format(cost.nocturnidad.weeklyEur)} a la semana de plus de nocturnidad.` : cost.nocturnidad.horasSemana > 0 ? ` No incluye plus de nocturnidad: el cuadrante tiene ${nf1.format(cost.nocturnidad.horasSemana)} h a la semana entre las 22:00 y las 06:00.` : ''}${cost.complete ? '' : ` Faltan los precios de ${cost.missing.join(', ')}, así que la cifra se queda corta.`}`
     font('normal', 9)

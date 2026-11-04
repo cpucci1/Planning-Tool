@@ -16,6 +16,7 @@ import { StepDemand } from '@/steps/StepDemand'
 import { StepTeam } from '@/steps/StepTeam'
 import { StepResult } from '@/steps/StepResult'
 import { cn } from '@/components/ui'
+import { SeguirEnOrdenador } from '@/components/SeguirEnOrdenador'
 
 function Progress({
   current,
@@ -188,7 +189,7 @@ function Inner() {
               className="flex shrink-0 items-center gap-2"
               aria-label="Shifty, se abre en otra pestaña"
             >
-              <img src="/shifty-logo.svg" alt="" className="h-6 w-auto" />
+              <img src="/shifty-logo.svg" alt="" className="h-8 w-auto" />
               <span className="hidden text-[0.78rem] font-bold text-content-muted sm:inline">
                 Planificador
               </span>
@@ -207,6 +208,7 @@ function Inner() {
             )}
           </div>
         </header>
+        <SeguirEnOrdenador planToken={p.planRemoto?.shareToken} />
 
         {p.dataset && index > 0 && (
           <div className="mx-auto max-w-[1680px] px-4 pt-6 sm:px-6">

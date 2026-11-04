@@ -379,7 +379,7 @@ export function RosterGrid({ roster, model, needGrid, openBlocks, onRenamePerson
                 PDF para colgar
               </Button>
               <Button variant="secondary" size="sm" icon={<Download size={16} />} onClick={downloadCsv}>
-                CSV
+                Para Excel
               </Button>
             </div>
           }

@@ -65,7 +65,7 @@ import { peakOf } from '@/lib/demand'
 import { tramoSuperado } from '@/lib/staffing'
 import { descargarInforme } from '@/lib/informe'
 import type { InformeInput } from '@/lib/informe'
-import { DAYS, DAYS_SHORT, formatSlot, slotStartMin } from '@/lib/time'
+import { DAYS, DAYS_SHORT, SLOT_MINUTES, formatSlot, slotStartMin } from '@/lib/time'
 import type { DayIndex } from '@/lib/types'
 
 const nf = new Intl.NumberFormat('es-ES', { useGrouping: true })
@@ -360,7 +360,6 @@ export function StepResult() {
   // festivos), no con la hora de contrato, que esconde las semanas que se
   // pagan sin trabajarse.
   const costeHoraTrabajada = cost?.costeHoraTrabajadaEur ?? null
-  const peakOnlyAnnualCostEur = costeHoraTrabajada ? peaks.peakHoursPerYear * costeHoraTrabajada : null
 
   /**
    * Cuando falta alguien (ronda 2, puntos 5, 6 y 26). El cuadrante es una semana
@@ -370,7 +369,13 @@ export function StepResult() {
   const ausencias = coberturaAusencias(roster.people, settings, 40, semanasDePago, temporadaLocal.semanasCerradas)
   const horasServicioSemana = p.needSummaryDemand?.totalHours ?? needSummary.totalHours
   const horasFijasSemana = Math.max(0, needSummary.totalHours - horasServicioSemana)
-  const flojas = vacacionesEnSemanasFlojas(weeks, coverage.threshold, horasServicioSemana, ausencias.horasVacaciones)
+  // Las semanas flojas se miden con la misma vara que los picos (ronda 10,
+  // hallazgo 6): con "Con más margen", contra lo que cubre la semana tipo. El
+  // margen de seguridad no se usa para vacaciones: es colchón del servicio.
+  const comensalesSemanaTipo = lagged.flat().reduce((a, b) => a + b, 0)
+  const baseFlojas =
+    settings.sizingMode === 'conservador' ? Math.max(coverage.threshold, comensalesSemanaTipo) : coverage.threshold
+  const flojas = vacacionesEnSemanasFlojas(weeks, baseFlojas, horasServicioSemana, ausencias.horasVacaciones)
   const horasAusenciaTrasFlojas = Math.max(0, ausencias.horasACubrirAno - flojas.horasAbsorbidas)
   const jornadasTrasFlojas = jornadasParaCubrir(horasAusenciaTrasFlojas, ausencias.tiempo, 40, semanasDePago)
   // Ronda 3: por HORAS a lo que cuesta una hora trabajada, la misma cifra que
@@ -391,7 +396,13 @@ export function StepResult() {
   const deEquipo = roster.people.filter((per) => !esMando(model.roles.find((r) => r.id === per.roleId)))
   const bolsa = bolsaComplementarias(deEquipo, settings)
   /** Horas de contrato de la gente de equipo que ya se pagan y no llevan turno (ronda 9). */
-  const horasSinTurnoEquipo = horasSinTurnoDeEquipo(deEquipo)
+  // Solo los huecos de los puestos de equipo: el de un mando no lo tapa un camarero.
+  const sinCubrirEquipo = Object.entries(roster.uncovered).reduce(
+    (a, [roleId, dias]) =>
+      esMando(model.roles.find((r) => r.id === roleId)) ? a : a + dias.flat().reduce((x, y) => x + y, 0) * (SLOT_MINUTES / 60),
+    0,
+  )
+  const horasSinTurnoEquipo = horasSinTurnoDeEquipo(deEquipo, settings.minShiftMinutes / 60, sinCubrirEquipo)
   const picosBolsa = picosConComplementarias(peaks.extraHoursByWeek ?? [], bolsa.horasSemana, horasSinTurnoEquipo)
   /**
    * Las horas de los picos con una sola cuenta en todas las pantallas (ronda 3,
@@ -405,6 +416,10 @@ export function StepResult() {
   const horasSinTurnoPicos = Math.min(horasFaltanPicos - horasRefuerzo, Math.round(picosBolsa.sinTurno))
   const horasComplementariasPicos = horasFaltanPicos - horasRefuerzo - horasSinTurnoPicos
   const antesDelRefuerzo = fraseAntesDelRefuerzo(horasSinTurnoPicos, horasComplementariasPicos)
+  // Solo se valoran las horas que cuestan algo aparte: las complementarias y
+  // el refuerzo. Las de contrato sin turno ya se pagan (ronda 10).
+  const horasPicoConCoste = horasFaltanPicos - horasSinTurnoPicos
+  const peakOnlyAnnualCostEur = costeHoraTrabajada ? horasPicoConCoste * costeHoraTrabajada : null
 
   /**
    * ¿El hueco de "dónde sobra gente" empieza antes de abrir? Entonces es la
@@ -764,7 +779,7 @@ export function StepResult() {
               size={17}
               className={cn('shrink-0 text-content-muted transition-transform', verPorArea && 'rotate-180')}
             />
-            {verPorArea ? 'Ocultar el desglose por área' : 'Ver la plantilla de cada área por separado'}
+            {verPorArea ? 'Ocultar el desglose por zona' : 'Ver la plantilla de cada zona por separado'}
           </button>
 
           {verPorArea && (
@@ -1056,7 +1071,7 @@ export function StepResult() {
             value={`${nf1.format(plan.slackHours)} h`}
             hint={
               plan.slackDesglose && plan.slackDesglose.sinTurno > 0.05
-                ? `${nf1.format(plan.slackDesglose.enElLocal)} h en el local de más y ${nf1.format(plan.slackDesglose.sinTurno)} h de contrato sin turno`
+                ? `${nf1.format(plan.slackDesglose.enElLocal)} h en turno sin servicio y ${nf1.format(plan.slackDesglose.sinTurno)} h de contrato sin turno`
                 : `${slackPct} % más de lo que pide el servicio`
             }
             tone={plan.slackHours > plan.neededHours * 0.15 ? 'warning' : 'default'}
@@ -1232,7 +1247,7 @@ export function StepResult() {
                 </>
               ) : (
                 <>
-                  Con los costes de empresa de tu catálogo, esta plantilla sale por{' '}
+                  Con los costes de empresa de tus puestos, esta plantilla sale por{' '}
                   <strong className="text-content-primary">{eur.format(weeklyCostEur)} a la semana</strong>{' '}
                   y <strong className="text-content-primary">{eur.format(annualCostEur)} al año</strong>
                   {temporadaLocal.deTemporada ? `, contando las ${semanasDePago} semanas que abres con la plantilla en fijo discontinuo` : ''}
@@ -1333,11 +1348,11 @@ export function StepResult() {
           <div>
             <h4 className="h4 flex items-center gap-2">
               <Layers size={15} strokeWidth={2.4} className="text-content-muted" />
-              Horas por bloque
+              Horas por zona
             </h4>
             {blockHours.length === 0 ? (
               <p className="mt-3 text-[0.85rem] text-content-secondary">
-                Tus tramos no asignan personal a ningún bloque todavía.
+                Tus tramos no asignan personal a ninguna zona todavía.
               </p>
             ) : (
               <>
@@ -1589,12 +1604,12 @@ export function StepResult() {
           renombrar" en algo que se termina. */}
       <Card className="border-brand/25 bg-brand-light">
         <div className="flex flex-wrap items-start gap-x-6 gap-y-4 px-6 py-5">
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 basis-full sm:basis-0">
             <h3 className="text-[1.05rem] font-extrabold tracking-[-0.02em] text-brand">
               Ponle los nombres de tu gente
             </h3>
             <p className="mt-1.5 max-w-2xl text-[0.9rem] leading-relaxed text-content-body">
-              Doble clic en cualquier nombre del cuadrante y escribe el de verdad. Con los
+              Toca el lápiz junto a cada nombre (en el ordenador, también doble clic) y escribe el de verdad. Con los
               nombres puestos esto deja de ser un estudio y pasa a ser el cuadrante de la semana:
               lo descargas, lo cuelgas en cocina y le mandas a cada uno su turno por WhatsApp.
             </p>
@@ -1747,9 +1762,9 @@ export function StepResult() {
                     </>
                   )}
                 </p>
-                {peakOnlyAnnualCostEur !== null && (
+                {peakOnlyAnnualCostEur !== null && peakOnlyAnnualCostEur > 0 && (
                   <div className="mt-4 text-[1.35rem] font-black text-content-primary tnum">
-                    {eur.format(peakOnlyAnnualCostEur)} a tu coste por hora trabajada
+                    {eur.format(peakOnlyAnnualCostEur)} al año, a tu coste por hora trabajada
                   </div>
                 )}
               </div>
@@ -1828,7 +1843,8 @@ export function StepResult() {
                 <p className="mt-2 text-[0.9rem] leading-relaxed text-content-secondary">
                   Tu gente de equipo tiene{' '}
                   <strong className="text-content-primary">{nf1.format(horasSinTurnoEquipo)} h a la semana</strong>{' '}
-                  de contrato que no están en ningún turno. Van primero: en tus semanas punta cubren{' '}
+                  de contrato sin turno que dan para un turno entero (las medias horas sueltas no
+                  cuentan, ni las que ya tapan huecos de tu semana tipo). Van primero: en tus semanas punta cubren{' '}
                   <strong className="text-content-primary">{nf.format(horasSinTurnoPicos)} de las{' '}
                   {nf.format(horasFaltanPicos)} h</strong> que faltan, si el puesto de quien las tiene
                   encaja con el que pide la semana.
@@ -2169,8 +2185,8 @@ export function StepResult() {
                   <strong className="text-content-primary">{eur2.format(costeHoraTrabajada)}</strong> en
                   coste de empresa:{' '}
                   {cost?.base === 'bruto'
-                    ? 'el sueldo bruto por hora de tu catálogo, que ya lleva las pagas extra prorrateadas, más la Seguridad Social, y las'
-                    : 'el coste de empresa por hora de tu catálogo, y las'}{' '}
+                    ? 'el sueldo bruto por hora de tus puestos, que ya lleva las pagas extra prorrateadas, más la Seguridad Social, y las'
+                    : 'el coste de empresa por hora de tus puestos, y las'}{' '}
                   vacaciones y los festivos, que se pagan sin trabajarse. Con un refuerzo pagas solo
                   la hora que trabaja.
                 </>
@@ -2344,7 +2360,7 @@ export function StepResult() {
             icon={<CalendarDays size={15} />}
             onClick={() => downloadCuadranteCsv(roster, model)}
           >
-            Cuadrante (CSV)
+            Cuadrante para Excel
           </Button>
         </div>
 
@@ -2355,10 +2371,10 @@ export function StepResult() {
             icon={<Table2 size={15} />}
             onClick={() => downloadPlanCsv(exportInput)}
           >
-            Exportar todo (CSV)
+            Todo el plan para Excel
           </Button>
           <Button variant="ghost" size="sm" icon={<Save size={15} />} onClick={p.exportSnapshot}>
-            Guardar en un fichero
+            Guardar el plan para seguir otro día
           </Button>
           <Button
             variant="ghost"

@@ -277,15 +277,18 @@ export function analyzePeaks(
   // Lo que cubre la plantilla fija: la línea más el margen. Con la misma vara
   // a los dos lados: las semanas de más y las horas por cobro.
   const capacidad = (opciones.capacidadEsSemanaTipo ? Math.max(threshold, typicalWeekCovers) : threshold) * margen
-  const peaks = weeks.filter((w) => w.total > capacidad)
-
   // Las horas extra de una semana punta se estiman con la misma productividad
   // de la semana tipo: si con X comensales hacen falta H horas, los comensales
   // de más piden proporcionalmente más horas. Las H horas son para X comensales
   // con el margen puesto, así que el cobro se mide también con él.
   const hoursPerCover = typicalWeekCovers > 0 ? neededHoursTypicalWeek / (typicalWeekCovers * margen) : 0
 
-  const extraByWeek = peaks.map((w) => Math.max(0, w.total - capacidad) * hoursPerCover)
+  // Punta es la semana que pide horas de más. Una por encima de la línea que no
+  // pide ni una hora (sin horas por comensal, por ejemplo) no es punta: contaba
+  // como tal con 0 h (revisión ronda 10, hallazgo 5).
+  const extraDe = (w: (typeof weeks)[number]) => Math.max(0, w.total - capacidad) * hoursPerCover
+  const peaks = weeks.filter((w) => w.total > capacidad && extraDe(w) > 0)
+  const extraByWeek = peaks.map(extraDe)
   const peakHoursPerYear = extraByWeek.reduce((a, b) => a + b, 0)
   const worstWeekHours = extraByWeek.length ? Math.max(...extraByWeek) : 0
   const avgPeakHours = extraByWeek.length ? peakHoursPerYear / extraByWeek.length : 0

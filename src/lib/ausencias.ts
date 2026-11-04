@@ -336,8 +336,20 @@ export function picosConComplementarias(
 }
 
 /** Horas de contrato sin turno de la gente de equipo (los mandos no cubren picos de sala o cocina). */
-export function horasSinTurnoDeEquipo(people: Pick<Person, 'contractHours' | 'assignedHours'>[]): number {
-  return people.reduce((a, p) => a + Math.max(0, p.contractHours - p.assignedHours), 0)
+export function horasSinTurnoDeEquipo(
+  people: Pick<Person, 'contractHours' | 'assignedHours'>[],
+  turnoMinimoHoras = 0,
+  sinCubrirSemana = 0,
+): number {
+  // Solo cuentan los restos que dan para un turno de verdad: media hora suelta
+  // de cada persona no se junta en un turno (ronda 10, hallazgo 3 de cálculo).
+  // Y antes que los picos, esas horas tapan lo que la propia semana tipo deja
+  // sin cubrir.
+  const usables = people.reduce((a, p) => {
+    const resto = Math.max(0, p.contractHours - p.assignedHours)
+    return a + (resto + 1e-9 >= turnoMinimoHoras ? resto : 0)
+  }, 0)
+  return Math.max(0, usables - Math.max(0, sinCubrirSemana))
 }
 
 /**

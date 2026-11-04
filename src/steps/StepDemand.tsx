@@ -494,7 +494,24 @@ export function StepDemand() {
             el usuario ve un total menor del que sabe que tiene y no puede saber
             si es un error suyo, del fichero o de la herramienta. Se dice cuántas,
             por qué, y con qué números de fila mirarlo en su Excel. */}
-        {p.lectura && (p.lectura.descartes.length > 0 || p.lectura.advertencias.length > 0) && (
+        {p.lectura && p.lectura.filasLeidas === 0 && (
+          <div className="mt-5">
+          <Note tone="danger" icon={<TriangleAlert size={16} strokeWidth={2.4} />}>
+            <div>
+              <strong>Tu fichero solo trae la fila de títulos, sin ventas.</strong> Exporta del TPV
+              el histórico con una fila por ticket y{' '}
+              <button
+                type="button"
+                onClick={() => p.setStep('import')}
+                className="font-bold underline underline-offset-2"
+              >
+                vuelve a subirlo.
+              </button>
+            </div>
+          </Note>
+          </div>
+        )}
+        {p.lectura && p.lectura.filasLeidas > 0 && (p.lectura.descartes.length > 0 || p.lectura.advertencias.length > 0) && (
           <div className="mt-5 space-y-2">
             {p.lectura.filasUsadas === 0 && (
               <Note tone="danger" icon={<TriangleAlert size={16} strokeWidth={2.4} />}>

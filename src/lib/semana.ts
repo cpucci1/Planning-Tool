@@ -21,7 +21,7 @@
 
 import { MIN_REST_MIN, descansoSemanalPedidoMin } from './roster'
 import { formatMin } from './time'
-import type { DayIndex, Person, Role, Roster, Shift } from './types'
+import type { ContractType, DayIndex, Person, Role, Roster, Shift } from './types'
 
 // ─────────────────────────────────────────────────────────────
 // Códigos de turno
@@ -33,7 +33,7 @@ export type CodigoTurno = 'M' | 'T' | 'N' | 'P' | 'L'
 export const LEYENDA_CODIGOS: Record<CodigoTurno, string> = {
   M: 'Mañana',
   T: 'Mediodía y tarde',
-  N: 'Noche (cierra a las 23 o más tarde)',
+  N: 'Noche (entra desde las 18 o cierra a las 23 o más tarde)',
   P: 'Partido (dos tramos)',
   L: 'Libra',
 }
@@ -43,6 +43,8 @@ const MANANA_ENTRA_ANTES_MIN = 12 * 60
 const MANANA_MITAD_ANTES_MIN = 14 * 60
 /** Sale a esta hora o más tarde: noche. */
 const NOCHE_SALE_DESDE_MIN = 23 * 60
+/** Entra a esta hora o más tarde: noche (revisión ronda 10, hallazgo 8). */
+const NOCHE_ENTRA_DESDE_MIN = 18 * 60
 
 /**
  * El código de un día (revisión ronda 3, G11). Antes, un 13:00 a 17:30 salía
@@ -50,7 +52,7 @@ const NOCHE_SALE_DESDE_MIN = 23 * 60
  * 16:00. Ahora, por este orden:
  *   L: no trabaja.
  *   P: dos tramos el mismo día.
- *   N: sale a las 23:00 o más tarde (cierre).
+ *   N: entra desde las 18:00, o sale a las 23:00 o más tarde (cierre).
  *   M: entra antes de las 12:00 y la mitad de su turno cae antes de las 14:00.
  *   T: todo lo demás, que es mediodía y tarde.
  */
@@ -58,7 +60,7 @@ export function codigoTurno(sh: Shift | undefined): CodigoTurno {
   if (!sh || sh.blocks.length === 0) return 'L'
   if (sh.blocks.length > 1) return 'P'
   const b = sh.blocks[0]
-  if (b.endMin >= NOCHE_SALE_DESDE_MIN) return 'N'
+  if (b.startMin >= NOCHE_ENTRA_DESDE_MIN || b.endMin >= NOCHE_SALE_DESDE_MIN) return 'N'
   if (b.startMin < MANANA_ENTRA_ANTES_MIN && (b.startMin + b.endMin) / 2 < MANANA_MITAD_ANTES_MIN) return 'M'
   return 'T'
 }
@@ -201,11 +203,10 @@ export interface Rueda {
  */
 export function calcularRueda(
   roster: Roster,
-  settings: { minRestBetweenShifts: boolean },
+  settings: { minRestBetweenShifts: boolean; contracts?: readonly ContractType[] },
   roles: readonly Role[] = [],
 ): Rueda {
-  // La jornada completa es el contrato más largo del cuadrante (40 h con la lista por defecto).
-  const jornadaCompleta = roster.people.reduce((a, p) => Math.max(a, p.contractHours), 0)
+  const jornadaCompleta = jornadaCompletaDe(settings.contracts)
   const porPersona = new Map<string, Shift[]>()
   for (const sh of roster.shifts) {
     const l = porPersona.get(sh.personId)
@@ -238,6 +239,13 @@ export function calcularRueda(
       continue
     }
     const filas = gente.map((p) => trabajo(p.id))
+    // Si todas las filas son la misma semana, rotarlas no cambia nada para
+    // nadie y solo alarga la rueda (un local que solo abre el sábado salía con
+    // una rueda de 21 semanas). Revisión ronda 10, hallazgo 3.
+    if (new Set(filas.map(huellaFila)).size === 1) {
+      fijos.push(...gente.map((p) => p.id))
+      continue
+    }
     const descansoMin = descansoSemanalPedidoMin(roles.find((r) => r.id === gente[0].roleId))
     const orden = mejorOrden(filas, settings.minRestBetweenShifts, descansoMin)
     if (!orden) {
@@ -254,6 +262,25 @@ export function calcularRueda(
     out.semanas = mcm(out.semanas, gente.length)
   }
   return out
+}
+
+/**
+ * La jornada completa con la que se separa a quien rota de quien no: el
+ * contrato más largo de los ajustes, esté encendido o no (40 h con la lista
+ * por defecto), y 40 h si no hay lista. Antes era el contrato más largo del
+ * cuadrante, y un cuadrante de solo parciales de 20 h tomaba los 20 h por
+ * jornada completa y rotaba a los parciales, con una rueda de 120 semanas
+ * (revisión ronda 10, hallazgo 3). Un parcial no rota: su contrato es de
+ * unos días concretos.
+ */
+function jornadaCompletaDe(contracts: readonly ContractType[] | undefined): number {
+  const horas = (contracts ?? []).map((c) => c.hours).filter((h) => Number.isFinite(h) && h > 0)
+  return horas.length > 0 ? Math.max(...horas) : 40
+}
+
+/** La semana de una fila escrita como texto, para ver si dos filas son la misma. */
+function huellaFila(fila: (Shift | undefined)[]): string {
+  return fila.map((sh) => (sh ? sh.blocks.map((b) => `${b.startMin}-${b.endMin}`).join('+') : 'L')).join('|')
 }
 
 function mcm(a: number, b: number): number {
@@ -289,37 +316,76 @@ function tramos(fila: (Shift | undefined)[], semana: number): [number, number][]
   return out
 }
 
-/**
- * El descanso seguido más largo que tiene la semana `cur` cuando va entre
- * `prev` y `next` en la rueda (ronda 9, hallazgo 4 de cálculo). Cuenta los
- * descansos que tocan la semana: el que viene de `prev`, los de dentro y el
- * que sigue hacia `next`. Antes solo se miraban las 12 h del cambio, y una
- * fila cuyo descanso largo era el del domingo al lunes de SU misma semana lo
- * perdía al ir seguida de otra: salían semanas de 34,5 h.
- */
-function descansoMaxEnRueda(prev: (Shift | undefined)[], cur: (Shift | undefined)[], next: (Shift | undefined)[]): number {
-  const t = [...tramos(prev, -1), ...tramos(cur, 0), ...tramos(next, 1)].sort((a, b) => a[0] - b[0])
-  const iniSemana = 0
-  const finSemana = 7 * 1440
-  let max = 0
-  for (let i = 1; i < t.length; i++) {
-    const desde = t[i - 1][1]
-    const hasta = t[i][0]
-    // Solo los huecos que caen, al menos en parte, dentro de la semana `cur`.
-    if (hasta > iniSemana && desde < finSemana) max = Math.max(max, hasta - desde)
-  }
-  return t.length === 0 ? Number.POSITIVE_INFINITY : max
-}
+const MIN_SEMANA = 7 * 1440
 
-/** ¿Tiene cada semana del ciclo su descanso semanal? */
+/**
+ * ¿Tiene cada semana del ciclo su descanso semanal? (rondas 9 y 10).
+ *
+ * Se pone la vuelta entera de la rueda en una línea (la persona hace
+ * `orden[0]`, luego `orden[1]`... y vuelve a empezar) y se miran todos los
+ * descansos entre un turno y el siguiente, incluido el que da la vuelta.
+ *
+ * Cada descanso vale para UNA semana de las que toca. Antes, uno que cruzaba
+ * del domingo al lunes contaba para las dos, y dos semanas seguidas salían
+ * en regla con un solo descanso de 36 h entre las dos (revisión ronda 10,
+ * hallazgo 2). Solo vale para dos semanas si da para las dos: el doble de lo
+ * pedido (72 h, o 96 h con menores). Se reparte buscando una asignación en la
+ * que cada semana tenga el suyo.
+ *
+ * Si en toda la vuelta solo hay un turno, el descanso es la vuelta entera y
+ * sobra (hallazgo 4): antes se daba como 0 y el grupo no rotaba.
+ */
 function cicloConDescanso(filas: (Shift | undefined)[][], orden: number[], descansoMin: number): boolean {
   const n = orden.length
-  for (let i = 0; i < n; i++) {
-    const prev = filas[orden[(i - 1 + n) % n]]
-    const cur = filas[orden[i]]
-    const next = filas[orden[(i + 1) % n]]
-    if (descansoMaxEnRueda(prev, cur, next) < descansoMin) return false
+  const total = n * MIN_SEMANA
+  const t: [number, number][] = []
+  for (let i = 0; i < n; i++) t.push(...tramos(filas[orden[i]], i))
+  if (t.length === 0) return true
+  t.sort((a, b) => a[0] - b[0])
+
+  // Cada descanso, con las semanas que toca y para cuántas da.
+  const huecos: { semanas: number[]; cabe: number }[] = []
+  for (let i = 0; i < t.length; i++) {
+    const desde = t[i][1]
+    const hasta = i + 1 < t.length ? t[i + 1][0] : t[0][0] + total
+    const largo = hasta - desde
+    if (largo < descansoMin) continue
+    const semanas: number[] = []
+    for (let w = Math.floor(desde / MIN_SEMANA); w * MIN_SEMANA < hasta; w++) {
+      const k = ((w % n) + n) % n
+      if (hasta > w * MIN_SEMANA && desde < (w + 1) * MIN_SEMANA && !semanas.includes(k)) semanas.push(k)
+    }
+    huecos.push({ semanas, cabe: Math.min(semanas.length, Math.floor(largo / descansoMin)) })
   }
+  return cadaSemanaConSuDescanso(n, huecos)
+}
+
+/**
+ * ¿Se puede dar a cada una de las `n` semanas un descanso distinto, sin que
+ * ninguno se use para más semanas de las que le caben? Emparejamiento por
+ * caminos de aumento: son pocas semanas y pocos descansos.
+ */
+function cadaSemanaConSuDescanso(n: number, huecos: { semanas: number[]; cabe: number }[]): boolean {
+  const usados = huecos.map(() => [] as number[])
+  const asignar = (w: number, visto: Set<number>): boolean => {
+    for (let h = 0; h < huecos.length; h++) {
+      if (visto.has(h) || !huecos[h].semanas.includes(w)) continue
+      visto.add(h)
+      if (usados[h].length < huecos[h].cabe) {
+        usados[h].push(w)
+        return true
+      }
+      for (const otra of usados[h]) {
+        if (asignar(otra, visto)) {
+          usados[h] = usados[h].filter((x) => x !== otra)
+          usados[h].push(w)
+          return true
+        }
+      }
+    }
+    return false
+  }
+  for (let w = 0; w < n; w++) if (!asignar(w, new Set())) return false
   return true
 }
 

@@ -98,7 +98,7 @@ function BlockBars() {
       <div className="mb-2.5 flex items-center gap-1.5 text-[0.75rem] font-bold tracking-wide text-content-secondary uppercase">
         Horas por zona
         <InfoTip title="Horas por zona">
-          Horas de trabajo semanales que necesita cada área. Es la suma de todos sus puestos, franja
+          Horas de trabajo semanales que necesita cada zona. Es la suma de todos sus puestos, franja
           a franja. Si Cocina se dispara, mira sus tramos: normalmente sobra una partida en las
           horas flojas.
         </InfoTip>

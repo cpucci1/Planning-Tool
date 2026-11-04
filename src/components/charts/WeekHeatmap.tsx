@@ -71,7 +71,7 @@ type Rgb = readonly [number, number, number]
  * Morado de marca para comensales, ámbar para personas.
  */
 const SCALE: Record<Mode, { from: Rgb; to: Rgb }> = {
-  covers: { from: [245, 238, 253], to: [108, 15, 216] },
+  covers: { from: [241, 236, 247], to: [60, 22, 99] },
   people: { from: [255, 244, 224], to: [176, 66, 8] },
 }
 

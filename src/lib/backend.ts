@@ -406,3 +406,38 @@ export async function cerrarSesion(): Promise<void> {
   if (!supabase) return
   await supabase.auth.signOut()
 }
+
+// ─────────────────────────────────────────────────────────────
+// Seguir en el ordenador
+// ─────────────────────────────────────────────────────────────
+
+/** Cómo acabó pedir el enlace por correo. `apagado`: el envío aún no está encendido. */
+export type ResultadoSeguirLuego = 'enviado' | 'email' | 'apagado' | 'tope' | 'no_disponible'
+
+/**
+ * Pide que le llegue por correo el enlace del planificador (y, si hay, el de su
+ * plan guardado) a quien lo abre en el móvil. El texto y el enlace los pone la
+ * función `planning-seguir-luego`; desde aquí solo viaja el correo y el token
+ * del plan. No se guarda el correo en ningún sitio.
+ */
+export async function mandarEnlacePorCorreo(email: string, planToken?: string | null): Promise<ResultadoSeguirLuego> {
+  if (!supabase) return 'no_disponible'
+  try {
+    const { data, error } = await supabase.functions.invoke<{ ok: boolean; codigo?: string }>('planning-seguir-luego', {
+      body: { email, planToken: planToken ?? undefined },
+    })
+    if (data?.ok) return 'enviado'
+    // Con un estado que no es 2xx, el cliente deja el cuerpo dentro del error.
+    let codigo = data?.codigo
+    if (!codigo && error && 'context' in error && error.context instanceof Response) {
+      try {
+        codigo = ((await error.context.json()) as { codigo?: string })?.codigo
+      } catch {
+        // sin cuerpo legible
+      }
+    }
+    return codigo === 'email' || codigo === 'apagado' || codigo === 'tope' ? codigo : 'no_disponible'
+  } catch {
+    return 'no_disponible'
+  }
+}

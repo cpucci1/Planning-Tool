@@ -17,11 +17,11 @@ import { LEYENDA_CODIGOS, codigoTurno, tramoCorto, diaLargo, publicarAntesDe, ra
 
 // Mismos colores que `report.ts` (no se exportan desde allí, así que se
 // repiten aquí: es la única forma de no tocar ese fichero).
-const BRAND = '#6C0FD8'
+const BRAND = '#3C1663'
 const BRAND_DARK = '#4A0A94'
 const INK = '#111118'
 const MUTED = '#71717A'
-const LIGHT = '#F4ECFC'
+const LIGHT = '#F1ECF7'
 const LINE = '#E4E4E7'
 
 function hexToRgb(hex: string): [number, number, number] {

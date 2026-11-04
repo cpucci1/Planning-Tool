@@ -14,6 +14,7 @@ import type { Roster, Settings, StaffingModel } from './types'
 import type { CostSummary } from './contracts'
 import { agruparContratos, baseDeCoste } from './contracts'
 import { coberturaAusencias } from './ausencias'
+import { esMando } from './roster'
 import { describirDuraciones } from './demand'
 import { DAYS, SLOTS_PER_DAY, formatMin, formatRange, slotStartMin } from './time'
 import type { OpeningHours } from './types'
@@ -360,7 +361,9 @@ export function buildPlanCsv(input: ExportInput): string {
     add(
       t.from,
       Number.isFinite(t.to) ? t.to : 'o más',
-      ...input.model.roles.map((r) => t.staff[r.id] ?? 0),
+      // El mando va por horario, no por tramo (ronda 10): un 0 aquí parecía
+      // que no hace falta.
+      ...input.model.roles.map((r) => (esMando(r) ? 'por horario' : (t.staff[r.id] ?? 0))),
     )
   }
 

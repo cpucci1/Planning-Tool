@@ -162,7 +162,8 @@ function comprobar(c: Caso) {
   // Doce horas de descanso, dentro de la semana (domingo-lunes incluido) y
   // en cada cambio de semana de la rueda.
   if (c.settings.minRestBetweenShifts) {
-    const rueda = calcularRueda(r, c.settings)
+    // Con los puestos, para comprobar la misma rueda que enseña la pantalla.
+    const rueda = calcularRueda(r, c.settings, c.model.roles)
     for (let w = 0; w < rueda.semanas; w++) {
       const a = turnosEnSemana(r, rueda, w)
       const b = turnosEnSemana(r, rueda, w + 1)
@@ -178,28 +179,59 @@ function comprobar(c: Caso) {
     }
   }
 
-  // El descanso semanal en cada semana REAL de la rueda (ronda 9): medido aquí
-  // por separado, con los turnos de la semana anterior, la suya y la siguiente.
+  // El descanso semanal en cada semana REAL de la rueda (rondas 9 y 10),
+  // medido aquí por separado: la vuelta entera de cada persona en una línea,
+  // y cada descanso vale para UNA semana de las que toca, o para dos solo si
+  // da para las dos (72 h, o 96 h con menores). Antes uno de 36 h que cruzaba
+  // del domingo al lunes contaba para las dos semanas.
   {
     const rueda = calcularRueda(r, c.settings, c.model.roles)
-    const tramosDe = (turnos: typeof r.shifts, id: string, semana: number) =>
-      turnos
-        .filter((s) => s.personId === id && s.blocks.length > 0)
-        .map((s) => [
-          (semana * 7 + s.day) * 1440 + Math.min(...s.blocks.map((x) => x.startMin)),
-          (semana * 7 + s.day) * 1440 + Math.max(...s.blocks.map((x) => x.endMin)),
-        ])
-    for (let w = 0; w < rueda.semanas; w++) {
-      const antes = turnosEnSemana(r, rueda, w + rueda.semanas - 1)
-      const esta = turnosEnSemana(r, rueda, w)
-      const despues = turnosEnSemana(r, rueda, w + 1)
-      for (const p of r.people) {
-        if (!rueda.grupos.some((g) => g.personIds.includes(p.id))) continue
-        const t = [...tramosDe(antes, p.id, -1), ...tramosDe(esta, p.id, 0), ...tramosDe(despues, p.id, 1)].sort((a, b) => a[0] - b[0])
-        let max = 0
-        for (let i = 1; i < t.length; i++) if (t[i][0] > 0 && t[i - 1][1] < 7 * 1440) max = Math.max(max, t[i][0] - t[i - 1][1])
-        const pide = descansoSemanalPedidoMin(c.model.roles.find((x) => x.id === p.roleId))
-        if (t.length > 0 && max < pide) falla(`${p.label} descansa como mucho ${fmt(max / 60)} h seguidas en la semana ${w + 1} de la rueda (pide ${fmt(pide / 60)})`)
+    const W = 7 * 1440
+    const n = rueda.semanas
+    for (const p of r.people) {
+      if (!rueda.grupos.some((g) => g.personIds.includes(p.id))) continue
+      const pide = descansoSemanalPedidoMin(c.model.roles.find((x) => x.id === p.roleId))
+      const t: number[][] = []
+      for (let w = 0; w < n; w++) {
+        for (const s of turnosEnSemana(r, rueda, w)) {
+          if (s.personId !== p.id || s.blocks.length === 0) continue
+          const base = (w * 7 + s.day) * 1440
+          t.push([base + Math.min(...s.blocks.map((x) => x.startMin)), base + Math.max(...s.blocks.map((x) => x.endMin))])
+        }
+      }
+      if (t.length === 0) continue
+      t.sort((a, b) => a[0] - b[0])
+      // Para cada semana, los descansos que la tocan; y cada descanso, cuántas semanas cubre.
+      const opciones: number[][] = Array.from({ length: n }, () => [])
+      const cabe: number[] = []
+      for (let i = 0; i < t.length; i++) {
+        const desde = t[i][1]
+        const hasta = i + 1 < t.length ? t[i + 1][0] : t[0][0] + n * W
+        const largo = hasta - desde
+        const tocadas = new Set<number>()
+        for (let w = Math.floor(desde / W); w * W < hasta; w++) if (hasta > w * W && desde < (w + 1) * W) tocadas.add(((w % n) + n) % n)
+        cabe.push(largo >= pide ? Math.min(tocadas.size, Math.floor(largo / pide)) : 0)
+        for (const w of tocadas) opciones[w].push(i)
+      }
+      // Reparto por fuerza bruta acotada: cada semana elige uno de sus descansos.
+      const usado = new Array<number>(t.length).fill(0)
+      const sinDescanso: number[] = []
+      const elegir = (w: number): boolean => {
+        if (w === n) return true
+        for (const h of opciones[w]) {
+          if (usado[h] >= cabe[h]) continue
+          usado[h]++
+          if (elegir(w + 1)) return true
+          usado[h]--
+        }
+        return false
+      }
+      if (!elegir(0)) {
+        for (let w = 0; w < n; w++) if (!opciones[w].some((h) => cabe[h] > 0)) sinDescanso.push(w + 1)
+        falla(
+          `${p.label} no tiene un descanso de ${fmt(pide / 60)} h para cada semana de la rueda` +
+            (sinDescanso.length ? ` (le falta en la semana ${sinDescanso.join(', ')})` : ' (los descansos no dan para todas las semanas)'),
+        )
       }
     }
   }
@@ -401,7 +433,7 @@ async function main() {
     if (!(dias.includes(5) && dias.includes(6))) falla2(`${p.label} tiene un contrato de ${p.contractHours} h que no es de fin de semana`)
   }
 
-  const rueda = calcularRueda(rv, sv)
+  const rueda = calcularRueda(rv, sv, base.roles)
   const findes = findesDeMedia(rv, rueda)
   console.log(`  rueda de ${rueda.semanas} semanas, rotan ${rueda.grupos.reduce((a, g) => a + g.personIds.length, 0)} personas`)
   if (rueda.semanas < 2) falla2('no sale ninguna rueda')

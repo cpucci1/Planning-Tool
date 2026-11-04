@@ -81,6 +81,7 @@ export type CodigoAdvertencia =
   | 'hueco-en-el-fichero'
   | 'lineas-por-ticket'
   | 'importe-con-iva'
+  | 'solo-titulos'
 
 export interface Advertencia {
   codigo: CodigoAdvertencia
@@ -711,27 +712,36 @@ export function parsearFecha(valor: ValorCrudo, formato: FormatoFecha): FechaHor
 
 /**
  * La zona que trae una hora escrita con ella, en minutos respecto a UTC: `Z`
- * es 0, `+02:00` son 120 y `-0300` son -180. `null` si la hora no trae zona,
+ * es 0, `+02:00` son 120 y `-03:00` son -180. `null` si la hora no trae zona,
  * que es lo normal en un TPV español: entonces la hora ya es la del local.
  *
- * Solo cuenta si la zona va pegada detrás de una hora (`19:30Z`,
- * `2025-06-14T19:30:00.000+00:00`): un `-` suelto en otra parte de la celda no
- * es una zona.
+ * Solo se lee la zona en una hora con forma ISO: con la `T` entre fecha y
+ * hora (`2025-06-14T19:30+02:00`) o con segundos (`19:30:00Z`,
+ * `20:30:00.000+00:00`). Una celda `13:00-14:00` es una franja horaria, no
+ * las 13:00 con zona −14:00: leída así se movía el ticket catorce horas
+ * (revisión ronda 10, hallazgo 1). Por eso una celda con forma de franja
+ * (`hh:mm-hh:mm`) nunca trae zona, aunque lleve segundos.
  */
 export function zonaDeLaHora(valor: ValorCrudo): number | null {
   if (typeof valor !== 'string') return null
-  const m = /\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?\s*(?:(Z)|([+-])(\d{2})(?::?(\d{2}))?)\s*$/i.exec(valor.trim())
+  const s = valor.trim()
+  // Franja horaria: "13:00-14:00", "23:00 - 00:00", "13:00:00-14:00".
+  if (/^\d{1,2}:\d{2}(?::\d{2})?\s*[-\u2013]\s*\d{1,2}:\d{2}/.test(s)) return null
+  const m =
+    /(T)?\d{1,2}:\d{2}(:\d{2}(?:[.,]\d+)?)?\s*(?:(Z)|([+-])(\d{2})(?::?(\d{2}))?)\s*$/i.exec(s)
   if (!m) return null
-  if (m[1]) return 0
-  const h = Number(m[3])
-  const min = Number(m[4] ?? 0)
+  // Sin la T de ISO ni segundos, no es una hora ISO: el signo no es una zona.
+  if (!m[1] && !m[2]) return null
+  if (m[3]) return 0
+  const h = Number(m[5])
+  const min = Number(m[6] ?? 0)
   if (h > 14 || min > 59) return null
-  return (m[2] === '-' ? -1 : 1) * (h * 60 + min)
+  return (m[4] === '-' ? -1 : 1) * (h * 60 + min)
 }
 
 /**
  * Pasa una fecha y hora escritas en otra zona a la hora local del navegador.
- * Un export que da las cenas de las 21:30 de Madrid como `19:30Z` las tiene en
+ * Un export que da las cenas de las 21:30 de Madrid como `19:30:00Z` las tiene en
  * UTC; contadas tal cual caerían dos horas antes. `Date` ya sabe el horario de
  * verano y la zona del navegador (Canarias, si está allí), así que no se
  * escribe ninguna regla a mano. Puede cambiar el día: las 23:30Z de un sábado
@@ -1893,7 +1903,7 @@ export function construirDatasetConDiagnostico(
       continue
     }
 
-    // La hora con zona (`19:30Z`, `+00:00`) se pasa a la hora del local. Sin
+    // La hora con zona (`19:30:00Z`, `T19:30+00:00`) se pasa a la hora del local. Sin
     // zona se queda como viene, que ya es la del local. Una fecha a medianoche
     // en punto (`2025-06-14T00:00:00Z`) es una fecha sin hora escrita en ISO,
     // no un ticket de las 00:00 UTC: moverla la cambiaría de día.
@@ -2145,13 +2155,25 @@ export function construirDatasetConDiagnostico(
   const tickets = unidades.length
   const lineasJuntadas = agrupaPorCodigo || agrupaPorHora ? lineas.length - tickets : 0
 
-  if (estimado) {
+  // Un fichero con la fila de títulos y nada debajo (revisión ronda 10,
+  // hallazgo 7). Antes salía "contamos cada fila como un ticket", que no dice
+  // nada a quien no tiene ni una fila: se le dice qué pasa y qué exportar.
+  const soloTitulos = filas.every((f) => f.every((v) => v === null || (typeof v === 'string' && v.trim() === '')))
+  if (soloTitulos) {
+    advertencias.push({
+      codigo: 'solo-titulos',
+      mensaje:
+        'Tu fichero solo trae la fila de títulos, sin ventas. Exporta del TPV el histórico con una fila por ticket y vuelve a subirlo.',
+    })
+  }
+
+  if (estimado && !soloTitulos) {
     const n = porTicket.toLocaleString('es-ES', { useGrouping: true })
     advertencias.push({
       codigo: 'comensales-estimados',
       mensaje: cadaFilaEsTicket
-        ? `Tu fichero no trae ni comensales ni número de ticket, así que cuento cada ${agrupaPorHora ? 'cobro' : 'fila'} como un ticket ` +
-          `y le pongo ${n} comensales, que puedes cambiar abajo, en "Comensales por ticket". ` +
+        ? `Tu fichero no trae ni comensales ni número de ticket, así que contamos cada ${agrupaPorHora ? 'cobro' : 'fila'} como un ticket ` +
+          `y le ponemos ${n} comensales, que puedes cambiar abajo, en "Comensales por ticket". ` +
           'Toda cifra de comensales que veas a partir de aquí es una estima, no un dato de tu TPV.'
         : `Tu fichero no trae comensales, así que se han estimado a ${n} por ticket. ` +
           'Toda cifra de comensales que veas a partir de aquí es una estima, no un dato de tu TPV.',
@@ -2163,12 +2185,12 @@ export function construirDatasetConDiagnostico(
       codigo: 'tickets-son-codigo',
       mensaje:
         `Tu columna "${mapeo[iTickets].nombre}" se repite en líneas separadas por horas dentro del mismo día, así que no parece el número de ticket ` +
-        'y cuento cada línea por separado. Si es la mesa o el camarero, márcala como "No la uses".',
+        'y contamos cada línea por separado. Si es la mesa o el camarero, márcala como "No la uses".',
     })
   } else if (ticketsSonCodigo && iComensales < 0 && lineasJuntadas === 0) {
     advertencias.push({
       codigo: 'tickets-son-codigo',
-      mensaje: 'Tu columna de tickets trae el número de cada ticket y no una cantidad, así que cuento un ticket por cada número.',
+      mensaje: 'Tu columna de tickets trae el número de cada ticket y no una cantidad, así que contamos un ticket por cada número.',
     })
   }
 
@@ -2180,10 +2202,10 @@ export function construirDatasetConDiagnostico(
       mensaje:
         `Tu fichero trae una línea por producto: ${fmt(lineas.length)} líneas que son ${fmt(tickets)} tickets, ${media} de media por ticket. ` +
         (agrupaPorCodigo
-          ? 'Cuento cada número de ticket una vez, no cada línea.'
+          ? 'Contamos cada número de ticket una vez, no cada línea.'
           : importeRepetido
-            ? 'Como no trae número de ticket, junto en uno las líneas con la misma fecha, la misma hora exacta y el mismo total.'
-            : 'Como no trae número de ticket, junto en uno las líneas con la misma fecha y hora exactas.') +
+            ? 'Como no trae número de ticket, juntamos en una las líneas con la misma fecha, la misma hora exacta y el mismo total.'
+            : 'Como no trae número de ticket, juntamos en una las líneas con la misma fecha y hora exactas.') +
         (iImporte >= 0
           ? importeRepetido
             ? ' El importe venía repetido en cada línea y se cuenta una vez por ticket.'
@@ -2460,7 +2482,7 @@ export function construirDatasetConDiagnostico(
     advertencias.push({
       codigo: 'semana-incompleta',
       mensaje:
-        `Tu fichero empieza o acaba a mitad de semana: ${listarConY(partes)}, y no la cuento. ` +
+        `Tu fichero empieza o acaba a mitad de semana: ${listarConY(partes)}, y no la contamos. ` +
         'Una semana a la que le faltan días parecería floja sin serlo.',
     })
   }
@@ -2487,13 +2509,27 @@ export function construirDatasetConDiagnostico(
     })
   }
   if (diasConCobrosFuera.length > 0) {
-    const lista = diasConCobrosFuera
-      .map((x) => `el ${NOMBRE_DIA[x.dia]} (${Math.round(x.fuera * 100)} %)`)
-      .join(', ')
+    // Un día que sale cerrado no "deja fuera el 100 %": sale cerrado y tiene
+    // cobros, y se dice así (revisión ronda 10, hallazgo 6).
+    const cerrados = diasConCobrosFuera.filter((x) => x.cerrado)
+    const recortados = diasConCobrosFuera.filter((x) => !x.cerrado)
+    const partes: string[] = []
+    if (cerrados.length > 0) {
+      const dias = listarConY(cerrados.map((x) => `el ${NOMBRE_DIA[x.dia]}`))
+      partes.push(
+        cerrados.length === 1
+          ? `El horario deducido deja cerrado ${dias}, pero ese día tiene cobros en tu fichero.`
+          : `El horario deducido deja cerrados ${dias}, pero esos días tienen cobros en tu fichero.`,
+      )
+    }
+    if (recortados.length > 0) {
+      const lista = recortados.map((x) => `el ${NOMBRE_DIA[x.dia]} (${Math.round(x.fuera * 100)} %)`).join(', ')
+      partes.push(`El horario deducido deja fuera una parte de los cobros de algunos días: ${lista}.`)
+    }
     advertencias.push({
       codigo: 'horario-deja-fuera',
       mensaje:
-        `El horario deducido deja fuera una parte de los cobros de algunos días: ${lista}. ` +
+        `${partes.join(' ')} ` +
         'Esos cobros no cuentan para la plantilla. Repasa el horario de esos días antes de seguir.',
     })
   }
@@ -2745,6 +2781,8 @@ export interface DiaConCobrosFuera {
   dia: number
   /** Parte de los cobros del día que el horario deja fuera, de 0 a 1. */
   fuera: number
+  /** El horario deducido deja el día cerrado entero, aunque tiene cobros. */
+  cerrado: boolean
 }
 
 function deducirHorario(
@@ -2812,7 +2850,7 @@ function deducirHorario(
     if (totales[d] <= 0 || totales[d] < DIA_RELEVANTE * masFuerte) continue
     const { dentro, total } = cobrosRecogidos(mediana[d], elegido[d] < 0 ? [] : porListon[elegido[d]][d])
     const fuera = 1 - dentro / total
-    if (fuera > 1 - RECOGIDO_MIN) diasConCobrosFuera.push({ dia: d, fuera })
+    if (fuera > 1 - RECOGIDO_MIN) diasConCobrosFuera.push({ dia: d, fuera, cerrado: detectedHours[d].length === 0 })
   }
 
   const poblado = elegido.every((i) => i <= 0)
