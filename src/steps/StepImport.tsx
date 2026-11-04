@@ -42,7 +42,7 @@ import {
 import { ANALYSIS_STEPS, analyzeFile } from '@/lib/fakeAI'
 import { construirDatasetConDiagnostico, leerFichero } from '@/lib/parseFichero'
 import { mapearColumnasConIA } from '@/lib/mapeoIA'
-import { usePlanner } from '@/hooks/usePlanner'
+import { STEPS, usePlanner } from '@/hooks/usePlanner'
 import { QueVasAObtener } from '@/components/QueVasAObtener'
 import { Button, Card, Modal, Note, cn } from '@/components/ui'
 
@@ -54,17 +54,24 @@ const SELLING_POINTS: { icon: ReactNode; title: string; text: string }[] = [
   {
     icon: <ShieldCheck size={17} strokeWidth={2.4} />,
     title: 'Sin registro',
-    text: 'Ni email, ni tarjeta, ni comercial llamándote luego.',
+    // "Ni email" era falso a medias: el plan se puede guardar con el correo.
+    // Se dice que es opcional en vez de prometer que no se pide (ronda 3, 21).
+    text: 'Ni tarjeta ni comercial llamándote luego. El correo, solo si quieres guardar el plan.',
   },
   {
     icon: <Clock size={17} strokeWidth={2.4} />,
-    title: 'En dos minutos',
+    title: 'En unos minutos',
     text: 'Cuatro pasos y tienes plantilla, contratos y cuadrante.',
   },
   {
     icon: <Laptop size={17} strokeWidth={2.4} />,
-    title: 'Tu fichero no sale de aquí',
-    text: 'El fichero se lee en tu navegador. No se sube a ningún servidor.',
+    // Antes decía "no se sube a ningún servidor", y desde el 2026-09-06 el plan
+    // calculado, con la curva, se guarda en el servidor para poder volver a él.
+    // Y para entender las columnas salen sus nombres y la forma de tres filas
+    // (`formaDeCelda`, en `lib/mapeoIA.ts`). Una promesa de privacidad tiene
+    // que ser cierta al pie de la letra.
+    title: 'Tu fichero no se sube',
+    text: 'Se lee en tu navegador: solo salen los nombres de las columnas y la forma de tres filas, con fechas y cifras pero nunca un texto como un nombre. Guardamos el plan calculado, con tu curva de comensales y los nombres que pongas en el cuadrante, para que puedas volver a él.',
   },
 ]
 
@@ -82,7 +89,7 @@ const HOW_IT_WORKS: { icon: ReactNode; title: string; text: string }[] = [
   {
     icon: <SlidersHorizontal size={18} strokeWidth={2.2} />,
     title: 'Dices cuánta gente pide cada nivel de sala',
-    text: 'De 1 a 10 comensales, un camarero y uno de cocina. De 11 a 25, dos camareros… Esa tabla es tuya y es la única regla que hace falta. Viene rellena con algo razonable para que no arranques en blanco.',
+    text: 'Con hasta 20 personas sentadas, un responsable, un camarero y un cocinero. De 21 a 40, dos camareros… Esa tabla es tuya y es la única regla que hace falta. Viene rellena con las proporciones habituales del sector para que no arranques en blanco.',
   },
   {
     icon: <Users size={18} strokeWidth={2.2} />,
@@ -96,6 +103,14 @@ function formatSize(bytes: number): string {
   const kb = bytes / 1024
   if (kb < 1024) return `${Math.round(kb)} KB`
   return `${(kb / 1024).toFixed(1).replace('.', ',')} MB`
+}
+
+const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+
+/** 'YYYY-MM-DD' a "4 nov 2025". */
+function fechaCorta(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return y && m && d ? `${d} ${MESES_CORTOS[m - 1]} ${y}` : iso
 }
 
 function sleep(ms: number) {
@@ -125,7 +140,7 @@ export function StepImport() {
   const [dragging, setDragging] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [howOpen, setHowOpen] = useState(false)
-  const [doneInfo, setDoneInfo] = useState<{ weeks: number; year: number } | null>(null)
+  const [doneInfo, setDoneInfo] = useState<{ texto: string } | null>(null)
 
   // dragleave salta también al pasar sobre los hijos del contenedor: se cuenta
   // la profundidad para no apagar el estado visual a mitad de arrastre.
@@ -175,12 +190,14 @@ export function StepImport() {
     try {
       // Los datos de ejemplo siguen siendo generados: no hay fichero que leer.
       if (!file) {
+        // Más rápido que un fichero (ronda 7, m10): no hay nada que leer, y cinco
+        // segundos de "leyendo el fichero" sin fichero se ven como teatro.
         const dataset = await analyzeFile(null, (progress) => {
           if (alive.current) setCurrent(progress.step)
-        })
+        }, 4)
         if (!alive.current) return
         setCurrent(TOTAL_STEPS)
-        setDoneInfo({ weeks: dataset.weeks.length, year: dataset.year })
+        setDoneInfo({ texto: `Ejemplo listo: ${dataset.weeks.length} semanas de ${dataset.year}.` })
         setPhase('done')
         await sleep(650)
         if (!alive.current) return
@@ -224,27 +241,15 @@ export function StepImport() {
       }
       if (!alive.current) return
 
-      // Un fichero que se lee pero del que no sale ni una semana no es un
-      // fichero válido para esto, y decirlo aquí es mejor que dejar al usuario
-      // en la pantalla siguiente con todos los gráficos en blanco. Se le dice
-      // POR QUÉ se ha caído todo: "no vale" a secas no le deja hacer nada.
-      if (r.semanas === 0 || r.filasUsadas === 0) {
-        const principal = [...r.descartes].sort((a, b) => b.filas - a.filas)[0]
-        throw new Error(principal ? `sin_filas_utiles:${principal.mensaje}` : 'sin_filas_utiles')
-      }
-
-      // UN FICHERO SIN DETALLE DENTRO DEL DÍA NO SIRVE, Y SE DICE AQUÍ.
-      //
-      // Un total por día (o por servicio) se lee perfectamente y da una cifra
-      // anual correcta, así que sin esto el usuario llegaría a la pantalla
-      // siguiente con un año bonito y un cuadrante inventado: la herramienta
-      // dimensiona por el PICO simultáneo, y un total diario no dice a qué hora
-      // ocurre. Repartirlo a ojo sería dibujarle la forma de su servicio.
-      // Ver `detectarPasoHorario`.
-      if (r.sinDetalleHorario) {
-        const porQue = r.advertencias.find((a) => a.codigo === 'sin-detalle-horario')
-        throw new Error(`sin_detalle_horario:${porQue?.mensaje ?? ''}`)
-      }
+      // NINGÚN CALLEJÓN SIN SALIDA (ronda 8, G1). Hasta aquí, un fichero del que
+      // no entraba ni una fila, o que solo traía un total por día, se quedaba
+      // en esta pantalla con un cartel rojo: el usuario no podía decir qué era
+      // cada columna, que es casi siempre lo que falla. Ahora, si el fichero se
+      // ha abierto y tiene columnas, se va SIEMPRE a la pantalla de columnas,
+      // con el motivo dicho arriba y el "Siguiente" parado hasta que entre algo.
+      // Solo se queda aquí lo que no se ha podido ni abrir.
+      if (fichero.columnas.length === 0) throw new Error('sin_columnas')
+      const sinFilas = r.semanas === 0 || r.filasUsadas === 0 || r.sinDetalleHorario
 
       setCurrent(4)
       await respirar()
@@ -252,7 +257,16 @@ export function StepImport() {
       await respirar()
 
       setCurrent(TOTAL_STEPS)
-      setDoneInfo({ weeks: r.dataset.weeks.length, year: r.dataset.year })
+      // El periodo de verdad, no "de 2026": un export de los últimos 12 meses
+      // cruza el cambio de año (ronda 7, G1).
+      const per = r.dataset.source.periodo
+      setDoneInfo({
+        texto: sinFilas
+          ? 'Abierto. Ahora dinos qué es cada columna.'
+          : per
+            ? `${r.semanas} semanas, del ${fechaCorta(per.desde)} al ${fechaCorta(per.hasta)}, leídas.`
+            : `${r.semanas} semanas, leídas.`,
+      })
       setPhase('done')
       // Medio segundo para que se vea el último check antes de cambiar de paso:
       // si no, el trabajo terminado no se llega a leer.
@@ -266,6 +280,9 @@ export function StepImport() {
         formatoFecha: r.formatoFecha,
         // Nadie ha elegido nada todavía: manda lo que diga el fichero.
         formatoFechaElegido: null,
+        periodos: r.periodos,
+        periodoUsado: r.periodoUsado,
+        periodoElegido: null,
         filasLeidas: r.filasLeidas,
         filasUsadas: r.filasUsadas,
         descartes: r.descartes,
@@ -278,17 +295,10 @@ export function StepImport() {
       setCurrent(-1)
       setSource(null)
       const mensaje = (e as Error)?.message ?? ''
-      if (mensaje.startsWith('sin_detalle_horario')) {
+      if (mensaje === 'sin_columnas') {
         setError(
-          mensaje.slice('sin_detalle_horario:'.length) ||
-            'Tu fichero no trae la hora de cada venta, y sin eso no se pueden dimensionar los turnos.',
-        )
-      } else if (mensaje.startsWith('sin_filas_utiles')) {
-        const porQue = mensaje.slice('sin_filas_utiles:'.length)
-        setError(
-          'Hemos abierto el fichero pero no ha entrado ni una fila en el cálculo.' +
-            (porQue ? ` El motivo de casi todas: ${porQue.toLowerCase()}` : '') +
-            ' Comprueba que es el histórico de ventas, con una fila por ticket, y no un resumen.',
+          'Hemos abierto el fichero pero está vacío: no trae ni una fila con datos. ' +
+            'Exporta de tu TPV el histórico de ventas, con la fecha y la hora de cada ticket.',
         )
       } else {
         setError('No hemos podido leer ese fichero. Prueba con otro, en CSV o Excel.')
@@ -397,7 +407,9 @@ export function StepImport() {
                 </p>
                 <p className="mt-0.5 text-[0.82rem] text-content-secondary">
                   {p.savedMeta.weeks} semanas de {p.savedMeta.year}, guardado {haceCuanto(p.savedMeta.savedAt)}.
-                  Se guarda solo en este navegador.
+                  {p.planRemoto
+                    ? ' Esta copia está en este navegador, y el plan calculado también en nuestro servidor, con su enlace.'
+                    : ' Esta copia está en este navegador.'}
                 </p>
               </div>
               <div className="flex shrink-0 gap-2">
@@ -408,6 +420,34 @@ export function StepImport() {
                   Empezar de cero
                 </Button>
               </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Quien vuelve aquí desde un paso más avanzado de ESTE plan (pulsando
+          "Histórico") no puede quedarse sin salida: el aviso de "Sigues con"
+          de arriba solo sale con lo guardado al abrir la página (ronda 3,
+          punto 6). */}
+      {p.dataset && !p.savedMeta && phase === 'idle' && (
+        <div className="mt-8">
+          <Card className="animate-pop-in border-brand/30 bg-brand-light px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[0.95rem] font-bold text-content-primary">
+                  {p.dataset.source.isDemo ? 'Estás con el restaurante de ejemplo' : `Estás con ${p.dataset.source.fileName}`}
+                </p>
+                <p className="mt-0.5 text-[0.82rem] text-content-secondary">
+                  Tu plan sigue como lo dejaste. Si subes otro fichero, empiezas uno nuevo.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => p.setStep(STEPS[Math.max(1, p.pasoMaximo)].id)}
+                iconRight={<ArrowRight size={15} />}
+              >
+                Seguir con mi plan
+              </Button>
             </div>
           </Card>
         </div>
@@ -448,11 +488,18 @@ export function StepImport() {
                 <Upload size={24} strokeWidth={2.2} />
               </span>
 
-              <span className="h3 mt-5 block text-content-primary">
+              {/* En el móvil no se arrastra nada, y el export del TPV suele
+                  estar en el ordenador del local (ronda 3, punto 20). */}
+              <span className="h3 mt-5 hidden text-content-primary sm:block">
                 {dragging ? 'Suéltalo aquí' : 'Arrastra aquí tu fichero'}
               </span>
-              <span className="mt-1.5 block text-[0.92rem] font-medium text-content-secondary">
+              <span className="mt-1.5 hidden text-[0.92rem] font-medium text-content-secondary sm:block">
                 o haz clic para buscarlo en tu ordenador
+              </span>
+              <span className="h3 mt-5 block text-content-primary sm:hidden">Elige tu fichero</span>
+              <span className="mt-1.5 block text-[0.88rem] font-medium text-content-secondary sm:hidden">
+                El export de tu TPV suele estar en el ordenador del local. Si no lo tienes en el
+                móvil, mira el ejemplo de abajo y ábrelo luego desde el ordenador.
               </span>
 
               <span
@@ -463,6 +510,22 @@ export function StepImport() {
                 antes.
               </span>
             </label>
+
+            {/* Un enlace pequeño y no un botón: en septiembre se quitó el botón
+                grande de "ver el ejemplo" porque "solo enreda", y con él se fue
+                la única forma de ver la herramienta sin tu fichero. Va FUERA de
+                la etiqueta, o el clic abriría también el buscador de ficheros. */}
+            <p className="mt-3 text-center text-[0.82rem] font-medium text-content-secondary">
+              ¿No tienes el fichero a mano?{' '}
+              <button
+                type="button"
+                onClick={() => void run(null)}
+                disabled={phase !== 'idle'}
+                className="font-bold text-brand underline decoration-brand/35 underline-offset-2 transition-colors hover:decoration-brand disabled:opacity-50"
+              >
+                Míralo con un restaurante de ejemplo
+              </button>
+            </p>
 
             {error && (
               <div className="mt-4">
@@ -490,10 +553,10 @@ export function StepImport() {
                 <p className="h4 truncate text-content-primary">{source?.name}</p>
                 <p className="mt-0.5 text-[0.8rem] font-medium text-content-secondary">
                   {phase === 'done' && doneInfo
-                    ? `${doneInfo.weeks} semanas de ${doneInfo.year}, leídas.`
+                    ? doneInfo.texto
                     : source?.size != null
                       ? `${formatSize(source.size)} · leyéndolo aquí, en tu navegador`
-                      : 'Leyéndolo aquí, en tu navegador'}
+                      : 'Preparando el ejemplo'}
                 </p>
               </div>
               <span

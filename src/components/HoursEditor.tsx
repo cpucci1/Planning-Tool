@@ -27,6 +27,7 @@ import {
   parseTime,
 } from '@/lib/time'
 import type { OpenBlock, OpeningHours } from '@/lib/types'
+import { tramoCorto } from '@/lib/semana'
 import { Badge, Button, Card, CardHeader, InfoTip, cn } from '@/components/ui'
 
 // ─────────────────────────────────────────────────────────────
@@ -68,7 +69,7 @@ function dayMinutes(blocks: OpenBlock[]): number {
 }
 
 function formatHours(minutes: number): string {
-  return `${(minutes / 60).toLocaleString('es-ES', { maximumFractionDigits: 1 })} h`
+  return `${(minutes / 60).toLocaleString('es-ES', { useGrouping: true, maximumFractionDigits: 1 })} h`
 }
 
 /** Ordena, recorta a la rejilla y fusiona lo que se toca o se solapa. */
@@ -454,7 +455,7 @@ export function HoursEditor({
 
           <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border-soft pt-3">
             <span className="text-[0.7rem] font-bold tracking-wide text-content-secondary uppercase">
-              Presets
+              Horarios tipo
             </span>
             {PRESETS.map((p) => (
               <button
@@ -588,11 +589,19 @@ export function HoursEditor({
                         const isSel = selIndex === i
                         const len = blockMinutes(shown)
                         const barPx = (len / TRACK_MIN) * trackPx
+                        /* Una barra corta enseñaba solo la hora de entrada
+                           ("19:30") y no había forma de saber a qué hora
+                           cerraba sin arrastrar (revisión ronda 6, m2).
+                           Ahora va el tramo en horas cortas ("19:30-22") si
+                           cabe, y si no cabe nada, al pasar por encima. Unos
+                           7 px por carácter a 0,7 rem en negrita, más el
+                           relleno. */
+                        const corto = tramoCorto(shown.startMin, shown.endMin)
                         const label =
                           barPx >= 108
                             ? formatRange(shown.startMin, shown.endMin)
-                            : barPx >= 62
-                              ? formatMin(shown.startMin)
+                            : barPx >= corto.length * 7.2 + 10
+                              ? corto
                               : null
                         const barMidPct = (pct(shown.startMin) + pct(shown.endMin)) / 2
                         const anchor = barMidPct < 25 ? 'left' : barMidPct > 75 ? 'right' : 'center'
@@ -612,6 +621,7 @@ export function HoursEditor({
                             onPointerCancel={endDrag}
                             onLostPointerCapture={endDrag}
                             onKeyDown={(e) => onBarKey(e, day, i)}
+                            title={formatRange(shown.startMin, shown.endMin)}
                             onClick={(e) => {
                               e.stopPropagation()
                               setSelected({ day, index: i })
@@ -629,7 +639,7 @@ export function HoursEditor({
                             )}
                           >
                             {label && (
-                              <span className="pointer-events-none truncate px-2 text-[0.7rem] font-bold tabular-nums">
+                              <span className="pointer-events-none truncate px-1 text-[0.7rem] font-bold tabular-nums">
                                 {label}
                               </span>
                             )}
@@ -747,7 +757,7 @@ export function HoursEditor({
                         closed ? 'text-content-muted' : 'text-content-primary',
                       )}
                     >
-                      {closed ? '—' : formatHours(dayMinutes(blocks))}
+                      {closed ? '-' : formatHours(dayMinutes(blocks))}
                     </span>
                     <button
                       type="button"

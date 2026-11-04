@@ -41,13 +41,26 @@ function slotOf(hhmm: string): number {
   return (abs - 6 * 60) / 30
 }
 
+/**
+ * A qué tamaño se lleva la curva (ronda 4, 2026-11-04). Los cobros de arriba
+ * son de un local grande: con los tramos de sentados (un camarero por cada 20
+ * a 25 sentados, un cocinero por cada 30 a 40) llegaba a 366 sentados a la
+ * vez el sábado y salían 42 personas. El ejemplo tiene que parecerse al
+ * cliente típico, un restaurante de unas 20 a 25 personas con encargado y
+ * jefe de cocina, así que se baja la curva y no los tramos. Con 0,35 el
+ * sábado llega a unos 134 sentados a la vez y salen 21 personas. La forma del
+ * día no cambia: solo el tamaño.
+ */
+export const ESCALA_EJEMPLO = 0.35
+
+
 /** `[day][slot]` = comensales de una semana media. */
 export const BASE_WEEK: number[][] = (() => {
   const week = Array.from({ length: 7 }, () => new Array<number>(SLOTS_PER_DAY).fill(0))
   for (const [time, values] of RAW) {
     const s = slotOf(time)
     if (s < 0 || s >= SLOTS_PER_DAY) continue
-    for (let d = 0; d < 7; d++) week[d][s] = values[d]
+    for (let d = 0; d < 7; d++) week[d][s] = Math.round(values[d] * ESCALA_EJEMPLO)
   }
   return week
 })()

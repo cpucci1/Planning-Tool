@@ -10,7 +10,9 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { SpecialWeek, WeekDemand } from '@/lib/types'
 
-const nf = new Intl.NumberFormat('es-ES')
+// Con punto de millar también en cuatro cifras, como la semana tipo y el
+// resultado: "2198" al lado de "2.193" se leía como dos formatos (revisión ronda 5, m2).
+const nf = new Intl.NumberFormat('es-ES', { useGrouping: true })
 
 const MONTHS_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 const MONTHS_INITIAL = ['E', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D']
@@ -77,14 +79,24 @@ export function YearChart({
   onThresholdChange,
   specials = NO_SPECIALS,
   height = 280,
-  coveragePct,
+  margenPct = 0,
 }: {
   weeks: WeekDemand[]
   threshold: number
   onThresholdChange: (t: number) => void
   specials?: SpecialWeek[]
   height?: number
-  coveragePct: number
+  /**
+   * ⚠️ Ya no se lee: las dos cifras del gráfico salen de las semanas que quedan
+   * bajo la línea. Se deja opcional para no tocar a quien lo pasa.
+   */
+  coveragePct?: number
+  /**
+   * El margen de seguridad, solo para decirlo en el texto: la línea marca las
+   * semanas del histórico, y la plantilla se calcula con ese colchón encima
+   * (revisión ronda 5, m3). No cambia nada del gráfico.
+   */
+  margenPct?: number
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
@@ -372,7 +384,8 @@ export function YearChart({
             strokeWidth={1}
           />
 
-          {/* Semanas etiquetadas: un punto discreto bajo la barra */}
+          {/* Semanas etiquetadas: un punto discreto bajo la barra. Tiene su
+              leyenda debajo del gráfico (revisión ronda 5, m13). */}
           {weeks.map((w, i) =>
             specialByWeek.has(w.isoWeek) ? (
               <circle
@@ -553,6 +566,13 @@ export function YearChart({
         )}
       </div>
 
+      {specials.length > 0 && (
+        <div className="mt-2 flex items-center gap-1.5 text-[0.72rem] font-medium text-content-muted">
+          <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-pill bg-brand-secondary" aria-hidden="true" />
+          Semana rara (festivo, cierre o pico): pasa por encima para ver cuál
+        </div>
+      )}
+
       {/* Resumen vivo */}
       <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.85rem] font-medium text-content-secondary">
         <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-pill bg-brand" aria-hidden="true" />
@@ -582,11 +602,13 @@ export function YearChart({
           <span>ni una sola semana se te sale</span>
         )}
         <span className="text-content-muted">·</span>
-        <span className="font-semibold">{Math.round(coveragePct)}% del histórico</span>
+        {/* La misma cifra que la etiqueta de la línea, sacada del mismo dato: si
+            una dijera 79 y la otra 80, se leería como un error de cálculo. */}
+        <span className="font-semibold">{coveragePctLive}% del histórico</span>
       </div>
       <p className="mt-1 text-[0.78rem] leading-relaxed font-medium text-content-muted">
         {peaks > 0
-          ? `Tu plantilla fija llega hasta ${nf.format(threshold)} comensales por semana. Los ${nf.format(Math.round(excessCovers))} comensales que quedan por encima en el histórico se cubren con refuerzos.`
+          ? `Tu plantilla fija cubre las semanas de hasta ${nf.format(threshold)} comensales${margenPct > 0 ? `, más un ${margenPct} % de colchón` : ''}. Los ${nf.format(Math.round(excessCovers))} comensales que quedan por encima en el histórico se cubren con refuerzos.`
           : `Tu plantilla fija está dimensionada para la semana más exigente. Baja la línea para ver cuántos refuerzos necesitarías.`}
       </p>
     </div>

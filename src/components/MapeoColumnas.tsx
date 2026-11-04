@@ -64,7 +64,6 @@ export function MapeoColumnas({
   formatoElegido?: FormatoFecha | null
   onFormatoFecha?: (f: FormatoFecha) => void
 }) {
-  const tieneFecha = columnas.some((c) => c.destino === 'fecha')
   const tieneComensales = columnas.some((c) => c.destino === 'comensales')
   const tieneTickets = columnas.some((c) => c.destino === 'tickets')
   const puedeConfirmar = mapeoSuficiente(columnas)
@@ -73,12 +72,10 @@ export function MapeoColumnas({
     onChange(columnas.map((c) => (c.nombre === nombre ? { ...c, destino } : c)))
   }
 
+  // Desde la ronda 8 solo falta algo si no hay fecha: sin comensales ni
+  // tickets, cada fila cuenta como un ticket (ver abajo).
   function queFalta(): string {
-    if (!tieneFecha && !tieneComensales && !tieneTickets) {
-      return 'Marca una columna como día del servicio y otra como comensales o como tickets.'
-    }
-    if (!tieneFecha) return 'Marca qué columna es el día del servicio.'
-    return 'Marca una columna como comensales o como tickets: sin eso no hay nada que calcular.'
+    return 'Marca qué columna es el día del servicio: sin la fecha no hay nada que calcular.'
   }
 
   return (
@@ -90,7 +87,7 @@ export function MapeoColumnas({
             Esto es lo que <span className="text-brand italic">hemos entendido.</span>
           </>
         }
-        subtitle="Cada fila es una columna de tu fichero. Si algo no es lo que parece, cámbialo en el desplegable."
+        subtitle="Aquí sale cada columna de tu fichero y lo que creemos que es. Si algo no es lo que parece, cámbialo en el desplegable."
         info={
           <InfoTip title="Por qué te pedimos revisar una columna">
             Cuando el nombre de una columna es poco claro o se parece a otro, te la señalamos para
@@ -123,7 +120,7 @@ export function MapeoColumnas({
                           cifras que no piden nada: ruido con aspecto de dato. */}
                       {dudosa && (
                         <Badge tone="warning">
-                          {Math.round(c.confianza * 100)}% · Revísala
+                          No estamos seguros: revísala
                         </Badge>
                       )}
                     </div>
@@ -227,35 +224,31 @@ export function MapeoColumnas({
         <div className="border-t border-border-soft px-4 py-5 sm:px-6">
           <Note tone="warning" icon={<TriangleAlert size={15} />}>
             {tieneTickets
-              ? 'Tu fichero no trae una columna de comensales — es lo normal, casi ningún TPV español la guarda. La vamos a estimar a partir de tus tickets: dinos cuántos comensales trae uno medio.'
-              : 'Tu fichero no trae una columna de comensales. Para poder estimarla hace falta al menos una columna marcada como "Nº de tickets" — márcala arriba.'}
+              ? 'Tu fichero no trae una columna de comensales. Es lo normal: casi ningún TPV español la guarda. La vamos a estimar a partir de tus tickets: dinos cuántos comensales trae uno medio.'
+              : 'Tu fichero no trae ni comensales ni número de ticket. Es normal en un export sencillo: cada fila es un cobro, así que contamos cada una como un ticket (y si trae una línea por producto, juntamos las del mismo cobro). Dinos cuántos comensales trae un ticket medio.'}
           </Note>
 
-          {tieneTickets && (
-            <>
-              <div className="mt-4 max-w-[220px]">
-                <Field
-                  label="Comensales por ticket"
-                  hint="Por defecto 2. Súbelo si tus mesas suelen ser grandes, bájalo si es mucho para llevar."
-                >
-                  <NumberInput
-                    value={comensalesPorTicket}
-                    onChange={onComensalesPorTicket}
-                    min={1}
-                    max={10}
-                    step={0.5}
-                    aria-label="Comensales por ticket medio"
-                  />
-                </Field>
-              </div>
+          <div className="mt-4 max-w-[220px]">
+            <Field
+              label="Comensales por ticket"
+              hint="Por defecto 2. Súbelo si tus mesas suelen ser grandes, bájalo si es mucho para llevar."
+            >
+              <NumberInput
+                value={comensalesPorTicket}
+                onChange={onComensalesPorTicket}
+                min={1}
+                max={10}
+                step={0.5}
+                aria-label="Comensales por ticket medio"
+              />
+            </Field>
+          </div>
 
-              <p className="mt-3 flex items-start gap-1.5 text-[0.8rem] leading-relaxed font-semibold text-warning">
-                <TriangleAlert size={14} className="mt-0.5 shrink-0" />
-                A partir de aquí, los comensales son una estimación calculada desde tus tickets:
-                no es un dato que traiga tu TPV.
-              </p>
-            </>
-          )}
+          <p className="mt-3 flex items-start gap-1.5 text-[0.8rem] leading-relaxed font-semibold text-warning">
+            <TriangleAlert size={14} className="mt-0.5 shrink-0" />
+            A partir de aquí, los comensales son una estimación calculada desde tus tickets:
+            no es un dato que traiga tu TPV.
+          </p>
         </div>
       )}
 

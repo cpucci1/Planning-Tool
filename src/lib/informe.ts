@@ -76,11 +76,17 @@ export interface InformeInput {
   /* Los picos */
   peaks: PeakAnalysis
   extraPeopleIfHired: number
+  /** De las horas que faltan en las semanas punta, las que pueden hacer los parciales con complementarias y las que quedan de refuerzo. La misma cuenta que la pantalla. */
+  horasComplementariasPicos: number
+  horasRefuerzo: number
 
   /* El dinero. `null` = el usuario no ha puesto precios, y entonces no hay ni
      una cifra de dinero en todo el informe. */
   cost: CostSummary | null
+  /** Con la cobertura de ausencias dentro, igual que en la pantalla. */
   ratioPersonal: number | null
+  /** Lo que cuesta al año cubrir las ausencias que quedan tras poner vacaciones en semanas flojas. */
+  costeAusenciasEur: number | null
   weeklySalesEur: number | null
 
   /* La revisión del cuadrante y sus métricas */

@@ -38,10 +38,15 @@ import {
   parsearHora,
   parsearNumero,
   redondearConservandoTotal,
+  aplicarHueco,
   type Advertencia,
   type Descarte,
   type MotivoDescarte,
 } from './parseFichero'
+import { mapeoConCantidad, mapeoSuficiente } from './mapeo'
+import { describeMapping, detectSpecialWeeks } from './holidays'
+import { temporadaDelLocal } from './contracts'
+import { typicalWeek, usableWeeks } from './demand'
 
 // ─────────────────────────────────────────────────────────────
 // Arnés
@@ -313,15 +318,17 @@ async function pruebaSinComensales() {
   const porDefecto = construirDatasetConDiagnostico(f.filas, f.columnas, { fileName: f.nombre })
   igual('con el 2 por defecto salen 56', totalDe(porDefecto.dataset.weeks), 56)
 
-  // Y si el fichero no trae ni comensales ni tickets, no se inventa un comensal
-  // por fila: se para y se cuenta.
+  // Y si el fichero no trae ni comensales ni tickets, cada fila es un cobro, es
+  // decir, un ticket (ronda 8, G1). Hasta entonces se descartaban todas con "los
+  // comensales no eran un número" y el usuario se quedaba sin salida.
   const sinNada = construirDatasetConDiagnostico(
     f.filas,
     f.columnas.map((c) => (c.destino === 'tickets' ? { ...c, destino: 'ignorada' as const } : c)),
     { fileName: f.nombre },
   )
-  igual('sin comensales y sin tickets no entra ninguna fila', sinNada.filasUsadas, 0)
-  igual('y las 4 se cuentan como descartadas', descarte(sinNada.descartes, 'comensales-ilegibles'), 4)
+  igual('sin comensales ni tickets entran las 4 filas', sinNada.filasUsadas, 4)
+  igual('una fila, un ticket: 4 × 2 son 8 comensales', totalDe(sinNada.dataset.weeks), 8)
+  igual('y ninguna se tira con un motivo falso', descarte(sinNada.descartes, 'comensales-ilegibles'), 0)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -399,9 +406,9 @@ async function pruebaUnaSemana() {
   igual('y es la 24', r.dataset.weeks[0].isoWeek, 24)
   comprobar('avisa de que el histórico es corto', tieneAviso(r.advertencias, 'historico-corto'))
   igual(
-    'el rango de fechas es esa semana, no un año entero',
+    'el rango de fechas es del primer al último día con datos, no un año entero',
     r.dataset.source.dateRange,
-    '2025-06-09 → 2025-06-09',
+    '2025-06-09 → 2025-06-15',
   )
   igual('las 9 filas entran', r.filasUsadas, 9)
   igual('y suman 193 comensales', totalDe(r.dataset.weeks), 193)
@@ -694,6 +701,338 @@ async function pruebaFormatoALaFuerza() {
 
 // ─────────────────────────────────────────────────────────────
 
+/** Un CSV con comidas y cenas cada día entre dos fechas (incluidas), menos los días de `sinDias` (0 = lunes). */
+function csvEntre(desde: string, hasta: string, sinDias: number[] = []): string {
+  const filas = ['FECHA;HORA;COMENSALES']
+  const a = Date.parse(`${desde}T00:00:00Z`)
+  const b = Date.parse(`${hasta}T00:00:00Z`)
+  for (let t = a; t <= b; t += 86400000) {
+    const f = new Date(t)
+    if (sinDias.includes((f.getUTCDay() + 6) % 7)) continue
+    const fecha = `${String(f.getUTCDate()).padStart(2, '0')}/${String(f.getUTCMonth() + 1).padStart(2, '0')}/${f.getUTCFullYear()}`
+    for (const [h, n] of [['13:00', 8], ['13:30', 14], ['14:00', 12], ['20:30', 10], ['21:00', 16], ['21:30', 9]] as const) filas.push(`${fecha};${h};${n}`)
+  }
+  return filas.join('\n')
+}
+
+async function pruebaPeriodoDelFichero() {
+  titulo('15 · Temporadas, pop ups, medias semanas y festivos que no están en el fichero')
+  const hoy = new Date('2026-11-04T12:00:00Z')
+  const leer = (csv: string, nombre: string) => leerYConstruir(ficheroDe(aUtf8(csv), nombre), { hoy })
+  const pago = (r: Awaited<ReturnType<typeof leer>>) => temporadaDelLocal(detectSpecialWeeks(r.dataset.weeks, r.dataset.year)).semanasDePago
+
+  // G1. Un local de playa que manda solo sus 22 semanas, ya cerradas.
+  const playa = await leer(csvEntre('2025-06-02', '2025-11-02'), 'playa.csv')
+  comprobar('se propone que el local abre solo esas semanas', !!playa.dataset.source.periodo?.propuesto && !!playa.dataset.source.periodo?.soloEstePeriodo)
+  comprobar('y se avisa de ello', tieneAviso(playa.advertencias, 'periodo-del-fichero'))
+  igual('se pagan las 22 semanas que abre, no 52', pago(playa), 22)
+  igual('las semanas con datos son 22', playa.semanas, 22)
+  const sinSemanaSanta = describeMapping(
+    playa.dataset.year,
+    playa.dataset.year + 1,
+    new Set(playa.dataset.weeks.filter((w) => !w.relleno && w.total > 0).map((w) => w.isoWeek)),
+  )
+  comprobar('no se habla de festivos que el fichero no trae', !sinSemanaSanta.some((l) => l.includes('Semana Santa')), sinSemanaSanta.join(' | '))
+
+  // G1 y G3. Un pop up de seis semanas: la semana tipo sale de esas seis, no de los ceros.
+  const popup = await leer(csvEntre('2025-11-17', '2025-12-28'), 'popup.csv')
+  igual('el pop up paga sus 6 semanas', pago(popup), 6)
+  const sp = detectSpecialWeeks(popup.dataset.weeks, popup.dataset.year)
+  const utiles = usableWeeks(popup.dataset, sp)
+  comprobar('la semana tipo no sale de semanas cerradas', utiles.length === 6 && utiles.every((w) => w.total > 0), `${utiles.length} semanas, ${utiles.filter((w) => w.total === 0).length} vacías`)
+  const tipo = typicalWeek(utiles, 80)
+  comprobar('y no sale vacía', tipo.flat().reduce((x, y) => x + y, 0) > 0)
+
+  // Un fichero que sí es de los últimos meses no se toma por temporada.
+  const reciente = await leer(csvEntre('2026-06-01', '2026-11-01'), 'reciente.csv')
+  comprobar('un export reciente no se toma por temporada', !reciente.dataset.source.periodo?.propuesto)
+  comprobar('el año entero tampoco', !(await leer(csvEntre('2025-01-01', '2025-12-31'), 'ano.csv')).dataset.source.periodo?.propuesto)
+
+  // M3 de pantallas. Media semana en el borde: del lunes 3 al viernes 21 de marzo.
+  const marzo = await leer(csvEntre('2025-03-03', '2025-03-21'), 'marzo.csv')
+  comprobar('la media semana del final se quita y se avisa', tieneAviso(marzo.advertencias, 'semana-incompleta'))
+  igual('quedan las dos semanas enteras', marzo.semanas, 2)
+  comprobar('el rango dice las fechas del fichero', (marzo.dataset.source.dateRange ?? '').includes('2025-03-03'), marzo.dataset.source.dateRange)
+  // Y un local que cierra los lunes no pierde ninguna semana por eso.
+  const lunes = await leer(csvEntre('2025-03-04', '2025-03-30', [0]), 'sin-lunes.csv')
+  comprobar('cerrar los lunes no es media semana', !tieneAviso(lunes.advertencias, 'semana-incompleta'))
+}
+
+// ─────────────────────────────────────────────────────────────
+// 16. Ronda 7: los últimos 12 meses, los huecos de datos y las fechas
+// ─────────────────────────────────────────────────────────────
+
+/** Como `csvEntre`, pero con muchas filas por día, como un local con movimiento. */
+function csvConMovimiento(desde: string, hasta: string, porDia: number): string {
+  const filas = ['FECHA;HORA;COMENSALES']
+  const a = Date.parse(`${desde}T00:00:00Z`)
+  const b = Date.parse(`${hasta}T00:00:00Z`)
+  for (let t = a; t <= b; t += 86400000) {
+    const f = new Date(t)
+    const fecha = `${String(f.getUTCDate()).padStart(2, '0')}/${String(f.getUTCMonth() + 1).padStart(2, '0')}/${f.getUTCFullYear()}`
+    for (let i = 0; i < porDia; i++) {
+      const min = 13 * 60 + (i * 7) % 180 + (i % 2 === 0 ? 0 : 7 * 60)
+      filas.push(`${fecha};${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')};2`)
+    }
+  }
+  return filas.join('\n')
+}
+
+/** Varios trozos de `csvEntre` en un solo fichero, con una sola cabecera. */
+function csvATrozos(trozos: [string, string][]): string {
+  return ['FECHA;HORA;COMENSALES', ...trozos.flatMap(([d, h]) => csvEntre(d, h).split('\n').slice(1))].join('\n')
+}
+
+async function pruebaRonda7() {
+  titulo('16 · Ronda 7: últimos 12 meses, huecos de TPV y fechas que empiezan el día 1')
+  const hoy = new Date('2026-11-04T12:00:00Z')
+  const leer = (csv: string, nombre: string, extra: { periodo?: string } = {}) =>
+    leerYConstruir(ficheroDe(aUtf8(csv), nombre), { hoy, ...extra })
+  const pago = (weeks: Awaited<ReturnType<typeof leer>>['dataset']['weeks'], year: number) =>
+    temporadaDelLocal(detectSpecialWeeks(weeks, year)).semanasDePago
+
+  // G1 de pantallas. "Los últimos 12 meses": del martes 4 de noviembre de 2025
+  // al domingo 1 de noviembre de 2026. Antes se quedaba con 2026 y tiraba
+  // noviembre y diciembre de 2025, la Navidad incluida.
+  const doce = await leer(csvEntre('2025-11-04', '2026-11-01'), '12-meses.csv')
+  igual('no se tira ni una fila por ser de otro año', descarte(doce.descartes, 'fuera-del-ano'), 0)
+  comprobar('salen las 52 semanas (51 si se quita la media del principio)', doce.semanas >= 51, `${doce.semanas}`)
+  const navidad = doce.dataset.weeks.find((w) => w.isoWeek === 52)
+  comprobar('la Navidad de 2025 está, en su semana 52', !!navidad && navidad.year === 2025 && navidad.total > 0)
+  comprobar('noviembre de 2025 también', doce.dataset.weeks.some((w) => w.year === 2025 && w.isoWeek === 46 && w.total > 0))
+  igual('el año de referencia es 2026, el que más semanas pone', doce.dataset.year, 2026)
+  igual('se usa el fichero entero', doce.periodoUsado, 'todo')
+  comprobar('y se puede elegir otro periodo', doce.periodos.length > 1, doce.periodos.map((o) => o.clave).join(', '))
+  igual('no se toma por temporada', !!doce.dataset.source.periodo?.soloEstePeriodo, false)
+  igual('ni sobra ninguna semana del año', doce.dataset.source.periodo?.semanasFuera, 0)
+  comprobar('el rango empieza en 2025', (doce.dataset.source.dateRange ?? '').startsWith('2025-11'), doce.dataset.source.dateRange)
+  igual('se pagan las 52 semanas', pago(doce.dataset.weeks, doce.dataset.year), 52)
+
+  // Y si el usuario elige solo 2026, se dice qué se queda fuera, con fechas.
+  const solo2026 = await leer(csvEntre('2025-11-04', '2026-11-01'), '12-meses.csv', { periodo: 'ano-2026' })
+  comprobar('eligiendo 2026, noviembre y diciembre de 2025 se quedan fuera', descarte(solo2026.descartes, 'fuera-del-ano') > 0)
+  const aviso = solo2026.advertencias.find((a) => a.codigo === 'varios-anos')?.mensaje ?? ''
+  comprobar('y el aviso dice los meses, no solo las filas', aviso.includes('noviembre') && aviso.includes('diciembre'), aviso)
+
+  // Dos años enteros: por defecto, las últimas 52 semanas.
+  const dos = await leer(csvEntre('2024-01-01', '2025-12-28'), 'dos-anos.csv')
+  igual('con dos años se usan las últimas 52 semanas', dos.periodoUsado, 'ultimas-52')
+  comprobar('se ofrecen los dos años sueltos', dos.periodos.some((o) => o.clave === 'ano-2024') && dos.periodos.some((o) => o.clave === 'ano-2025'))
+  comprobar('y se avisa de lo que queda fuera', tieneAviso(dos.advertencias, 'varios-anos'))
+
+  // Un año natural justo no tiene nada que elegir ni que avisar.
+  const natural = await leer(csvEntre('2025-01-01', '2025-12-31'), 'ano.csv')
+  igual('un año natural no ofrece periodos', natural.periodos.length, 1)
+  igual('ni avisa de varios años', tieneAviso(natural.advertencias, 'varios-anos'), false)
+
+  // M3 de cálculo. 13 semanas sin datos en primavera (cambio de TPV), con
+  // semanas normales a los dos lados: son datos que faltan, no un cierre.
+  const tpv = await leer(csvATrozos([['2025-01-06', '2025-03-30'], ['2025-06-30', '2025-12-28']]), 'cambio-tpv.csv')
+  const huecosTpv = (tpv.dataset.source as { huecos?: { cerrado: boolean; semanas: unknown[] }[] }).huecos ?? []
+  igual('se ve un hueco largo', huecosTpv.length, 1)
+  igual('de 13 semanas', huecosTpv[0]?.semanas.length, 13)
+  igual('y se propone como datos que faltan', huecosTpv[0]?.cerrado, false)
+  comprobar('se pregunta', tieneAviso(tpv.advertencias, 'hueco-en-el-fichero'))
+  igual('el local no pasa a ser de temporada: 52 semanas de pago', pago(tpv.dataset.weeks, tpv.dataset.year), 52)
+  const cerrado = aplicarHueco(tpv.dataset, 0, true)
+  igual('si dice que estuvo cerrado, se pagan 39', pago(cerrado.weeks, cerrado.year), 39)
+  const deVuelta = aplicarHueco(cerrado, 0, false)
+  igual('y si se arrepiente, vuelven las 52', pago(deVuelta.weeks, deVuelta.year), 52)
+
+  // Un cierre de verano de 9 semanas sí se propone como cierre.
+  const verano = await leer(csvATrozos([['2025-01-06', '2025-06-29'], ['2025-09-01', '2025-12-28']]), 'verano.csv')
+  const huecosVerano = (verano.dataset.source as { huecos?: { cerrado: boolean }[] }).huecos ?? []
+  igual('el hueco de verano se propone como cierre', huecosVerano[0]?.cerrado, true)
+
+  // Y unas vacaciones de tres semanas siguen siendo un cierre, sin preguntar.
+  const vacaciones = await leer(csvATrozos([['2025-01-06', '2025-04-06'], ['2025-04-28', '2025-12-28']]), 'vacaciones.csv')
+  igual('tres semanas cerradas no se preguntan', ((vacaciones.dataset.source as { huecos?: unknown[] }).huecos ?? []).length, 0)
+  igual('y siguen siendo cierre', vacaciones.dataset.weeks.filter((w) => w.relleno === 'hueco').length, 3)
+
+  // M1 de pantallas. Un local con movimiento que empieza el día 1: en las 400
+  // primeras filas no hay ningún día mayor que 12, pero en el fichero sí.
+  const movido = await leerYConstruir(
+    ficheroDe(aUtf8(csvConMovimiento('2025-11-01', '2026-10-31', 60)), 'movimiento.csv'),
+    { hoy },
+  )
+  igual('no avisa de que no sabe leer las fechas', tieneAviso(movido.advertencias, 'fecha-ambigua'), false)
+  igual('y las lee como día/mes', movido.formatoFecha, 'dd/mm')
+  const soloLeido = await leerFichero(ficheroDe(aUtf8(csvConMovimiento('2025-11-01', '2025-12-31', 60)), 'movimiento.csv'))
+  igual('tampoco en la lectura', tieneAviso(soloLeido.advertencias, 'fecha-ambigua'), false)
+}
+
+// ─────────────────────────────────────────────────────────────
+// 17. Ronda 8: los ficheros que más clientes van a subir
+// ─────────────────────────────────────────────────────────────
+//
+// G1: un fichero con solo fecha, hora e importe no entraba ("los comensales no
+// eran un número") y no había pantalla de columnas para arreglarlo.
+// G2: un detalle de ventas con una línea por producto contaba cada línea como
+// un ticket (609 comensales a la semana salían 1.828), y el consejo de marcar
+// la columna como "No la uses" bloqueaba el "Siguiente".
+// m2: las devoluciones se tiraban con un motivo falso y la venta seguía contando.
+// m5: las ventas iban con IVA y el ratio de coste salía más bajo de lo real.
+
+/** Generador con semilla: el mismo fichero en cada vuelta. */
+function azar(semilla: number) {
+  let s = semilla
+  return () => {
+    s = (s * 1103515245 + 12345) & 0x7fffffff
+    return s / 0x7fffffff
+  }
+}
+
+interface TicketDePrueba {
+  fecha: string
+  hora: string
+  importe: number
+}
+
+/** Tickets de comida y cena al azar, de lunes a domingo, durante `semanas`. */
+function ticketsAlAzar(semanas: number, porServicio: number, semilla = 3): TicketDePrueba[] {
+  const rnd = azar(semilla)
+  const fuera: TicketDePrueba[] = []
+  const inicio = Date.UTC(2025, 0, 6)
+  for (let d = 0; d < semanas * 7; d++) {
+    const t = new Date(inicio + d * 86_400_000)
+    const fecha = `${String(t.getUTCDate()).padStart(2, '0')}/${String(t.getUTCMonth() + 1).padStart(2, '0')}/${t.getUTCFullYear()}`
+    for (const [desde, hasta] of [[13 * 60 + 30, 16 * 60], [21 * 60, 23 * 60 + 30]]) {
+      for (let k = 0; k < porServicio; k++) {
+        const m = Math.floor(desde + rnd() * (hasta - desde))
+        const hora = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+        fuera.push({ fecha, hora, importe: Math.round((20 + rnd() * 80) * 100) / 100 })
+      }
+    }
+  }
+  return fuera
+}
+
+const eur = (v: number) => v.toFixed(2).replace('.', ',')
+
+async function pruebaRonda8() {
+  titulo('17 · Ronda 8: fichero con solo fecha, hora e importe (G1)')
+
+  const tickets = ticketsAlAzar(8, 12)
+  const csvImporte = ['Fecha;Hora;Importe', ...tickets.map((t) => `${t.fecha};${t.hora};${eur(t.importe)}`)].join('\n')
+  const g1 = await leerYConstruir(ficheroDe(aUtf8(csvImporte), 'solo-importe.csv'))
+  igual('las columnas: fecha, hora e importe', g1.fichero.columnas.map((c) => c.destino).join(','), 'fecha,hora,importe')
+  comprobar('ese mapeo deja seguir', mapeoSuficiente(g1.fichero.columnas))
+  igual('entran todas las filas', g1.filasUsadas, tickets.length)
+  igual('una fila, un ticket, a 2 comensales', totalDe(g1.dataset.weeks), tickets.length * 2)
+  comprobar('lo marca como estima y lo dice', g1.dataset.source.estimadoDesdeTickets && tieneAviso(g1.advertencias, 'comensales-estimados'))
+  comprobar('y sabe que cada fila es un ticket', g1.dataset.source.cadaFilaEsUnTicket === true)
+  comprobar('no se tira ninguna fila', g1.descartes.length === 0, JSON.stringify(g1.descartes))
+  comprobar('no confunde cobros sueltos con líneas de producto', !tieneAviso(g1.advertencias, 'lineas-por-ticket'))
+  const g1a3 = construirDatasetConDiagnostico(g1.fichero.filas, g1.fichero.columnas, { fileName: 'x', comensalesPorTicket: 3 })
+  igual('los comensales por ticket se pueden cambiar', totalDe(g1a3.dataset.weeks), tickets.length * 3)
+
+  // Agrupado por horas y con solo el importe: no son tickets, y se dice.
+  const porHoras = ['Fecha;Hora;Importe']
+  for (let d = 0; d < 60; d++) {
+    const t = new Date(Date.UTC(2025, 0, 6) + d * 86_400_000)
+    const fecha = `${String(t.getUTCDate()).padStart(2, '0')}/${String(t.getUTCMonth() + 1).padStart(2, '0')}/${t.getUTCFullYear()}`
+    for (const h of [13, 14, 15, 20, 21, 22]) porHoras.push(`${fecha};${h}:00;${eur(400 + d)}`)
+  }
+  const agrupado = await leerYConstruir(ficheroDe(aUtf8(porHoras.join('\n')), 'por-horas.csv'))
+  igual('un fichero por horas con solo importe no inventa tickets', agrupado.filasUsadas, 0)
+  igual('y dice por qué', descarte(agrupado.descartes, 'sin-cantidad'), porHoras.length - 1)
+
+  titulo('17 bis · Una línea por producto (G2)')
+
+  // Tres líneas por ticket, el total repetido en cada una (como el banco del revisor).
+  const porProducto = [
+    'Fecha;Hora;Ticket;Articulo;Importe',
+    ...tickets.flatMap((t, i) =>
+      ['Menu', 'Cerveza', 'Cafe'].map((a) => `${t.fecha};${t.hora};T${String(i + 1).padStart(7, '0')};${a};${eur(t.importe)}`),
+    ),
+  ].join('\n')
+  const g2 = await leerYConstruir(ficheroDe(aUtf8(porProducto), 'por-producto.csv'))
+  igual('cuenta tickets, no líneas', totalDe(g2.dataset.weeks), tickets.length * 2)
+  igual('el mismo resultado que el fichero de un ticket por fila', totalDe(g2.dataset.weeks), totalDe(g1.dataset.weeks))
+  comprobar('y lo dice', tieneAviso(g2.advertencias, 'lineas-por-ticket'))
+  igual('el total repetido en cada línea se cuenta una vez', g2.dataset.source.ventasSemanaNormal, g1.dataset.source.ventasSemanaNormal)
+  igual('ninguna línea se cae: entran las tres de cada ticket', g2.filasUsadas, tickets.length * 3)
+
+  // El consejo de antes, "márcala como No la uses", ya no es una pared.
+  const sinTicket = g2.fichero.columnas.map((c) => (c.destino === 'tickets' ? { ...c, destino: 'ignorada' as const } : c))
+  comprobar('marcar el ticket como "No la uses" no bloquea el Siguiente', mapeoSuficiente(sinTicket))
+  const g2b = construirDatasetConDiagnostico(g2.fichero.filas, sinTicket, { fileName: 'x' })
+  igual('y sin número de ticket junta las líneas por fecha, hora y total', totalDe(g2b.dataset.weeks), tickets.length * 2)
+  comprobar('diciéndolo', tieneAviso(g2b.advertencias, 'lineas-por-ticket'))
+
+  // Cada línea con su propio importe, y el ticket con número de documento numérico.
+  const lineasPropias = [
+    'Fecha;Hora;Num_ticket;Producto;Importe',
+    ...tickets.flatMap((t, i) => [
+      `${t.fecha};${t.hora};${100000 + i};Menu;${eur(12)}`,
+      `${t.fecha};${t.hora};${100000 + i};Vino;${eur(4.5)}`,
+    ]),
+  ].join('\n')
+  const g2c = await leerYConstruir(ficheroDe(aUtf8(lineasPropias), 'lineas.csv'))
+  igual('un número de ticket numérico no se multiplica', totalDe(g2c.dataset.weeks), tickets.length * 2)
+  const semanasConVentas = g2c.dataset.source.semanasConVentas ?? 0
+  comprobar('el importe de cada ticket es la suma de sus líneas', semanasConVentas > 0)
+  igual(
+    'una semana normal: 168 tickets × 16,50 €, sin IVA',
+    g2c.dataset.source.ventasSemanaNormal,
+    Math.round((7 * 24 * 16.5) / 1.1),
+  )
+
+  const sinNumero = g2c.fichero.columnas.map((c) => (c.destino === 'tickets' ? { ...c, destino: 'ignorada' as const } : c))
+  const g2d = construirDatasetConDiagnostico(g2c.fichero.filas, sinNumero, { fileName: 'x' })
+  // Sin número ni total repetido, dos mesas que pagan en el mismo minuto se
+  // juntan en una: sale algo por debajo, nunca el doble que salía antes.
+  const juntas = totalDe(g2d.dataset.weeks)
+  const buenas = totalDe(g2c.dataset.weeks)
+  comprobar(
+    'sin número y con cada línea a su precio, junta por fecha y hora (a menos de un 10 %)',
+    juntas <= buenas && juntas >= buenas * 0.9,
+    `salen ${juntas} de ${buenas}`,
+  )
+
+  // Una columna de tickets que CUENTA sigue sumándose.
+  comprobar('la regla de cantidad de la segunda opinión sigue en pie', !mapeoConCantidad(sinTicket) && mapeoConCantidad(g2.fichero.columnas))
+
+  titulo('17 ter · Devoluciones (m2)')
+
+  const conDevolucion = [
+    'Fecha;Hora;Importe;Comensales',
+    '14/06/2025;14:00;80,00;4',
+    '14/06/2025;14:05;-80,00;-4',
+    '14/06/2025;14:30;50,00;2',
+    '14/06/2025;21:00;30,00;3',
+    '14/06/2025;21:40;-12,00;-1',
+  ].join('\n')
+  const dv = await leerYConstruir(ficheroDe(aUtf8(conDevolucion), 'devoluciones.csv'))
+  igual('la devolución no se tira como "no era un número"', descarte(dv.descartes, 'comensales-ilegibles'), 0)
+  igual('se cuentan las 2 devoluciones como tales', descarte(dv.descartes, 'devolucion'), 2)
+  igual('y se quita la venta que anula (la de 80 €)', descarte(dv.descartes, 'venta-devuelta'), 1)
+  igual('quedan 5 comensales: los de 14:30 y 21:00', totalDe(dv.dataset.weeks), 5)
+  const contadas = dv.descartes.reduce((a, d) => a + d.filas, 0)
+  igual('nada se cae en silencio', dv.filasUsadas + contadas, dv.filasLeidas)
+  comprobar('el motivo dice lo que pasa', (dv.descartes.find((d) => d.motivo === 'devolucion')?.mensaje ?? '').includes('devolución'))
+
+  const csvDevSinComensales = [
+    'Fecha;Hora;Importe',
+    ...tickets.map((t) => `${t.fecha};${t.hora};${eur(t.importe)}`),
+    `${tickets[5].fecha};${tickets[5].hora};-${eur(tickets[5].importe)}`,
+  ].join('\n')
+  const dv2 = await leerYConstruir(ficheroDe(aUtf8(csvDevSinComensales), 'dev-importe.csv'))
+  igual('sin comensales, el importe en negativo es la devolución', descarte(dv2.descartes, 'devolucion'), 1)
+  igual('y quita su venta', totalDe(dv2.dataset.weeks), (tickets.length - 1) * 2)
+
+  titulo('17 quater · Ventas sin IVA (m5)')
+
+  const iva = g1.dataset.source
+  comprobar('las ventas del fichero salen sin IVA', iva.ventasSemanaNormal !== null && iva.ventasSemanaNormalConIva !== null)
+  igual('dividiendo entre 1,10', iva.ventasSemanaNormal, Math.round((iva.ventasSemanaNormalConIva ?? 0) / 1.1))
+  igual('y guarda qué IVA se ha quitado', iva.ivaDescontado, 0.1)
+  comprobar('y lo dice', tieneAviso(g1.advertencias, 'importe-con-iva'))
+  const base = await leerYConstruir(ficheroDe(aUtf8(csvImporte.replace('Fecha;Hora;Importe', 'Fecha;Hora;Base imponible')), 'base.csv'))
+  igual('una columna de base imponible no se toca', base.dataset.source.ivaDescontado, null)
+  igual('y se usa tal cual', base.dataset.source.ventasSemanaNormal, iva.ventasSemanaNormalConIva)
+}
+
 async function main() {
   pruebaNumeros()
   await pruebaLatin1()
@@ -709,6 +1048,9 @@ async function main() {
   await pruebaFicheroPorHoras()
   await pruebaFicheroPorDia()
   await pruebaFormatoALaFuerza()
+  await pruebaPeriodoDelFichero()
+  await pruebaRonda7()
+  await pruebaRonda8()
 
   console.log(`\n\x1b[1m${pasadas} comprobaciones pasadas, ${fallos.length} fallidas\x1b[0m`)
   if (fallos.length > 0) {

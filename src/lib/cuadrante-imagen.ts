@@ -12,7 +12,8 @@
  */
 
 import type { DayIndex, Person, Roster, Shift, StaffingModel } from '@/lib/types'
-import { DAYS, formatMin, formatRange } from '@/lib/time'
+import { DAYS, formatMin } from '@/lib/time'
+import { LEYENDA_CODIGOS, codigoTurno, tramoCorto, diaLargo, publicarAntesDe, rangoSemana, sumarDias } from '@/lib/semana'
 
 // Mismos colores que `report.ts` (no se exportan desde allí, así que se
 // repiten aquí: es la única forma de no tocar ese fichero).
@@ -318,7 +319,9 @@ export async function compartirTurnoPersona(
 const MM_PER_PT = 0.3528
 const PAGE_MARGIN = 14
 const CELL_PAD = 2.2
-const NAME_COL_W = 40
+const NAME_COL_W = 34
+/** Columna de horas de la semana, a la derecha. */
+const HOURS_COL_W = 11
 
 /** Altura aproximada de una línea de texto a un tamaño de letra dado, en mm
  *  (el documento trabaja en mm; el tamaño de letra, en puntos). No hace
@@ -373,21 +376,34 @@ function shiftsByPersonDayKey(shifts: Shift[]): Map<string, Shift[]> {
 function dayCellLines(byPersonDay: Map<string, Shift[]>, personId: string, day: number): string[] {
   const list = byPersonDay.get(`${personId}|${day}`) ?? []
   const blocks = list.flatMap((s) => s.blocks).sort((a, b) => a.startMin - b.startMin)
-  if (blocks.length === 0) return ['Libra']
-  return blocks.map((b) => formatRange(b.startMin, b.endMin))
+  if (blocks.length === 0) return ['L']
+  // El código va delante (M, T o P), como en los cuadrantes de pared de toda
+  // la vida: se lee de lejos, y la hora debajo es para quien se acerca.
+  // Código y primer tramo en la misma línea, con horas cortas ("P 13-17:30"
+  // y debajo "19:30-24"): así una plantilla de veintitantas cabe en una hoja.
+  const tramos = blocks.map((b) => tramoCorto(b.startMin, b.endMin))
+  return [`${codigoTurno({ ...list[0], blocks })}  ${tramos[0]}`, ...tramos.slice(1)]
 }
 
 /**
- * PDF A4 con el cuadrante entero, para colgar en cocina: cero euros, cero
- * costes, cero holgura —esto lo ve todo el turno—, solo quién trabaja, qué
- * día y a qué hora.
+ * PDF A4 con el cuadrante entero, para colgar en la pared o mandar al grupo:
+ * cero euros, cero costes, cero holgura (esto lo ve toda la plantilla), solo
+ * quién trabaja, qué día, a qué hora y cuántas horas suma cada uno.
+ *
+ * Con `opciones.lunes` sale con las fechas de esa semana y el día hasta el
+ * que hay que publicarlo; con `opciones.turnos`, los de esa semana de la
+ * rueda en vez de los del cuadrante tipo.
  *
  * Prueba tamaños de letra de mayor a menor y se queda con el más grande que
  * quepa entero en una página; si ni el más pequeño de la lista cabe, sigue
  * en una segunda página con ese mismo tamaño en vez de seguir encogiendo
  * hasta la letra ilegible.
  */
-export async function descargarCuadranteCocina(roster: Roster, model: StaffingModel): Promise<void> {
+export async function descargarCuadranteCocina(
+  roster: Roster,
+  model: StaffingModel,
+  opciones: { lunes?: Date; turnos?: Shift[]; nota?: string } = {},
+): Promise<void> {
   // jsPDF pesa ~130 KB gzip: se carga solo cuando hace falta, igual que en
   // `report.ts`, para no penalizar el arranque de la herramienta por un
   // botón que solo se usa al final del flujo.
@@ -396,16 +412,26 @@ export async function descargarCuadranteCocina(roster: Roster, model: StaffingMo
   const W = doc.internal.pageSize.getWidth()
   const H = doc.internal.pageSize.getHeight()
   const usableW = W - PAGE_MARGIN * 2
-  const dayColW = (usableW - NAME_COL_W) / 7
+  const dayColW = (usableW - NAME_COL_W - HOURS_COL_W) / 7
   const dateLabel = new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())
+  const { lunes } = opciones
+  const turnos = opciones.turnos ?? roster.shifts
 
   const people = orderedPeople(roster, model)
-  const byPersonDay = shiftsByPersonDayKey(roster.shifts)
-  const dayHeaders = DAYS.map((d) => d.slice(0, 3).toUpperCase())
+  const byPersonDay = shiftsByPersonDayKey(turnos)
+  const dayHeaders = DAYS.map((d, i) =>
+    lunes ? `${d.slice(0, 3).toUpperCase()} ${sumarDias(lunes, i).getDate()}` : d.slice(0, 3).toUpperCase(),
+  )
+  const horasDe = new Map<string, number>()
+  for (const sh of turnos) horasDe.set(sh.personId, (horasDe.get(sh.personId) ?? 0) + sh.hours)
+  const enElLocal = Array.from({ length: 7 }, (_, d) => new Set(turnos.filter((sh) => sh.day === d).map((sh) => sh.personId)).size)
 
   const dayColLeft = (d: number) => PAGE_MARGIN + NAME_COL_W + dayColW * d
-  const colRight = dayColLeft(7)
-  const vLines = [PAGE_MARGIN, PAGE_MARGIN + NAME_COL_W, ...Array.from({ length: 7 }, (_, d) => dayColLeft(d + 1))]
+  const hoursLeft = dayColLeft(7)
+  const colRight = hoursLeft + HOURS_COL_W
+  const vLines = [PAGE_MARGIN, PAGE_MARGIN + NAME_COL_W, ...Array.from({ length: 7 }, (_, d) => dayColLeft(d + 1)), colRight]
+  const titulo = lunes ? `Cuadrante ${rangoSemana(lunes)}` : 'Cuadrante de la semana'
+  const sub = lunes ? `Publicar como tarde el ${diaLargo(publicarAntesDe(lunes))}` : `Generado el ${dateLabel}`
 
   /** Cabecera y pie: iguales en cada página. Devuelve la Y donde puede
    *  arrancar la tabla. */
@@ -413,12 +439,12 @@ export async function descargarCuadranteCocina(roster: Roster, model: StaffingMo
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(17)
     doc.setTextColor(...hexToRgb(BRAND))
-    doc.text('Cuadrante de cocina', PAGE_MARGIN, PAGE_MARGIN + 4)
+    doc.text(titulo, PAGE_MARGIN, PAGE_MARGIN + 4)
 
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9.5)
     doc.setTextColor(...hexToRgb(MUTED))
-    doc.text(`Generado el ${dateLabel}`, W - PAGE_MARGIN, PAGE_MARGIN + 4, { align: 'right' })
+    doc.text(sub, W - PAGE_MARGIN, PAGE_MARGIN + 4, { align: 'right' })
 
     const lineY = PAGE_MARGIN + 9
     doc.setDrawColor(...hexToRgb(LINE))
@@ -427,13 +453,17 @@ export async function descargarCuadranteCocina(roster: Roster, model: StaffingMo
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(7.5)
     doc.setTextColor(...hexToRgb(MUTED))
-    doc.text('Generado con el planificador gratuito de Shifty · shifty.es', PAGE_MARGIN, H - 8)
+    const leyenda = (Object.keys(LEYENDA_CODIGOS) as (keyof typeof LEYENDA_CODIGOS)[])
+      .map((k) => `${k}: ${LEYENDA_CODIGOS[k].toLowerCase()}`)
+      .join(' · ')
+    doc.text(opciones.nota ? `${leyenda}. ${opciones.nota}` : leyenda, PAGE_MARGIN, H - 12, { maxWidth: usableW })
+    doc.text('Generado con el planificador gratuito de Shifty · shifty.es', PAGE_MARGIN, H - 6)
 
     return lineY + 6
   }
 
   const tableTop = drawChrome()
-  const tableBottom = H - 14
+  const tableBottom = H - 18
 
   if (people.length === 0) {
     // Sin plantilla no hay tabla que dibujar, pero el PDF tiene que salir
@@ -442,27 +472,32 @@ export async function descargarCuadranteCocina(roster: Roster, model: StaffingMo
     doc.setFontSize(11)
     doc.setTextColor(...hexToRgb(MUTED))
     doc.text('No hay personas en el cuadrante todavía.', PAGE_MARGIN, tableTop + 10)
-    doc.save('cuadrante-cocina.pdf')
+    doc.save('cuadrante.pdf')
     return
   }
 
   // Las líneas de cada celda no cambian entre tamaños de letra candidatos:
   // se calculan una sola vez.
+  // Si la persona aún se llama como su puesto ("Camarero 3"), repetir el
+  // puesto debajo solo gasta una línea por fila.
   const rows = people.map(({ person, roleName }) => ({
     person,
-    roleName,
+    roleName: person.label.startsWith(roleName) ? '' : roleName,
     days: Array.from({ length: 7 }, (_, d) => dayCellLines(byPersonDay, person.id, d)),
+    horas: `${hoursFmt.format(horasDe.get(person.id) ?? 0)} h`,
   }))
 
   // ── Elegir el tamaño de letra más grande que quepa en una sola página ──
-  const CANDIDATES = [11, 9.5, 8, 7]
+  const CANDIDATES = [11, 9.5, 8, 7, 6.5]
   let fontSize = CANDIDATES[CANDIDATES.length - 1]
   let headerRowH = 0
   let rowHeights: number[] = []
+  let footRowH = 0
 
   for (const fs of CANDIDATES) {
     const roleFs = Math.max(6, fs - 1.5)
     headerRowH = lineHeightMm(fs) + CELL_PAD * 2 + 1.2
+    footRowH = headerRowH
 
     rowHeights = rows.map((row) => {
       doc.setFont('helvetica', 'bold')
@@ -470,7 +505,7 @@ export async function descargarCuadranteCocina(roster: Roster, model: StaffingMo
       const nameLines: string[] = doc.splitTextToSize(row.person.label, NAME_COL_W - CELL_PAD * 2)
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(roleFs)
-      const roleLines: string[] = doc.splitTextToSize(row.roleName, NAME_COL_W - CELL_PAD * 2)
+      const roleLines: string[] = row.roleName ? doc.splitTextToSize(row.roleName, NAME_COL_W - CELL_PAD * 2) : []
       const nameBlockH = nameLines.length * lineHeightMm(fs) + roleLines.length * lineHeightMm(roleFs)
 
       doc.setFont('helvetica', 'bold')
@@ -487,7 +522,7 @@ export async function descargarCuadranteCocina(roster: Roster, model: StaffingMo
       return Math.max(nameBlockH, dayBlockH) + CELL_PAD * 2
     })
 
-    const total = headerRowH + rowHeights.reduce((a, b) => a + b, 0)
+    const total = headerRowH + footRowH + rowHeights.reduce((a, b) => a + b, 0)
     fontSize = fs
     if (total <= tableBottom - tableTop) break // cabe entera en una página: nos quedamos con esta letra
   }
@@ -510,6 +545,7 @@ export async function descargarCuadranteCocina(roster: Roster, model: StaffingMo
     dayHeaders.forEach((label, d) => {
       doc.text(label, dayColLeft(d) + dayColW / 2, y + headerRowH - CELL_PAD - 1, { align: 'center' })
     })
+    doc.text('H', hoursLeft + HOURS_COL_W / 2, y + headerRowH - CELL_PAD - 1, { align: 'center' })
     drawGridLines(y, headerRowH)
   }
 
@@ -547,31 +583,55 @@ export async function descargarCuadranteCocina(roster: Roster, model: StaffingMo
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(roleFs)
     doc.setTextColor(...hexToRgb(MUTED))
-    const roleLines: string[] = doc.splitTextToSize(row.roleName, NAME_COL_W - CELL_PAD * 2)
+    const roleLines: string[] = row.roleName ? doc.splitTextToSize(row.roleName, NAME_COL_W - CELL_PAD * 2) : []
     const roleTop = CELL_PAD + nameLines.length * lineHeightMm(fontSize)
     roleLines.forEach((line, li) => {
       doc.text(line, PAGE_MARGIN + CELL_PAD, y + roleTop + lineHeightMm(roleFs) * (li + 0.8))
     })
 
     row.days.forEach((cell, d) => {
-      const isOff = cell.length === 1 && cell[0] === 'Libra'
-      doc.setFont('helvetica', isOff ? 'normal' : 'bold')
-      doc.setFontSize(fontSize)
-      doc.setTextColor(...(isOff ? hexToRgb(MUTED) : hexToRgb(INK)))
+      const isOff = cell.length === 1 && cell[0] === 'L'
       const cx = dayColLeft(d) + dayColW / 2
       let lineOffset = 0
-      for (const line of cell) {
+      cell.forEach((line, li) => {
+        // El código, en negrita y de marca; las horas, normales debajo.
+        doc.setFont('helvetica', li === 0 ? 'bold' : 'normal')
+        doc.setFontSize(li === 0 ? fontSize : Math.max(6, fontSize - 1))
+        doc.setTextColor(...(isOff ? hexToRgb(MUTED) : li === 0 ? hexToRgb(BRAND_DARK) : hexToRgb(INK)))
         const wrapped: string[] = doc.splitTextToSize(line, dayColW - CELL_PAD * 2)
         wrapped.forEach((wLine) => {
           doc.text(wLine, cx, y + CELL_PAD + lineHeightMm(fontSize) * (lineOffset + 0.8), { align: 'center' })
           lineOffset += 1
         })
-      }
+      })
     })
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(Math.max(6, fontSize - 1))
+    doc.setTextColor(...hexToRgb(INK))
+    doc.text(row.horas, hoursLeft + HOURS_COL_W / 2, y + CELL_PAD + lineHeightMm(fontSize) * 0.8, { align: 'center' })
 
     drawGridLines(y, h)
     y += h
   })
 
-  doc.save('cuadrante-cocina.pdf')
+  // Última fila: cuánta gente hay cada día, que es lo primero que mira quien
+  // cuadra un servicio.
+  if (y + footRowH > tableBottom) {
+    doc.addPage()
+    drawChrome()
+    y = tableTop
+  }
+  doc.setFillColor(...hexToRgb(LIGHT))
+  doc.rect(PAGE_MARGIN, y, usableW, footRowH, 'F')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(Math.max(6, fontSize - 1))
+  doc.setTextColor(...hexToRgb(BRAND_DARK))
+  doc.text('Trabajan', PAGE_MARGIN + CELL_PAD, y + footRowH - CELL_PAD - 1)
+  enElLocal.forEach((n, d) => {
+    doc.text(String(n), dayColLeft(d) + dayColW / 2, y + footRowH - CELL_PAD - 1, { align: 'center' })
+  })
+  drawGridLines(y, footRowH)
+
+  doc.save(lunes ? `cuadrante-${lunes.getFullYear()}-${String(lunes.getMonth() + 1).padStart(2, '0')}-${String(lunes.getDate()).padStart(2, '0')}.pdf` : 'cuadrante.pdf')
 }

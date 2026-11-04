@@ -13,19 +13,21 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ArrowUpRight,
+  CalendarDays,
   Clock,
   Download,
   FileText,
   Gauge,
   Layers,
   Link as LinkIcon,
+  Printer,
   ChevronDown,
   RotateCcw,
   Save,
   Table2,
   Users,
 } from 'lucide-react'
-import { Badge, Button, Card, CardHeader, InfoTip, Modal, Note, NumberInput, Stat, cn } from '@/components/ui'
+import { Badge, Button, Card, CardHeader, InfoTip, Modal, Note, NumberInput, Segmented, Stat, cn } from '@/components/ui'
 import { CuentaModal } from '@/components/CuentaModal'
 import { AvisosCuadrante } from '@/components/AvisosCuadrante'
 import { CriteriaModal, type Criterion } from '@/components/CriteriaModal'
@@ -35,20 +37,37 @@ import { SubNav, SubProgress } from '@/components/SubSteps'
 import { DayCurve } from '@/components/charts/DayCurve'
 import { WeekHeatmap } from '@/components/charts/WeekHeatmap'
 import { YearChart } from '@/components/charts/YearChart'
-import { usePlanner } from '@/hooks/usePlanner'
-import { WEEKS_PER_YEAR, describeMix, fteFrom, summarizeCost } from '@/lib/contracts'
-import { riskRatio } from '@/lib/demand'
+import { usePlanner, ventasDelFichero } from '@/hooks/usePlanner'
+import { WEEKS_PER_YEAR, baseDeCoste, describeMix, fteFrom, jornadasTexto, summarizeCost, temporadaDelLocal } from '@/lib/contracts'
+import {
+  VOLUNTARIAS_PCT,
+  bolsaComplementarias,
+  coberturaAusencias,
+  jornadasParaCubrir,
+  picosConComplementarias,
+  temporadaAlta,
+  vacacionesEnSemanasFlojas,
+} from '@/lib/ausencias'
+import { esMando } from '@/lib/roster'
+import { preparacionRecortada } from '@/lib/necesidad'
+import { KITCHEN_BLOCK_ID } from '@/data/presets'
+import { describirDuraciones, serviciosDelCobro } from '@/lib/demand'
 import { comprobacionesHechas, revisarCuadrante } from '@/lib/avisos'
-import { calcularMetricas } from '@/lib/metricas'
+import { calcularMetricas, contarPartidas, fraseHorasDeMas } from '@/lib/metricas'
+import { calcularRueda, primerLunesPublicable } from '@/lib/semana'
 import { urlDelPlan } from '@/lib/compartir'
-import { downloadPlanCsv } from '@/lib/export'
+import { downloadCuadranteCsv, downloadPlanCsv } from '@/lib/export'
+import { descargarCuadranteCocina } from '@/lib/cuadrante-imagen'
+import { hayBackend } from '@/lib/supabase'
+import { peakOf } from '@/lib/demand'
+import { tramoSuperado } from '@/lib/staffing'
 import { descargarInforme } from '@/lib/informe'
 import type { InformeInput } from '@/lib/informe'
-import { DAYS, DAYS_SHORT, formatSlot } from '@/lib/time'
+import { DAYS, DAYS_SHORT, formatSlot, slotStartMin } from '@/lib/time'
 import type { DayIndex } from '@/lib/types'
 
-const nf = new Intl.NumberFormat('es-ES')
-const nf1 = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 })
+const nf = new Intl.NumberFormat('es-ES', { useGrouping: true })
+const nf1 = new Intl.NumberFormat('es-ES', { useGrouping: true, maximumFractionDigits: 1 })
 // `useGrouping`: en es-ES, sin esto, un número de cuatro cifras sale
 // sin punto de millar ("7650 €") y al lado de uno de seis que sí lo lleva
 // parece un error de la herramienta.
@@ -56,6 +75,14 @@ const eur = new Intl.NumberFormat('es-ES', {
   style: 'currency',
   currency: 'EUR',
   maximumFractionDigits: 0,
+  useGrouping: true,
+})
+/** Para precios por hora, que sin céntimos no se pueden comparar con 18,81. */
+const eur2 = new Intl.NumberFormat('es-ES', {
+  style: 'currency',
+  currency: 'EUR',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
   useGrouping: true,
 })
 
@@ -78,6 +105,28 @@ const RESULT_SUBSTEPS = [
   { id: 'shifty', label: 'Con Shifty' },
   { id: 'llevatelo', label: 'Llévatelo' },
 ]
+
+/** Coste de personal sobre ventas, con la Seguridad Social de la empresa dentro: sano hasta 30 %, alarma por encima de 35 %. */
+const RATIO_SANO = 30
+const RATIO_ALARMA = 35
+
+/** "31 a 35, 1 y 2": semanas en rachas, para leerse de un vistazo. */
+function rachas(semanas: number[]): string {
+  const ord = [...new Set(semanas)].sort((a, b) => a - b)
+  const trozos: string[] = []
+  for (let i = 0; i < ord.length; i++) {
+    let j = i
+    while (j + 1 < ord.length && ord[j + 1] === ord[j] + 1) j++
+    // Dos seguidas van sueltas, para que la "y" caiga en su sitio: "45, 47 y 48",
+    // no "45 y 47, 48".
+    if (j - i >= 2) trozos.push(`${ord[i]} a ${ord[j]}`)
+    else if (j > i) trozos.push(`${ord[i]}`, `${ord[j]}`)
+    else trozos.push(`${ord[i]}`)
+    i = j
+  }
+  if (trozos.length <= 1) return trozos.join('')
+  return `${trozos.slice(0, -1).join(', ')} y ${trozos[trozos.length - 1]}`
+}
 
 /** Cobertura mínima y máxima que se deja elegir con la línea. */
 const MIN_PCT = 20
@@ -193,8 +242,11 @@ export function StepResult() {
   const mix = describeMix(plan.allocations, settings.contracts)
   const fte = fteFrom(plan)
   const peakWeekCount = peaks.peakWeeks.length
-  const ratio = riskRatio(settings.coveragePct)
-  const slackPct = plan.contractedHours > 0 ? Math.round((plan.slackHours / plan.contractedHours) * 100) : 0
+  // Un solo porcentaje en toda la herramienta: sobre lo que pide el servicio,
+  // el mismo que la frase de debajo (ronda 5, G1 de pantallas).
+  const slackPct = plan.neededHours > 0 ? Math.round((plan.slackHours / plan.neededHours) * 100) : 0
+  const partidas = roster ? contarPartidas(roster) : 0
+  const fraseDeMas = plan.slackDesglose ? fraseHorasDeMas(plan.slackDesglose, plan.neededHours, settings) : null
 
   const dayIdx: DayIndex = dayOverride ?? needSummary.peak.day
 
@@ -213,7 +265,38 @@ export function StepResult() {
    * el "si los contratases" sale de `worstWeek`, con la media como red por si
    * no hay ninguna semana punta identificada.
    */
-  const extraPeopleIfHired = peaks.worstWeek?.extraPeople ?? peaks.avgExtraPeople
+  // Lo que hay que meter en nómina para la peor semana: la mayor entre la
+  // gente de más a la vez y las jornadas que piden sus horas (ronda 5, G2 de
+  // pantallas). Antes salía "2 personas fijas más" para 187 h que faltan.
+  // Ronda 7 (G2 de cálculo): las personas, sus horas de contrato y la gente
+  // de más a la vez son tres cifras distintas, y ninguna es "jornadas
+  // completas". Las jornadas salen de las horas, con un decimal.
+  const extraPeopleIfHired =
+    peaks.worstWeek?.personasParaContratar ?? peaks.worstWeek?.extraPeople ?? peaks.avgExtraPeople
+  /** Cuánta gente más coincide a la vez en el peor momento de esa semana, frente a una semana normal. */
+  const extraALaVez = peaks.worstWeek?.extraPeople ?? null
+  /** Horas de contrato a la semana que sumarían esas personas: lo que se paga todo el año. */
+  const horasContratoPico = peaks.worstWeek?.horasContratoSemana ?? extraPeopleIfHired * 40
+  const jornadasPico = peaks.worstWeek?.jornadasPorHoras ?? null
+  /** "La semana más exigente pide 85 h más (unas 2,1 jornadas completas) y hasta 7 personas más a la vez". */
+  const fraseSemanaPico = peaks.worstWeek
+    ? `La semana más exigente pide ${nf.format(peaks.worstWeek.extraHours)} h más${jornadasPico !== null ? ` (${jornadasTexto(jornadasPico)})` : ''}${
+        extraALaVez !== null && extraALaVez > 0
+          ? ` y hasta ${extraALaVez} ${plural(extraALaVez, 'persona', 'personas')} más a la vez en su momento más fuerte`
+          : ', sin más gente a la vez que una semana normal'
+      }`
+    : ''
+  /**
+   * Ronda 8 (M3): si la peor semana no pide más gente a la vez, el pico se
+   * cubre con más horas de los mismos o con refuerzo, y contratar fijo es la
+   * opción descartada. Antes el mismo bloque decía "son más horas, no más
+   * gente" y debajo, en grande, "10 personas fijas más".
+   */
+  const picoSoloHoras = extraALaVez === 0
+  const contratosPicoTexto = `${extraPeopleIfHired === 1 ? `un contrato de ${nf.format(horasContratoPico)} h` : `${extraPeopleIfHired} contratos que suman ${nf.format(horasContratoPico)} h`} a la semana`
+  /** Semanas que se pagan al año: 52, o las abiertas en un local de temporada (ronda 5). */
+  const temporadaLocal = temporadaDelLocal(specials)
+  const semanasDePago = temporadaLocal.semanasDePago
 
   /**
    * Las semanas punta escritas una a una. Es la prueba de que la necesidad es
@@ -249,52 +332,164 @@ export function StepResult() {
   // semanal, ni anual, ni ratio sobre ventas, ni precio de los picos. Apagarlo
   // en cada sitio por separado es como se acaba colando un euro suelto en una
   // pantalla que prometía no hablar de dinero.
-  const cost = (settings.calcularCostes ?? false) ? summarizeCost(roster, model) : null
+  const cost = (settings.calcularCostes ?? false) ? summarizeCost(roster, model, settings, semanasDePago) : null
+  /** Por cuánto se multiplica la cifra del catálogo para tener coste de empresa (1 en un plan de antes). */
+  const factorCoste = baseDeCoste(settings).factor
+  /** El coste de cada puesto, del mismo resumen que el total (con la nocturnidad). */
+  // En euros enteros que suman el total (ronda 7, m6).
+  const costePorPuesto = cost ? new Map(cost.byRole.map((r) => [r.roleId, r.weeklyEurEntero])) : undefined
   const weeklyCostEur = cost?.weeklyEur ?? null
   const annualCostEur = cost?.annualEur ?? null
   const avgHourlyCost = cost?.avgHourlyEur ?? null
-  // 52 semanas, no las analizadas: a esa gente se le paga el año entero, que
-  // es justamente el argumento.
+  // Las semanas de pago, no las analizadas: a esa gente se le paga todo lo
+  // que el local abre, que es justamente el argumento.
   const peakHiredAnnualCostEur = avgHourlyCost
-    ? extraPeopleIfHired * 40 * WEEKS_PER_YEAR * avgHourlyCost
+    ? horasContratoPico * semanasDePago * avgHourlyCost
     : null
-  const peakOnlyAnnualCostEur = avgHourlyCost ? peaks.peakHoursPerYear * avgHourlyCost : null
+  // Peras con peras: la hora de un refuerzo se compara con lo que te cuesta
+  // una hora TRABAJADA de tu gente (con Seguridad Social, vacaciones y
+  // festivos), no con la hora de contrato, que esconde las semanas que se
+  // pagan sin trabajarse.
+  const costeHoraTrabajada = cost?.costeHoraTrabajadaEur ?? null
+  const peakOnlyAnnualCostEur = costeHoraTrabajada ? peaks.peakHoursPerYear * costeHoraTrabajada : null
+
+  /**
+   * Cuando falta alguien (ronda 2, puntos 5, 6 y 26). El cuadrante es una semana
+   * con todos presentes; en el año, cada persona falta unas siete semanas. Ver
+   * `lib/ausencias.ts`.
+   */
+  const ausencias = coberturaAusencias(roster.people, settings, 40, semanasDePago, temporadaLocal.semanasCerradas)
+  const horasServicioSemana = p.needSummaryDemand?.totalHours ?? needSummary.totalHours
+  const horasFijasSemana = Math.max(0, needSummary.totalHours - horasServicioSemana)
+  const flojas = vacacionesEnSemanasFlojas(weeks, coverage.threshold, horasServicioSemana, ausencias.horasVacaciones)
+  const horasAusenciaTrasFlojas = Math.max(0, ausencias.horasACubrirAno - flojas.horasAbsorbidas)
+  const jornadasTrasFlojas = jornadasParaCubrir(horasAusenciaTrasFlojas, ausencias.tiempo, 40, semanasDePago)
+  // Ronda 3: por HORAS a lo que cuesta una hora trabajada, la misma cifra que
+  // se enseña en "Por qué" y en "Con Shifty". Antes iba por jornadas × 52
+  // semanas, que mete además las bajas de quien cubre, y salía otro precio por
+  // hora (17,88 frente a 16,81 con el ejemplo) para la misma plantilla.
+  const costeAusenciasEur = costeHoraTrabajada !== null ? horasAusenciaTrasFlojas * costeHoraTrabajada : null
+  /** El coste de cubrir las ausencias, por semana: entra en el ratio sobre ventas. */
+  const costeAusenciasSemanaEur = costeAusenciasEur !== null ? costeAusenciasEur / semanasDePago : null
+  // Las semanas del calendario, no las que quedan en el análisis (ronda 5,
+  // m2): con 48 semanas usables, la racha 46 a 49 no se reconocía.
+  const temporada = temporadaAlta(peaks.peakWeeks, Math.max(WEEKS_PER_YEAR, ...weeks.map((w) => w.isoWeek)))
+  /** Cuántas veces el bruto por hora de contrato cuesta una hora trabajada: Seguridad Social y semanas pagadas sin trabajar. */
+  // Con `factorCoste`, y no con la cotización a pelo: si el catálogo ya es
+  // coste de empresa, sumarle la Seguridad Social otra vez la contaba dos veces.
+  const multiplicadorHoraTrabajada = factorCoste * (WEEKS_PER_YEAR / ausencias.tiempo.semanasTrabajadas)
+  /** Las horas complementarias de los parciales, el escalón antes de contratar o pedir extras (punto 23). */
+  const bolsa = bolsaComplementarias(
+    roster.people.filter((per) => !esMando(model.roles.find((r) => r.id === per.roleId))),
+    settings,
+  )
+  const picosBolsa = picosConComplementarias(peaks.extraHoursByWeek ?? [], bolsa.horasSemana)
+  /**
+   * Las horas de los picos con una sola cuenta en todas las pantallas (ronda 3,
+   * punto 3): las que faltan en las semanas punta, las que pueden hacer los
+   * parciales con sus complementarias y las que quedan de refuerzo. Antes "Los
+   * picos" decía 870, la tarjeta de complementarias 549 de 870, y "Con Shifty"
+   * volvía a vender 870 como si los parciales no existieran.
+   */
+  const horasFaltanPicos = peaks.peakHoursPerYear
+  const horasRefuerzo = Math.min(horasFaltanPicos, Math.round(picosBolsa.restantes))
+  const horasComplementariasPicos = horasFaltanPicos - horasRefuerzo
+
+  /**
+   * ¿El hueco de "dónde sobra gente" empieza antes de abrir? Entonces es la
+   * preparación, y hay que decirlo: si no, "el sábado de 12:00 a 14:00" parece
+   * contradecir que el sábado a las 14:00 es el pico (ronda 3, punto 11).
+   */
+  const fueraDeHorario = (day: DayIndex, slot: number): boolean => {
+    const bloques = hours?.[day] ?? []
+    const t = slotStartMin(slot)
+    return bloques.length > 0 && !bloques.some((b) => t >= b.startMin && t < b.endMin)
+  }
 
   /** La revisión legal del cuadrante y las métricas que salen de él. */
-  const avisos = revisarCuadrante(roster, model, settings)
-  const comprobaciones = comprobacionesHechas(settings)
+  const avisos = revisarCuadrante(roster, model, settings, {
+    preparacionRecortada: preparacionRecortada(hours ?? null, p.kitchenHours, KITCHEN_BLOCK_ID, settings, model),
+  })
+  const tramoCorto = (() => {
+    if (!p.seated) return null
+    const pico = peakOf(p.seated)
+    const sup = tramoSuperado(model.tiers, pico.value)
+    return sup ? { pico: pico.value, hasta: sup.hasta } : null
+  })()
+  const comprobaciones = comprobacionesHechas(settings, roster.mandos, model.roles)
   /** Cuántas personas del cuadrante tienen ya un nombre de verdad puesto. */
   const conNombre = roster.people.filter(
     (per) => (p.personNames[per.id] ?? '').trim().length > 0,
   ).length
-  const metricas = calcularMetricas(roster, needGrid, model, lagged)
+  /** La rueda de semanas: quién hace qué semana del cuadrante (lib/semana.ts). */
+  const rueda = calcularRueda(roster, settings)
+  const metricas = calcularMetricas(roster, needGrid, model, lagged, rueda)
+  /** Quien se queda sin ningún finde porque su semana no rota: hay que decirlo, no esconderlo. */
+  const findesSinRueda = metricas.findes.filter(
+    (f) => f.findesTrabajados === 0 && !rueda.grupos.some((g) => g.personIds.includes(f.personId)),
+  ).length
 
   /** Coste de personal sobre ventas. Solo si él ha puesto las dos cifras. */
+  // Ronda 3 (revisión del cálculo, M1): el ratio va con el coste COMPLETO, el
+  // de la plantilla más el de cubrir sus vacaciones, festivos y bajas. Es el
+  // que se compara con las bandas del sector; el de solo la plantilla se dice
+  // al lado para que se vea de dónde sale.
+  const costeCompletoSemanaEur = weeklyCostEur !== null ? weeklyCostEur + (costeAusenciasSemanaEur ?? 0) : null
+  const ventasFichero = p.dataset ? ventasDelFichero(p.dataset) : null
+  /** Con los datos de ejemplo no hay fichero del que hablar (revisión ronda 5, m8). */
+  const esDemo = p.dataset?.source.isDemo ?? false
+  const semanasConVentas = (p.dataset?.source as { semanasConVentas?: number } | undefined)?.semanasConVentas ?? 0
+  /** Ronda 8 (lectura), m5: la lectura ya da las ventas sin IVA y dice si lo ha quitado. */
+  // `undefined` = un plan leído antes de la ronda 8, con las ventas tal cual venían.
+  const ivaQuitado = (p.dataset?.source as { ivaDescontado?: number | null } | undefined)?.ivaDescontado
+  const ventasSemana = settings.weeklySalesEur && settings.weeklySalesEur > 0 ? settings.weeklySalesEur : null
   const ratioPersonal =
-    weeklyCostEur !== null && settings.weeklySalesEur && settings.weeklySalesEur > 0
-      ? Math.round((weeklyCostEur / settings.weeklySalesEur) * 100)
-      : null
+    costeCompletoSemanaEur !== null && ventasSemana !== null ? Math.round((costeCompletoSemanaEur / ventasSemana) * 100) : null
+  const ratioSoloPlantilla =
+    weeklyCostEur !== null && ventasSemana !== null ? Math.round((weeklyCostEur / ventasSemana) * 100) : null
+  // Bandas con cargas sociales incluidas, que es lo que ahora se compara: sano
+  // entre el 25 y el 30 %, alarma por encima del 35 % (guías de plan de negocio
+  // de restauración citadas en la investigación del 2026-11-04). Las de antes
+  // (32 y 40) eran para el sueldo sin Seguridad Social.
   const ratioTono =
     ratioPersonal === null
       ? ''
-      : ratioPersonal <= 32
+      : ratioPersonal <= RATIO_SANO
         ? 'text-success'
-        : ratioPersonal <= 40
+        : ratioPersonal <= RATIO_ALARMA
           ? 'text-warning'
           : 'text-destructive'
 
   /** Todo lo que ha entrado en el cálculo, para el modal de criterios (7.8). */
   const criteria: Criterion[] = [
-    { label: 'Cobertura', value: `${settings.coveragePct}%`, step: 'result', where: 'La línea del gráfico de arriba' },
+    { label: 'Cobertura', value: `${settings.coveragePct}%`, step: 'result', where: 'Tu plan, Por qué: la línea del gráfico del año. También en Demanda, Tu año' },
     { label: 'Margen de seguridad', value: `${settings.safetyMarginPct}%`, step: 'demand', where: 'Demanda, pantalla de tu histórico' },
     { label: 'Dimensionado', value: settings.sizingMode === 'calibrado' ? 'Ajustado al histórico' : 'Con más margen', step: 'team', where: 'Equipo, ajustes avanzados' },
-    { label: 'Adelanto respecto al cobro', value: `${settings.lagMinutes} min`, step: 'team', where: 'Equipo, ajustes avanzados' },
+    settings.mealMinutes
+      ? { label: 'Duración de cada estancia', value: describirDuraciones(settings.mealMinutes, serviciosDelCobro(lagged)), step: 'team', where: 'Equipo, encima de los tramos' }
+      : { label: 'Adelanto respecto al cobro', value: `${settings.lagMinutes} min`, step: 'team', where: 'Equipo, ajustes avanzados' },
     { label: 'Turno más largo', value: `${settings.maxShiftMinutes / 60} h`, step: 'team', where: 'Equipo, ajustes avanzados' },
     { label: 'Turno más corto', value: `${settings.minShiftMinutes / 60} h`, step: 'team', where: 'Equipo, ajustes avanzados' },
+    { label: 'Máximo de horas al día', value: `${(settings.maxDailyMinutes ?? 540) / 60} h`, step: 'team', where: 'Equipo, ajustes avanzados' },
     { label: 'Jornada partida', value: settings.allowSplitShifts ? 'Sí' : 'No', step: 'team', where: 'Equipo, ajustes avanzados' },
     { label: 'Dos libranzas seguidas', value: settings.consecutiveDaysOff ? 'Sí' : 'No', step: 'team', where: 'Equipo, ajustes avanzados' },
     { label: '12 h de descanso', value: settings.minRestBetweenShifts ? 'Sí' : 'No', step: 'team', where: 'Equipo, ajustes avanzados' },
-    { label: 'Contratos activos', value: settings.contracts.filter((c) => c.enabled).map((c) => c.label).join(', '), step: 'team', where: 'Equipo, ajustes avanzados' },
+    {
+      label: 'Contratos',
+      value:
+        (settings.contratosAMedida ?? true)
+          ? `A medida, desde ${settings.minContractHours ?? 10} h`
+          : settings.contracts.filter((c) => c.enabled).map((c) => c.label).join(', '),
+      step: 'team',
+      where: 'Equipo, ajustes avanzados',
+    },
+    {
+      label: 'Mandos con horario',
+      value:
+        model.roles.filter((r) => r.kind === 'estructura' && (r.headcount ?? 0) > 0).map((r) => `${r.name} (${r.headcount})`).join(', ') || 'ninguno',
+      step: 'import',
+      where: 'Tus puestos',
+    },
     // Entra en la lista porque explica el caso que más parece un error del
     // cálculo: un contrato de 40 h con nueve horas de turnos.
     {
@@ -311,6 +506,17 @@ export function StepResult() {
       .map((b) => ({
         label: `Mínimo en ${b.name}`,
         value: `${settings.minStaffByBlock[b.id]} personas`,
+        step: 'demand' as const,
+        where: 'Demanda, pantalla de horario',
+      })),
+    ...model.blocks
+      .filter((b) => {
+        const pr = settings.prepByBlock?.[b.id]
+        return !!pr && (pr.beforeMin > 0 || pr.afterMin > 0)
+      })
+      .map((b) => ({
+        label: `Preparación en ${b.name}`,
+        value: `${settings.prepByBlock?.[b.id]?.beforeMin ?? 0} min antes, ${settings.prepByBlock?.[b.id]?.afterMin ?? 0} después`,
         step: 'demand' as const,
         where: 'Demanda, pantalla de horario',
       })),
@@ -332,6 +538,9 @@ export function StepResult() {
     neededHours: plan.neededHours,
     contractedHours: plan.contractedHours,
     slackHours: plan.slackHours,
+    slackDesglose: plan.slackDesglose,
+    semanasDePago,
+    semanasCerradas: temporadaLocal.semanasCerradas,
   }
 
   /**
@@ -366,7 +575,9 @@ export function StepResult() {
     needSummary,
     personNames: p.personNames,
     weeks,
-    typical: lagged,
+    // La curva con la que se dimensiona: sentados a la vez, o en un plan de
+    // antes, los cobros corregidos.
+    typical: p.seated ?? lagged,
     hours: hours ?? null,
     kitchenHours: p.kitchenHours,
     specials,
@@ -374,8 +585,11 @@ export function StepResult() {
     weeksCovered: coverage.weeksCovered,
     peaks,
     extraPeopleIfHired,
+    horasComplementariasPicos,
+    horasRefuerzo,
     cost,
     ratioPersonal,
+    costeAusenciasEur,
     weeklySalesEur: settings.weeklySalesEur ?? null,
     avisos,
     comprobaciones,
@@ -498,13 +712,23 @@ export function StepResult() {
         model={model}
         contracts={settings.contracts}
         conCostes={settings.calcularCostes ?? false}
+        factorCoste={factorCoste}
+        costePorPuesto={costePorPuesto}
         eyebrow="Plantilla total"
         title={
           <>
             Lo que tendrías que <span className="text-brand italic">contratar.</span>
           </>
         }
-        subtitle="Cada puesto con su desglose de jornada. Es la lista que necesitas para contratar."
+        subtitle={
+          // Una sola cifra coherente (ronda 5): la tabla es la semana tipo con
+          // todos presentes, y las ausencias del año piden más. Se dice aquí,
+          // con la misma cifra de la tarjeta de ausencias, para que el titular
+          // no diga 21 y más abajo aparezcan jornadas de más sin explicar.
+          ausencias.jornadasExtra >= 0.05
+            ? `Cada puesto con su desglose de jornada, para la semana tipo con todos presentes. Para cubrir vacaciones, festivos y bajas te harán falta además ${Math.round(ausencias.jornadasExtra * 10) / 10 === 1 ? '' : 'unas '}${jornadasTexto(ausencias.jornadasExtra)}, con gente tuya o con extras: lo ves en "Cuando falta alguien".`
+            : 'Cada puesto con su desglose de jornada. Es la lista que necesitas para contratar.'
+        }
       />
 
       {/* Y la misma partida por bloque: quien contrata sala no contrata
@@ -540,6 +764,8 @@ export function StepResult() {
                   model={model}
                   contracts={settings.contracts}
                   conCostes={settings.calcularCostes ?? false}
+                  factorCoste={factorCoste}
+                  costePorPuesto={costePorPuesto}
                   blockId={b.id}
                   eyebrow={`Plantilla ${b.name.toLowerCase()}`}
                   title={<>{b.name}</>}
@@ -549,6 +775,133 @@ export function StepResult() {
           )}
         </div>
       )}
+
+      {/* ── Cuando falta alguien (ronda 2, puntos 5, 6 y 26) ──────
+          El cuadrante es una semana con todo el mundo presente. Sin esto,
+          cualquier hostelero ve en el primer minuto que nadie se va nunca de
+          vacaciones ni se pone malo. No cambia el número de personas de
+          arriba: dice lo que una semana tipo no puede decir. */}
+      <Card>
+        <CardHeader
+          eyebrow="Cuando falta alguien"
+          title={
+            <>
+              Vacaciones, festivos y bajas{' '}
+              <span className="text-brand italic">también hay que cubrirlos.</span>
+            </>
+          }
+          subtitle={`El cuadrante es una semana con todos. En el año, cada persona trabaja unas ${nf1.format(ausencias.tiempo.semanasTrabajadas)} semanas de 52, y de ese tiempo un ${nf1.format(ausencias.parametros.bajasPct)} % se va en bajas.`}
+        />
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-border-soft px-6 py-4">
+          {(
+            [
+              {
+                key: 'vacacionesDias',
+                label: 'Vacaciones',
+                unidad: 'días naturales',
+                value: ausencias.parametros.vacacionesDias,
+                max: 60,
+                info: 'Treinta días naturales al año como mínimo (art. 38 del Estatuto de los Trabajadores). Pon más si tu convenio da más.',
+              },
+              {
+                key: 'festivosDias',
+                label: 'Festivos',
+                unidad: 'al año',
+                value: ausencias.parametros.festivosDias,
+                max: 20,
+                info: 'Catorce festivos al año, dos de ellos locales (art. 37.2 ET). En hostelería se suelen trabajar y se compensan con un día libre: es un día más en que esa persona no está.',
+              },
+              {
+                key: 'bajasPct',
+                label: 'Bajas',
+                unidad: '% del tiempo',
+                value: ausencias.parametros.bajasPct,
+                max: 30,
+                info: 'El absentismo en hostelería ronda el 6,3 % (Randstad, 2025). Se aplica dividiendo por el tiempo disponible, no multiplicando: quien te cubre también se pone malo.',
+              },
+            ] as const
+          ).map((f) => (
+            <span key={f.key} className="flex items-center gap-2">
+              <span className="text-[0.85rem] font-bold text-content-primary">{f.label}</span>
+              <NumberInput
+                value={f.value}
+                onChange={(v) => p.setSettings((st) => ({ ...st, [f.key]: v }))}
+                min={0}
+                max={f.max}
+                step={1}
+                aria-label={`${f.label}, ${f.unidad}`}
+                className="w-16"
+              />
+              <span className="text-[0.8rem] font-medium text-content-secondary">{f.unidad}</span>
+              <InfoTip title={f.label}>{f.info}</InfoTip>
+            </span>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-5 border-t border-border-soft px-6 py-5 lg:grid-cols-3">
+          <Stat
+            icon={<Clock size={13} strokeWidth={2.6} />}
+            label="Horas de ausencia que cubrir"
+            value={`${nf.format(Math.round(ausencias.horasACubrirAno))} h`}
+            hint={`${nf.format(Math.round(ausencias.horasVacaciones))} de vacaciones, ${nf.format(Math.round(ausencias.horasFestivos))} de festivos y ${nf.format(Math.round(ausencias.horasBajas))} de bajas${ausencias.vacacionesEnCierreDias > 0 ? `. Sin los ${ausencias.vacacionesEnCierreDias} días de vacaciones que se toman con el local cerrado` : ''}`}
+            tone="brand"
+          />
+          <Stat
+            icon={<Gauge size={13} strokeWidth={2.6} />}
+            label="Cada semana, de media"
+            value={`${nf1.format(ausencias.horasACubrirAno / semanasDePago)} h`}
+            hint={`de las ${nf1.format(ausencias.horasTurnoSemana)} h en turnos que tiene tu cuadrante`}
+          />
+          <Stat
+            icon={
+              <InfoTip title="Por qué dividiendo">
+                Cada persona está, de media, un {Math.round(ausencias.tiempo.fraccionPresente * 100)} %
+                del año. Para tener las horas cubiertas hace falta dividir entre esa fracción, no sumar
+                el porcentaje: la gente que contratas para cubrir también tiene vacaciones y bajas.
+              </InfoTip>
+            }
+            label="Con plantilla propia"
+            value={`${nf1.format(ausencias.jornadasExtra)}`}
+            hint={plural(Math.round(ausencias.jornadasExtra * 10) / 10, 'jornada completa más', 'jornadas completas más')}
+          />
+        </div>
+
+        {flojas.semanas.length > 0 && (
+          <div className="border-t border-border-soft px-6 py-5">
+            <Note tone="brand">
+              <strong className="text-content-primary">Pon las vacaciones en tus semanas flojas.</strong>{' '}
+              En las semanas {rachas(flojas.semanas)} el local pide menos gente que la de tu
+              plantilla, y quien se va esas semanas no hace falta sustituirlo:{' '}
+              {Math.round(flojas.horasAbsorbidas) >= Math.round(flojas.horasVacaciones) ? (
+                <>te ahorras cubrir todas las {nf.format(Math.round(flojas.horasVacaciones))} h de vacaciones.</>
+              ) : (
+                <>
+                  te ahorras cubrir unas {nf.format(Math.round(flojas.horasAbsorbidas))} de las{' '}
+                  {nf.format(Math.round(flojas.horasVacaciones))} h de vacaciones.
+                </>
+              )} Lo que queda por cubrir
+              baja a <strong>{nf.format(Math.round(horasAusenciaTrasFlojas))} h al año</strong>,{' '}
+              {Math.round(jornadasTrasFlojas * 10) / 10 === 1 ? '' : 'unas '}{jornadasTexto(jornadasTrasFlojas)}
+              {costeAusenciasEur !== null && costeHoraTrabajada !== null ? (
+                <>
+                  {' '}o {eur.format(costeAusenciasEur)} al año en coste de empresa, a{' '}
+                  {eur2.format(costeHoraTrabajada)} la hora trabajada
+                </>
+              ) : null}
+              .
+              {/* Ronda 8 (m6): esa hora trabajada sale solo de los puestos con
+                  precio. Las demás pantallas ya lo decían; esta no. */}
+              {costeAusenciasEur !== null && cost && !cost.complete && (
+                <strong className="text-warning">
+                  {' '}Ojo: falta el coste de {cost.missing.join(', ')}, así que esas horas se valoran
+                  con el precio medio de los demás puestos y la cifra no es exacta.
+                </strong>
+              )} Las vacaciones se fijan de acuerdo con cada persona y se tienen que saber con dos
+              meses de antelación (art. 38 ET), así que esto se decide al hacer el calendario del año.
+            </Note>
+          </div>
+        )}
+      </Card>
 
       </div>
       )}
@@ -575,6 +928,7 @@ export function StepResult() {
               onThresholdChange={handleThreshold}
               specials={specials}
               coveragePct={settings.coveragePct}
+              margenPct={settings.safetyMarginPct}
               height={300}
             />
           </div>
@@ -605,10 +959,13 @@ export function StepResult() {
                 </InfoTip>
               </span>
               <p className="mt-1.5">
-                Al {settings.coveragePct}%, el cálculo da{' '}
-                <strong>{nf1.format(ratio)} veces más peso a quedarte corto</strong> que a tener
-                gente de más. Sube la línea si quieres más cobertura fija; bájala si prefieres
-                cubrir más picos con refuerzos.
+                Al {settings.coveragePct}%, tu plantilla fija cubre{' '}
+                <strong>
+                  {coverage.weeksCovered} de tus {weeks.length} semanas
+                </strong>
+                ; en las otras {Math.max(0, weeks.length - coverage.weeksCovered)} te faltará
+                alguien en las horas punta. Sube la línea si quieres más cobertura fija; bájala si
+                prefieres cubrir más picos con refuerzos.
               </p>
             </Note>
 
@@ -619,7 +976,7 @@ export function StepResult() {
                 {nf.format(p.inflation.conservativeTotal)} comensales cuando una semana real de ese
                 percentil son {nf.format(p.inflation.referenceTotal)}: un{' '}
                 {Math.round(p.inflation.inflationPct)}% de demanda que nunca ocurre toda a la vez, y
-                que acabas pagando en plantilla las 52 semanas.
+                que acabas pagando en plantilla las {semanasDePago} semanas.
                 <div className="mt-3">
                   <Button
                     variant="secondary"
@@ -644,10 +1001,10 @@ export function StepResult() {
               El número, <span className="text-brand italic">y de dónde sale.</span>
             </>
           }
-            subtitle="Personas y horas contratadas. La diferencia entre lo contratado y lo necesario es el margen que deja el cuadrante."
+            subtitle="Personas y horas contratadas. La diferencia entre lo contratado y lo que pide el servicio son horas que pagas sin servicio."
         />
 
-        <div className="grid grid-cols-2 gap-5 border-t border-border-soft px-6 py-5 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-5 border-t border-border-soft px-6 py-5 lg:grid-cols-5">
           <Stat
             icon={<Users size={13} strokeWidth={2.6} />}
             label="Personas"
@@ -675,28 +1032,48 @@ export function StepResult() {
           />
           <Stat
             icon={
-              <InfoTip title="Holgura">
-                Horas contratadas que sobran sobre la necesidad real. Siempre hay algunas: los
-                turnos no se cortan al minuto y nadie entra a las 13:20 para salir a las 15:40. Si
-                se dispara, baja la duración mínima de turno o activa la jornada partida en el paso
-                anterior.
-                {/* Lo que pidió Crescente: estas horas no son horas perdidas.
-                    Sin esta frase, la holgura se lee como un defecto del
-                    cálculo y la reacción es apretarla hasta dejar el local sin
-                    nadie para montar ni para cerrar. */}
-                <br />
-                <br />
-                Y no es tiempo perdido: es lo que puedes destinar a las tareas auxiliares que el
-                cuadrante no dibuja pero el local necesita, como el montaje, la limpieza, los
-                pedidos, el inventario o formar a alguien nuevo.
+              <InfoTip title="Horas pagadas sin servicio">
+                Horas que pagas y que el servicio no pide. Salen de que los turnos no se cortan al
+                minuto, de que nadie baja del turno más corto ni del contrato más pequeño, y de las
+                horas de contrato que no llevan turno. Se pueden aprovechar para montar, limpiar o
+                hacer pedidos, pero se pagan igual. Para bajarlas, baja el turno más corto o el
+                contrato más pequeño en el paso anterior.
               </InfoTip>
             }
-            label="Holgura"
+            label="Horas pagadas sin servicio"
             value={`${nf1.format(plan.slackHours)} h`}
-            hint={`${slackPct}% de lo contratado`}
+            hint={
+              plan.slackDesglose && plan.slackDesglose.sinTurno > 0.05
+                ? `${nf1.format(plan.slackDesglose.enElLocal)} h en el local de más y ${nf1.format(plan.slackDesglose.sinTurno)} h de contrato sin turno`
+                : `${slackPct} % más de lo que pide el servicio`
+            }
             tone={plan.slackHours > plan.neededHours * 0.15 ? 'warning' : 'default'}
           />
+          <Stat
+            icon={
+              <InfoTip title="Jornadas partidas">
+                Días en que alguien hace comida y cena con un hueco en medio. Solo se parte una
+                jornada cuando así hace falta una persona menos: si no ahorra a nadie, el turno va
+                seguido.
+              </InfoTip>
+            }
+            label="Jornadas partidas"
+            value={partidas}
+            hint={
+              partidas === 0
+                ? 'Todos los turnos van seguidos'
+                : roster?.partidas && roster.partidas.personasAhorradas > 0
+                  ? `a la semana: sin ellas harían falta ${roster.partidas.personasAhorradas} ${plural(roster.partidas.personasAhorradas, 'persona', 'personas')} más`
+                  : 'a la semana'
+            }
+          />
         </div>
+
+        {fraseDeMas && (
+          <p className="border-t border-border-soft px-6 py-4 text-sm leading-relaxed text-content-secondary">
+            {fraseDeMas}
+          </p>
+        )}
 
         <div className="border-t border-border-soft px-6 py-5">
           <Note tone="brand">
@@ -721,21 +1098,40 @@ export function StepResult() {
               pide 17 y salen 19: las dos que sobran son las que hacen falta
               para cubrir todos los días de la semana, porque nadie trabaja
               siete. Sin decirlo, un usuario que sabe sumar cree que sobran. */}
-          {plan.drivers.peopleFromDays > plan.drivers.peopleFromPeak && (
+          {/* De dónde sale cada persona, sumando exacto el total (ronda 3, G9). */}
+          {plan.drivers.desglose && plan.totalPeople > plan.drivers.desglose.pico && (
             <Note tone="neutral">
               <span className="font-bold text-content-primary">
-                Y el calendario pone {plan.drivers.peopleFromDays - plan.drivers.peopleFromPeak}{' '}
-                {plural(plan.drivers.peopleFromDays - plan.drivers.peopleFromPeak, 'más', 'más')}.
+                {plan.totalPeople} {plural(plan.totalPeople, 'persona', 'personas')}:{' '}
+                {listarPartes([
+                  [plan.drivers.desglose.pico, 'por el pico'],
+                  [plan.drivers.desglose.calendario, 'por el calendario'],
+                  [plan.drivers.desglose.contratosYHorarios, 'porque los turnos no encajan al minuto'],
+                  [plan.drivers.desglose.mandos, plural(plan.drivers.desglose.mandos, 'de mando', 'de mando')],
+                ])}
+                .
               </span>{' '}
-              Por el pico bastarían {plan.drivers.peopleFromPeak}, pero nadie trabaja los siete
-              días: hay puestos con más turnos a la semana de los que cabe hacer{' '}
-              {settings.consecutiveDaysOff ? 'en cinco días' : 'en seis días'}, y por eso hace
-              falta alguien más aunque nunca coincidan todos a la vez.{' '}
-              <strong className="text-content-primary">
-                {plan.totalPeople} es el mínimo con tus reglas.
-              </strong>{' '}
-              Para bajarlo hay que tocar las reglas, no el cálculo: quitar las dos libranzas
-              seguidas o permitir jornada partida, en el paso de equipo.
+              {(plan.drivers.desglose.picoQueCubreElMando ?? 0) > 0 &&
+                `Del pico, ${plan.drivers.desglose.picoQueCubreElMando} ${
+                  plan.drivers.desglose.picoQueCubreElMando === 1 ? 'plaza la hace' : 'plazas las hacen'
+                } un mando mientras está (el encargado lleva la sala, el jefe de cocina cocina), así que no ${
+                  plan.drivers.desglose.picoQueCubreElMando === 1 ? 'es una persona más' : 'son personas de más'
+                }. `}
+              {plan.drivers.desglose.calendario > 0 &&
+                `El calendario pone gente porque nadie trabaja los siete días: hay puestos con más turnos de los que caben ${
+                  settings.consecutiveDaysOff ? 'en cinco días' : 'en seis días'
+                }. `}
+              {plan.drivers.desglose.contratosYHorarios > 0 &&
+                'Los turnos no encajan al minuto cuando un hueco es más corto que el turno más corto, o cuando comida y cena no caben en la misma jornada. '}
+              {settings.consecutiveDaysOff && plan.drivers.desglose.calendario > 0
+                ? 'Para bajar las del calendario, quita las dos libranzas seguidas en el paso de equipo. '
+                : ''}
+              {!settings.allowSplitShifts && plan.drivers.desglose.contratosYHorarios > 0
+                ? 'Permitir jornada partida puede bajar las otras. '
+                : ''}
+              {!settings.allowSplitShifts && (roster?.shifts.length ?? 0) > 0
+                ? 'Sin jornada partida, la comida y la cena las hacen personas distintas: por eso salen más personas y casi todas a tiempo parcial, y las horas de contrato suben mucho menos que el número de personas.'
+                : ''}
             </Note>
           )}
 
@@ -745,7 +1141,7 @@ export function StepResult() {
             <div className="mt-4 rounded-lg border border-border-soft bg-surface-alt p-4">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <span className="text-[0.85rem] font-bold text-content-primary">
-                  ¿Cuánto factura una semana normal?
+                  ¿Cuánto factura una semana normal, sin IVA?
                 </span>
                 <span className="flex items-center gap-1.5">
                   <NumberInput
@@ -756,8 +1152,8 @@ export function StepResult() {
                     min={0}
                     max={1000000}
                     step={500}
-                    placeholder="—"
-                    aria-label="Ventas de una semana normal, en euros"
+                    placeholder="-"
+                    aria-label="Ventas de una semana normal sin IVA, en euros"
                     className="w-28"
                   />
                   <span className="text-[0.85rem] font-bold text-content-secondary">€</span>
@@ -767,17 +1163,31 @@ export function StepResult() {
                   con otros periodos o centros.
                 </InfoTip>
               </div>
+              {ventasFichero !== null && (
+                <p className="mt-2 text-[0.8rem] leading-relaxed text-content-muted">
+                  {settings.weeklySalesEur === ventasFichero
+                    ? `Sale de la columna de importe de tu fichero: lo que facturas en una semana normal, la del medio de tus ${nf.format(semanasConVentas)} semanas con ventas. ${ivaQuitado === undefined ? 'Si tu TPV da el importe con IVA, divídelo entre 1,10 (es quitarle un 9 %, no un 10 %) para que el porcentaje no salga más bajo de lo real.' : ivaQuitado !== null ? `Ya va sin IVA: tu fichero lo traía incluido y se ha dividido entre ${(1 + ivaQuitado).toLocaleString('es-ES', { minimumFractionDigits: 2 })}, para compararlo con tu cuenta de resultados. Si tu columna ya venía sin IVA, escribe aquí la cifra buena.` : 'Tu columna de importe venía sin IVA, así que va tal cual.'}`
+                    : `Tu fichero da ${eur.format(ventasFichero)} en una semana normal; has puesto otra cifra y manda la tuya.`}
+                </p>
+              )}
 
               {ratioPersonal !== null && (
                 <p className="mt-3 text-[0.9rem] leading-relaxed text-content-secondary">
-                  Tu personal se lleva el{' '}
-                  <strong className={cn('text-[1.05rem]', ratioTono)}>{ratioPersonal}%</strong> de
-                  lo que facturas.{' '}
-                  {ratioPersonal <= 32
-                    ? 'Está en la banda sana del sector, entre el 25% y el 32%.'
-                    : ratioPersonal <= 40
-                      ? 'Por encima de la banda sana (25% a 32%), pero dentro de lo normal.'
-                      : 'Por encima del 40%, que es donde el sector enciende la alarma.'}
+                  Tu personal, en coste de empresa y contando quien cubre vacaciones, festivos y
+                  bajas, se lleva el{' '}
+                  <strong className={cn('text-[1.05rem]', ratioTono)}>{ratioPersonal} %</strong> de
+                  lo que facturas sin IVA
+                  {ratioSoloPlantilla !== null && ratioSoloPlantilla !== ratioPersonal
+                    ? ` (el ${ratioSoloPlantilla} % con solo la plantilla del cuadrante)`
+                    : ''}
+                  .{' '}
+                  {ratioPersonal < 25
+                    ? `Por debajo de la banda habitual del sector (25 % a ${RATIO_SANO} %, con Seguridad Social): repasa que los precios por hora y las ventas sean de la misma semana.`
+                    : ratioPersonal <= RATIO_SANO
+                    ? `Contando la Seguridad Social, está en la banda sana del sector, entre el 25 % y el ${RATIO_SANO} %.`
+                    : ratioPersonal <= RATIO_ALARMA
+                      ? `Por encima de la banda sana (25 % a ${RATIO_SANO} %, con Seguridad Social), pero sin llegar a la alarma del ${RATIO_ALARMA} %.`
+                      : `Por encima del ${RATIO_ALARMA} %, que es donde el sector enciende la alarma cuando cuenta la Seguridad Social.`}
                   {cost && !cost.complete && (
                     <>
                       {' '}
@@ -794,9 +1204,39 @@ export function StepResult() {
 
           {cost !== null && weeklyCostEur !== null && annualCostEur !== null && (
             <p className="mt-3 text-[0.85rem] leading-relaxed text-content-secondary">
-              Con los costes de tu catálogo, esta plantilla sale por{' '}
-              <strong className="text-content-primary">{eur.format(weeklyCostEur)} a la semana</strong>{' '}
-              y <strong className="text-content-primary">{eur.format(annualCostEur)} al año</strong>.
+              {cost.base === 'bruto' && cost.weeklyBrutoEur !== null ? (
+                <>
+                  Esta plantilla te cuesta{' '}
+                  <strong className="text-content-primary">{eur.format(weeklyCostEur)} a la semana</strong>{' '}
+                  y <strong className="text-content-primary">{eur.format(annualCostEur)} al año</strong>{' '}
+                  en coste de empresa: {eur.format(cost.weeklyBrutoEur)} de sueldo bruto a la semana más
+                  un {nf1.format(cost.cotizacionPct)} % de Seguridad Social,{' '}
+                  {temporadaLocal.deTemporada
+                    ? `las ${semanasDePago} semanas que abres, con la plantilla en fijo discontinuo, porque las vacaciones y los festivos de esas semanas también se pagan.`
+                    : 'las 52 semanas, porque las vacaciones y los festivos también se pagan.'} Cada hora trabajada te sale por{' '}
+                  <strong className="text-content-primary">{eur2.format(cost.costeHoraTrabajadaEur)}</strong>
+                  , frente a {eur2.format(cost.avgHourlyEur / (1 + cost.cotizacionPct / 100))} de
+                  sueldo bruto por hora de contrato.
+                </>
+              ) : (
+                <>
+                  Con los costes de empresa de tu catálogo, esta plantilla sale por{' '}
+                  <strong className="text-content-primary">{eur.format(weeklyCostEur)} a la semana</strong>{' '}
+                  y <strong className="text-content-primary">{eur.format(annualCostEur)} al año</strong>
+                  {temporadaLocal.deTemporada ? `, contando las ${semanasDePago} semanas que abres con la plantilla en fijo discontinuo` : ''}
+                  . Cada hora trabajada, contando que las vacaciones y los festivos se pagan sin
+                  trabajarse, te sale por{' '}
+                  <strong className="text-content-primary">{eur2.format(cost.costeHoraTrabajadaEur)}</strong>.
+                </>
+              )}
+              {cost.nocturnidad.weeklyEur > 0 && (
+                <>
+                  {' '}
+                  Lleva dentro {eur.format(cost.nocturnidad.weeklyEur)} a la semana de plus de
+                  nocturnidad, el {nf1.format(cost.nocturnidad.pct)} % de{' '}
+                  {nf1.format(cost.nocturnidad.horasSemana)} h entre las 22:00 y las 06:00.
+                </>
+              )}
               {!cost.complete && (
                 <>
                   {' '}
@@ -805,6 +1245,40 @@ export function StepResult() {
               )}
             </p>
           )}
+
+          {/* La nocturnidad (revisión del cálculo, M5): las horas de noche
+              salen del cuadrante; el porcentaje lo pone quien sabe su convenio. */}
+          {cost !== null && cost.nocturnidad.horasSemana > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-[0.85rem] text-content-secondary">
+              <span>
+                Tu cuadrante tiene{' '}
+                <strong className="text-content-primary">
+                  {nf1.format(cost.nocturnidad.horasSemana)} h a la semana entre las 22:00 y las 06:00
+                </strong>
+                {cost.nocturnidad.pct > 0
+                  ? '.'
+                  : '. Si tu convenio paga plus de nocturnidad, ponlo aquí: hasta entonces no está sumado.'}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="font-bold text-content-primary">Plus de nocturnidad</span>
+                <NumberInput
+                  value={settings.plusNocturnidadPct ?? 0}
+                  onChange={(v) => p.setSettings((st) => ({ ...st, plusNocturnidadPct: v > 0 ? v : 0 }))}
+                  min={0}
+                  max={100}
+                  step={5}
+                  aria-label="Plus de nocturnidad, en % sobre el sueldo bruto de la hora"
+                  className="w-16"
+                />
+                <span>% sobre el bruto de la hora</span>
+                <InfoTip title="Plus de nocturnidad">
+                  Las horas entre las 22:00 y las 06:00 se pagan con el plus que fije tu convenio
+                  (art. 36.2 ET); un 25 % es habitual. Algunos convenios no lo pagan si el local es
+                  de noche por naturaleza. Lo sabes tú, por eso no lo ponemos.
+                </InfoTip>
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="grid gap-8 border-t border-border-soft px-6 py-5 md:grid-cols-2">
@@ -812,14 +1286,14 @@ export function StepResult() {
             <h4 className="h4 flex items-center gap-2">
               Cómo se reparten los contratos
               <InfoTip title="Cómo se elige cada contrato">
-                Primero se llena con jornadas de 40 h y lo que queda se cubre con parciales. Después
-                cada persona baja al contrato más pequeño que cubra sus horas, para no pagar horas
-                que nadie va a trabajar.
+                Primero se llena con jornadas completas y lo que queda se cubre con parciales.
+                Después cada persona baja a un contrato con las horas que trabaja, para no pagar
+                horas que nadie va a trabajar. Los mandos van a su jornada.
               </InfoTip>
             </h4>
             <ul className="mt-3 space-y-2.5">
               {plan.allocations.map((a) => {
-                const label = settings.contracts.find((c) => c.id === a.contractId)?.label ?? `${a.hours}h`
+                const label = settings.contracts.find((c) => c.id === a.contractId && c.hours === a.hours)?.label ?? `${a.hours}h`
                 const share = plan.totalPeople > 0 ? a.count / plan.totalPeople : 0
                 return (
                   <li key={a.contractId} className="flex items-center gap-3">
@@ -881,7 +1355,16 @@ export function StepResult() {
                   ))}
                 </ul>
                 <p className="mt-3 text-[0.8rem] font-medium text-content-muted">
-                  {nf1.format(needSummary.totalHours)} h de trabajo necesarias a la semana.
+                  {nf1.format(needSummary.totalHours)} h de trabajo necesarias a la semana
+                  {horasFijasSemana > 0.25 ? (
+                    <>
+                      : {nf1.format(horasServicioSemana)} que suben y bajan con los comensales y{' '}
+                      {nf1.format(horasFijasSemana)} fijas (preparar, recoger, trabajo fijo y mínimos
+                      por zona), igual todas las semanas.
+                    </>
+                  ) : (
+                    '.'
+                  )}
                 </p>
               </>
             )}
@@ -898,7 +1381,11 @@ export function StepResult() {
               La demanda y la gente, <span className="text-brand italic">hora a hora.</span>
             </>
           }
-          subtitle="La curva morada muestra los comensales; los escalones, cuántas personas hacen falta en cada franja."
+          subtitle={
+            p.seated
+              ? 'La curva morada es la gente sentada a la vez; los escalones, cuántas personas hacen falta en cada franja, con la preparación y la recogida.'
+              : 'La curva morada muestra los comensales; los escalones, cuántas personas hacen falta en cada franja.'
+          }
         />
 
         <div className="border-t border-border-soft px-4 pt-4 pb-5 sm:px-6">
@@ -932,11 +1419,12 @@ export function StepResult() {
           </div>
 
           <DayCurve
-            covers={lagged[dayIdx]}
+            covers={(p.seated ?? lagged)[dayIdx]}
             people={peopleGrid[dayIdx]}
             openBlocks={hours?.[dayIdx]}
             dayLabel={DAYS[dayIdx]}
             height={220}
+            {...(p.seated ? { coversUnit: 'sentados a la vez', coversLegend: 'Sentados a la vez' } : {})}
           />
         </div>
 
@@ -965,6 +1453,19 @@ export function StepResult() {
           subtitle="Descansos, libranzas y horas de contrato, revisados uno a uno sobre el cuadrante ya montado."
         />
         <div className="border-t border-border-soft px-4 py-5 sm:px-6">
+          {/* El mismo aviso que en Equipo (revisión de cálculo ronda 5, m6):
+              un local más lleno que el último tramo saca gente de menos en
+              sus horas punta, y aquí no se decía. */}
+          {tramoCorto && (
+            <div className="mb-4">
+              <Note tone="warning">
+                Tu local llega a {nf.format(tramoCorto.pico)} sentados a la vez y tu tabla de
+                tramos está pensada hasta unos {nf.format(tramoCorto.hasta)}. Por encima se aplica
+                el mismo equipo del último tramo, así que en tus horas más llenas puede salirte
+                gente de menos. Añade un tramo más arriba en Equipo.
+              </Note>
+            </div>
+          )}
           <AvisosCuadrante avisos={avisos} comprobaciones={comprobaciones} />
         </div>
 
@@ -974,7 +1475,7 @@ export function StepResult() {
               icon={
                 <InfoTip title="Contra qué se compara">
                   No hay una cifra buena universal: un menú del día y un restaurante de mantel
-                  no se parecen en nada. Sirve contra ti mismo — vuelve a calcularlo dentro de
+                  no se parecen en nada. Sirve contra ti mismo: vuelve a calcularlo dentro de
                   tres meses, o con la línea de cobertura en otro sitio, y mira si sube.
                 </InfoTip>
               }
@@ -984,8 +1485,10 @@ export function StepResult() {
             />
             <Stat
               icon={
-                <InfoTip title="Horas de más">
-                  Horas que alguien está en el local por encima de lo que pide tu curva. No
+                <InfoTip title="En turno sin servicio">
+                  Horas que alguien está en el local, en su turno, por encima de lo que pide tu
+                  curva. Son una parte de las horas pagadas sin servicio: el resto son horas de
+                  contrato que no están en ningún turno. No
                   sobran por error: son el precio de que los turnos tengan una duración
                   razonable y de que la gente entre y salga a horas de persona. Las tres
                   cifras cuadran: las horas que pide la curva más estas de más son las horas
@@ -996,11 +1499,13 @@ export function StepResult() {
                   cuadrante: montaje, limpieza, pedidos, inventario o formar a alguien nuevo.
                 </InfoTip>
               }
-              label="Horas de más"
+              label="En turno sin servicio"
               value={`${nf1.format(metricas.horasSobrantesTotal)} h`}
               hint={
                 metricas.horasSobrantesTotal > 0
-                  ? `Sobre las ${nf1.format(metricas.horasEnTurnos)} h que la gente está en el local`
+                  ? plan.slackHours > metricas.horasSobrantesTotal + 0.25
+                    ? `De las ${nf1.format(plan.slackHours)} h pagadas sin servicio; las otras ${nf1.format(plan.slackHours - metricas.horasSobrantesTotal)} son de contrato sin turno`
+                    : `Sobre las ${nf1.format(metricas.horasEnTurnos)} h que la gente está en el local`
                   : 'Nada que recortar'
               }
               tone={metricas.horasSobrantesTotal > 0 ? 'warning' : 'default'}
@@ -1008,20 +1513,26 @@ export function StepResult() {
             <Stat
               icon={
                 <InfoTip title="Reparto de fines de semana">
-                  Cuántos días de finde trabaja quien más y quien menos. Es lo que hace que un
-                  cuadrante se perciba justo, y de lo que más se habla en una plantilla.
+                  Cuántos días de finde (sábado y domingo) trabaja a la semana quien más y quien
+                  menos. Con la rueda se cuenta la media de toda la vuelta, porque cada semana le
+                  toca una fila distinta. Los contratos de fin de semana trabajan los dos por
+                  contrato y entran en la cuenta.
                 </InfoTip>
               }
               label="Findes: el que más y el que menos"
               value={
                 metricas.findes.length > 0
-                  ? `${metricas.findes[0].findesTrabajados} y ${metricas.findes[metricas.findes.length - 1].findesTrabajados}`
-                  : '—'
+                  ? `de ${nf1.format(metricas.findes[metricas.findes.length - 1].findesTrabajados)} a ${nf1.format(metricas.findes[0].findesTrabajados)} días`
+                  : '-'
               }
               hint={
                 metricas.desequilibrioFindes <= 1
-                  ? 'Repartido de forma pareja'
-                  : `${metricas.desequilibrioFindes} días de diferencia entre unos y otros`
+                  ? rueda.semanas > 1
+                    ? 'Días de sábado y domingo a la semana por persona, de media en la rueda'
+                    : 'Días de sábado y domingo a la semana por persona, repartidos de forma pareja'
+                  : findesSinRueda > 0
+                    ? `${findesSinRueda} ${findesSinRueda === 1 ? 'persona no rota y no hace' : 'personas no rotan y no hacen'} ningún finde: su semana es fija. Los que rotan se los reparten.`
+                    : `${nf1.format(metricas.desequilibrioFindes)} días de diferencia entre unos y otros`
               }
               tone={metricas.desequilibrioFindes <= 1 ? 'default' : 'warning'}
             />
@@ -1037,7 +1548,12 @@ export function StepResult() {
                   key={`${h.day}-${h.slot}`}
                   className="flex items-baseline justify-between gap-3 text-[0.88rem]"
                 >
-                  <span className="text-content-secondary">{h.cuando}</span>
+                  <span className="text-content-secondary">
+                    {h.cuando}
+                    {fueraDeHorario(h.day, h.slot) && (
+                      <span className="text-content-muted"> · empieza fuera del horario: es preparación o recogida</span>
+                    )}
+                  </span>
                   <span className="shrink-0 font-bold tabular-nums text-content-primary">
                     {nf1.format(h.horasSobrantes)} h de más
                   </span>
@@ -1070,6 +1586,18 @@ export function StepResult() {
               nombres puestos esto deja de ser un estudio y pasa a ser el cuadrante de la semana:
               lo descargas, lo cuelgas en cocina y le mandas a cada uno su turno por WhatsApp.
             </p>
+            {/* Lo que pasa con los nombres, dicho donde se escriben (revisión
+                ronda 5, M6). Son datos de terceros: los empleados del local.
+                Se guardan con el plan en el servidor (`personNames` en
+                `crearPlan`/`actualizarPlan`, lib/backend.ts) y los ve quien
+                tenga el enlace. El texto tiene que ser cierto al pie de la
+                letra, y no hay nombre obligatorio. */}
+            <p className="mt-2 max-w-2xl text-[0.8rem] leading-relaxed text-content-secondary">
+              Es opcional: puedes dejar &laquo;Camarero 1&raquo; o poner solo un nombre de pila.
+              {hayBackend()
+                ? ' Los nombres se guardan con tu plan en nuestro servidor, y los ve quien tenga su enlace.'
+                : ' Los nombres se quedan en este navegador y en el enlace largo si lo compartes.'}
+            </p>
           </div>
 
           <div className="shrink-0 text-right">
@@ -1101,6 +1629,7 @@ export function StepResult() {
         needGrid={needGrid}
         openBlocks={hours ?? undefined}
         onRenamePerson={p.setPersonName}
+        rueda={rueda}
       />
 
       </div>
@@ -1149,7 +1678,7 @@ export function StepResult() {
                   {nf.format(peaks.peakHoursPerYear)}
                 </div>
                 <div className="mt-1.5 text-[0.85rem] leading-snug font-semibold text-content-inverted/70">
-                  horas de refuerzo en esas semanas
+                  horas que faltan en esas semanas
                 </div>
               </div>
             </div>
@@ -1160,15 +1689,27 @@ export function StepResult() {
                   Si contratas para el pico
                 </div>
                 <div className="mt-2 text-[1.55rem] leading-tight font-black text-content-inverted">
-                  {extraPeopleIfHired}{' '}
-                  {plural(extraPeopleIfHired, 'persona fija más', 'personas fijas más')}
+                  {picoSoloHoras
+                    ? 'No te hace falta más gente'
+                    : `${extraPeopleIfHired} ${plural(extraPeopleIfHired, 'persona fija más', 'personas fijas más')}`}
                 </div>
                 <p className="mt-2 text-[0.86rem] leading-relaxed font-medium text-content-inverted/75">
-                  Para cubrir la semana más exigente, con nómina durante todo el año.
+                  {peaks.worstWeek
+                    ? picoSoloHoras
+                      ? `${fraseSemanaPico}: son más horas de los mismos, no más personas. Meterlas en nómina serían ${contratosPicoTexto} pagados ${temporadaLocal.deTemporada ? `las ${semanasDePago} semanas que abres` : 'todo el año'}, para horas que solo faltan en semanas sueltas.`
+                      : `${fraseSemanaPico}. Tenerlo fijo ${extraPeopleIfHired === 1 ? 'es' : 'son'} ${contratosPicoTexto}, con nómina ${temporadaLocal.deTemporada ? `las ${semanasDePago} semanas que abres` : 'todo el año'}.`
+                    : `Para cubrir la semana más exigente, con nómina ${temporadaLocal.deTemporada ? `las ${semanasDePago} semanas que abres` : 'durante todo el año'}.`}
                 </p>
                 {peakHiredAnnualCostEur !== null && (
-                  <div className="mt-4 text-[1.35rem] font-black text-content-inverted tnum">
-                    {eur.format(peakHiredAnnualCostEur)} al año
+                  <div
+                    className={cn(
+                      'mt-4 font-black text-content-inverted tnum',
+                      picoSoloHoras ? 'text-[1.05rem] text-content-inverted/70' : 'text-[1.35rem]',
+                    )}
+                  >
+                    {picoSoloHoras
+                      ? `${eur.format(peakHiredAnnualCostEur)} al año si lo metieras en nómina`
+                      : `${eur.format(peakHiredAnnualCostEur)} al año`}
                   </div>
                 )}
               </div>
@@ -1178,15 +1719,26 @@ export function StepResult() {
                   Si cubres solo lo que falta
                 </div>
                 <div className="mt-2 text-[1.55rem] leading-tight font-black text-brand">
-                  {nf.format(peaks.peakHoursPerYear)} horas de refuerzo
+                  {nf.format(horasFaltanPicos)} horas que faltan
                 </div>
                 <p className="mt-2 text-[0.86rem] leading-relaxed font-medium text-content-body">
                   Durante {peakWeekCount} {plural(peakWeekCount, 'semana', 'semanas')} de las{' '}
                   {weeks.length} analizadas.
+                  {horasComplementariasPicos > 0 && (
+                    <>
+                      {' '}
+                      {nf.format(horasComplementariasPicos)} las pueden hacer tus parciales con horas
+                      complementarias;{' '}
+                      <strong className="text-content-primary">
+                        quedan {nf.format(horasRefuerzo)} de refuerzo
+                      </strong>
+                      .
+                    </>
+                  )}
                 </p>
                 {peakOnlyAnnualCostEur !== null && (
                   <div className="mt-4 text-[1.35rem] font-black text-content-primary tnum">
-                    {eur.format(peakOnlyAnnualCostEur)} con tu coste medio
+                    {eur.format(peakOnlyAnnualCostEur)} a tu coste por hora trabajada
                   </div>
                 )}
               </div>
@@ -1195,10 +1747,10 @@ export function StepResult() {
             {peaks.worstWeek && (
               <p className="mt-5 max-w-3xl text-[0.88rem] leading-relaxed font-semibold text-content-inverted/75">
                 La referencia es la semana {peaks.worstWeek.isoWeek}, la más exigente: le faltan{' '}
-                {nf.format(peaks.worstWeek.extraHours)} horas. Contratar esa capacidad fija supone
-                pagar {nf1.format(peaks.weeksPaidPerWeekWorked)}{' '}
+                {nf.format(peaks.worstWeek.extraHours)} horas. Si contratas gente fija para esa semana,
+                le pagas {nf1.format(peaks.weeksPaidPerWeekWorked)}{' '}
                 {plural(peaks.weeksPaidPerWeekWorked, 'semana', 'semanas')} de sueldo por cada
-                semana punta cubierta.
+                semana en la que de verdad hace falta.
               </p>
             )}
 
@@ -1210,12 +1762,13 @@ export function StepResult() {
             )}
 
             <p className="mt-6 max-w-3xl text-[1rem] leading-relaxed font-bold text-content-inverted">
-              Esto no pide inflar la plantilla fija. Pide refuerzos concretos para los turnos que
-              de verdad se quedan cortos.
+              Son dos formas de cubrir lo mismo: con gente fija la tienes todas las semanas; con
+              refuerzos pagas solo las horas que faltan. Si tus semanas punta van seguidas, como
+              una temporada, también puedes contratar fijos discontinuos solo para ellas.
             </p>
             <p className="mt-2 max-w-3xl text-[0.82rem] leading-relaxed font-medium text-content-inverted/60">
-              {avgHourlyCost !== null
-                ? `La comparación usa el coste medio que has indicado para tu plantilla: ${eur.format(avgHourlyCost)} la hora. El precio de cubrir un turno con Shifty aparece en la siguiente pantalla.`
+              {avgHourlyCost !== null && costeHoraTrabajada !== null
+                ? `Las dos cifras son coste de empresa. Contratar fijo se paga a ${eur2.format(avgHourlyCost)} por hora de contrato las ${semanasDePago} semanas; las horas de refuerzo, a ${eur2.format(costeHoraTrabajada)}, lo que te cuesta de verdad una hora trabajada de tu gente. El precio de cubrir un turno con Shifty aparece en la siguiente pantalla.`
                 : 'En la siguiente pantalla verás cómo cubrir esos turnos con Shifty y cuánto cuesta.'}
             </p>
           </>
@@ -1238,6 +1791,107 @@ export function StepResult() {
             al lado: aquí se acaba de contar un problema y meter la venta
             encima es lo que hacía que esta pantalla diera la chapa. */}
       </section>
+
+      {/* ── Antes de contratar o pedir extras (ronda 2, puntos 6 y 23) ──
+          Un gestor salta de "plantilla" a "extras" pasando por dos escalones
+          que la herramienta no contaba: las horas complementarias de los
+          parciales para los picos medianos, y el fijo discontinuo cuando el
+          pico es una temporada entera. */}
+      {peakWeekCount > 0 && (
+        <Card>
+          <CardHeader
+            eyebrow="Antes de contratar"
+            title={
+              <>
+                Lo que ya tienes <span className="text-brand italic">antes de pedir refuerzos.</span>
+              </>
+            }
+          />
+          <div className="space-y-4 border-t border-border-soft px-6 py-5">
+            {bolsa.parciales > 0 && (
+              <div>
+                <h4 className="h4 flex flex-wrap items-center gap-2">
+                  Horas complementarias de tus parciales
+                  <InfoTip title="Qué son">
+                    Horas de más que un contrato parcial puede hacer sin cambiar de contrato, si está
+                    pactado por escrito con esa persona y se avisa con tres días (art. 12.5 del
+                    Estatuto de los Trabajadores). El pacto se firma con cada uno, no lo da el
+                    convenio: la ley deja pactar hasta el 30 % de su jornada y el convenio puede
+                    subir ese tope hasta el 60 %. A un parcial no se le pueden pedir horas extra.
+                  </InfoTip>
+                </h4>
+                <p className="mt-2 text-[0.9rem] leading-relaxed text-content-secondary">
+                  Tus {bolsa.parciales} {plural(bolsa.parciales, 'parcial puede', 'parciales pueden')} hacer
+                  hasta <strong className="text-content-primary">{nf1.format(bolsa.horasSemana)} h más a la semana</strong>{' '}
+                  con las pactadas, sin llegar ninguno a la jornada completa. En tus semanas punta eso
+                  cubre <strong className="text-content-primary">{nf.format(horasComplementariasPicos)} de las{' '}
+                  {nf.format(horasFaltanPicos)} h</strong> que faltan; quedan{' '}
+                  {nf.format(horasRefuerzo)} para refuerzos.
+                  {bolsa.horasVoluntariasSemana > 0 && (
+                    <>
+                      {' '}Si son indefinidos y aceptan, las voluntarias dan hasta{' '}
+                      {nf1.format(bolsa.horasVoluntariasSemana)} h más a la semana ({VOLUNTARIAS_PCT} % de su
+                      jornada), pero no se pueden dar por hechas y no entran en la cuenta.
+                    </>
+                  )}
+                </p>
+                {/* Revisión ronda 5, M7: decía "Pactadas en tu convenio", y el
+                    pacto se firma por escrito con cada persona. El 30 % de
+                    partida se queda (está pendiente de decidir si arranca en
+                    "No pacto"), pero se dice que es un supuesto. */}
+                <p className="mt-2 text-[0.82rem] leading-relaxed text-content-muted">
+                  De partida contamos el 30 %, el tope de la ley, como si lo tuvieras firmado con cada
+                  parcial. Si no tienes ese pacto por escrito, elige &laquo;No pacto&raquo;.
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="text-[0.82rem] font-medium text-content-secondary">Pactadas con tus parciales</span>
+                  <Segmented
+                    value={String(bolsa.pct)}
+                    onChange={(v) => p.setSettings((st) => ({ ...st, complementariasPct: Number(v) }))}
+                    options={[
+                      { value: '0', label: 'No pacto' },
+                      { value: '30', label: '30 %' },
+                      { value: '45', label: '45 %' },
+                      { value: '60', label: '60 %' },
+                    ]}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className={cn(bolsa.parciales > 0 && 'border-t border-border-soft pt-4')}>
+              <h4 className="h4">Si el pico es una temporada</h4>
+              <p className="mt-2 text-[0.9rem] leading-relaxed text-content-secondary">
+                {temporadaLocal.deTemporada ? (
+                  <>
+                    Tu local cierra {temporadaLocal.semanasCerradas} semanas al año: es un local de
+                    temporada. Para eso existe el contrato{' '}
+                    <strong className="text-content-primary">fijo discontinuo</strong> (art. 16 ET):
+                    toda la plantilla base es tuya y fija, trabaja las {semanasDePago} semanas que
+                    abres y la llamas cada año en el orden que diga tu convenio. Así está calculado
+                    el coste de esta pantalla. Para los picos dentro de la temporada, refuerzos.
+                  </>
+                ) : temporada ? (
+                  <>
+                    Tus semanas {temporada.desde} a {temporada.hasta} van seguidas: son{' '}
+                    {temporada.semanas} semanas, una temporada y no un pico suelto. Para eso existe el
+                    contrato <strong className="text-content-primary">fijo discontinuo</strong> (art. 16
+                    ET): la persona es tuya y fija, trabaja solo la temporada y la llamas cada año en el
+                    orden que diga tu convenio. Te ahorra buscar gente nueva cada vez. Para los picos
+                    sueltos que quedan, mejor refuerzos.
+                  </>
+                ) : (
+                  <>
+                    Tus picos van sueltos, no forman una temporada de cuatro semanas o más seguidas.
+                    El contrato fijo discontinuo (art. 16 ET) encaja cuando el pico dura una temporada
+                    entera; para semanas sueltas como las tuyas, lo que encaja son los refuerzos.
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       </div>
       )}
@@ -1264,13 +1918,15 @@ export function StepResult() {
               <h2 className="mt-4 max-w-3xl text-[1.7rem] leading-[1.12] font-extrabold tracking-[-0.028em] text-content-inverted sm:text-[2.2rem]">
                 Cubre los picos{' '}
                 <span className="text-content-inverted/70 italic">
-                  sin inflar la plantilla de cada centro.
+                  sin inflar tu plantilla fija.
                 </span>
               </h2>
 
               <p className="mt-6 max-w-2xl text-[1rem] leading-relaxed font-medium text-content-inverted/85">
                 {peakWeekCount > 0
-                  ? `Tu plan ya ha localizado ${peakWeekCount} ${plural(peakWeekCount, 'semana', 'semanas')} y ${nf.format(peaks.peakHoursPerYear)} horas de refuerzo.`
+                  ? horasRefuerzo > 0
+                    ? `Tu plan ya ha localizado ${peakWeekCount} ${plural(peakWeekCount, 'semana', 'semanas')} en las que faltan ${nf.format(horasFaltanPicos)} horas${horasComplementariasPicos > 0 ? `: ${nf.format(horasComplementariasPicos)} las pueden hacer tus parciales con complementarias, y quedan ${nf.format(horasRefuerzo)} horas de refuerzo` : ' de refuerzo'}.`
+                    : `Tu plan ha localizado ${peakWeekCount} ${plural(peakWeekCount, 'semana', 'semanas')} punta, y las horas que faltan las pueden hacer tus parciales con complementarias. Para bajas, vacaciones y reservas inesperadas sigues necesitando a alguien.`
                   : 'Aunque hoy cubras el histórico con plantilla fija, una baja o una reserva inesperada puede dejar un turno corto.'}{' '}
                 En Shifty publicas el turno, eliges profesionales verificados y la ETT colaboradora
                 se ocupa del contrato, el alta y la nómina.
@@ -1296,15 +1952,22 @@ export function StepResult() {
             <figure className="mx-auto w-full max-w-[420px]">
               {/* ⚠️ La captura necesita su propio fondo claro: el menú morado
                   de Shifty se pierde si vuelve a apoyarse directamente sobre
-                  el morado de esta sección. */}
+                  el morado de esta sección.
+                  ⚠️ La imagen es la pantalla real del panel de empresas con las
+                  caras y los nombres sustituidos por avatares genéricos y
+                  "Profesional 1, 2, 3", y "Shifts/Shifters" por "turnos" y
+                  "profesionales" (revisión ronda 5, M9). La original llevaba
+                  fotos y nombres que podían ser de trabajadores reales: no se
+                  vuelve a poner una captura con personas sin anonimizarla. El
+                  `?v=2` es para que nadie siga viendo la vieja desde la caché. */}
               <a
-                href="/shifty-turno.webp"
+                href="/shifty-turno.webp?v=2"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block cursor-zoom-in rounded-[18px] border border-content-inverted/40 bg-surface-elevated p-2 shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-content-inverted sm:p-2.5"
               >
                 <img
-                  src="/shifty-turno.webp"
+                  src="/shifty-turno.webp?v=2"
                   alt="Pantalla de Shifty con un turno publicado, las personas confirmadas y la valoración de cada profesional."
                   width={1900}
                   height={929}
@@ -1314,8 +1977,8 @@ export function StepResult() {
                 />
               </a>
               <figcaption className="mt-3 text-[0.78rem] leading-relaxed font-semibold text-content-inverted/70">
-                Ves quién viene, a qué hora y con qué valoración. Abre la imagen para verla en
-                grande.
+                Ves quién viene, a qué hora y con qué valoración. Imagen de ejemplo, con los
+                nombres y las fotos ocultos. Ábrela para verla en grande.
               </figcaption>
             </figure>
           </div>
@@ -1340,8 +2003,12 @@ export function StepResult() {
                 pie: 'Pagas capacidad fija',
                 destacado: false,
                 puntos: [
-                  `${extraPeopleIfHired} ${plural(extraPeopleIfHired, 'persona más', 'personas más')} para llegar a la peor semana.`,
-                  'Nómina durante todo el año, aunque el pico dure mucho menos.',
+                  picoSoloHoras
+                    ? `La peor semana no pide más gente a la vez, solo más horas: meterlas en nómina serían ${contratosPicoTexto}.`
+                    : `${extraPeopleIfHired} ${plural(extraPeopleIfHired, 'persona fija más', 'personas fijas más')}, con ${nf.format(horasContratoPico)} h de contrato a la semana, para llegar a la peor semana.`,
+                  temporadaLocal.deTemporada
+                    ? `Nómina las ${semanasDePago} semanas que abres, aunque el pico dure menos.`
+                    : 'Nómina todo el año, o un fijo discontinuo si los picos van seguidos.',
                   'Más coste fijo y menos margen para ajustar cada centro.',
                 ],
               },
@@ -1453,7 +2120,7 @@ export function StepResult() {
           <div className="mt-6 border-t border-border pt-6">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <span className="text-[1.6rem] leading-none font-black tracking-tight text-content-primary">
-                Desde 18,80 €/hora
+                Desde 18,81 €/hora
               </span>
               <span className="text-[0.95rem] font-bold text-brand">todo incluido</span>
             </div>
@@ -1461,6 +2128,33 @@ export function StepResult() {
               El salario del profesional, el contrato y el alta que hace la ETT colaboradora, y
               nuestra comisión. Sin cuota mensual y sin permanencia. Si el turno no se cubre, no
               pagas nada.
+            </p>
+            {/* Peras con peras (ronda 2, punto 20). El 18,81 es por hora
+                trabajada y lo lleva todo; compararlo con el sueldo por hora de
+                contrato de tu gente es comparar cosas distintas, porque a tu
+                gente le pagas también las semanas que no trabaja. */}
+            <p className="mt-3 max-w-2xl rounded-lg bg-surface-alt px-4 py-3 text-[0.86rem] leading-relaxed text-content-body">
+              <strong className="text-content-primary">Para compararlo con lo mismo:</strong>{' '}
+              {costeHoraTrabajada !== null ? (
+                <>
+                  una hora trabajada de tu plantilla te cuesta{' '}
+                  <strong className="text-content-primary">{eur2.format(costeHoraTrabajada)}</strong> en
+                  coste de empresa:{' '}
+                  {cost?.base === 'bruto'
+                    ? 'el sueldo bruto por hora de tu catálogo, que ya lleva las pagas extra prorrateadas, más la Seguridad Social, y las'
+                    : 'el coste de empresa por hora de tu catálogo, y las'}{' '}
+                  vacaciones y los festivos, que se pagan sin trabajarse. Con un refuerzo pagas solo
+                  la hora que trabaja.
+                </>
+              ) : (
+                <>
+                  no lo pongas al lado del sueldo por hora. Una hora trabajada de tu plantilla cuesta
+                  unas {nf1.format(multiplicadorHoraTrabajada)} veces el sueldo bruto por hora de
+                  contrato, porque encima van la Seguridad Social y las semanas de vacaciones y
+                  festivos que se pagan sin trabajarse. Enciende los costes en tus puestos y te damos
+                  la cifra exacta.
+                </>
+              )}
             </p>
           </div>
         </Card>
@@ -1471,10 +2165,10 @@ export function StepResult() {
             para saber cuántos leads salen de la herramienta. */}
         <section className="rounded-card bg-brand px-6 py-8 shadow-lg sm:px-10">
           <h3 className="max-w-2xl text-[1.3rem] leading-tight font-extrabold tracking-[-0.025em] text-content-inverted">
-            ¿Quieres probarlo en uno o varios centros?
+            ¿Quieres probarlo en tu local?
           </h3>
           <p className="mt-2 max-w-2xl text-[0.95rem] leading-relaxed font-medium text-content-inverted/85">
-            Cuéntanos qué turnos necesitas cubrir en tus restaurantes u hoteles y te ayudamos a
+            Cuéntanos qué turnos necesitas cubrir, en un local o en varios, y te ayudamos a
             calcular el coste, sin compromiso.
           </p>
 
@@ -1532,8 +2226,8 @@ export function StepResult() {
         {p.falloGuardado && (
           <div className="mt-3">
             <Note tone="warning">
-              No hemos podido guardar el plan. Tu fichero sigue solo en este navegador; descarga
-              una copia aquí abajo para no perder el trabajo.{' '}
+              No hemos podido guardar el plan{esDemo ? '' : '. Tu fichero sigue solo en este navegador'};
+              descarga una copia aquí abajo para no perder el trabajo.{' '}
               <button
                 type="button"
                 onClick={() => void p.guardarEnServidor()}
@@ -1556,14 +2250,16 @@ export function StepResult() {
         <p className="mt-1 text-[0.86rem] leading-relaxed text-content-secondary">
           {p.planRemoto && !p.falloGuardado ? (
             <>
-              Tu fichero de ventas nunca sale de este navegador. Lo que se guarda es el plan ya
-              calculado, para que puedas volver a él y compartirlo con un enlace corto. Quien lo
-              abra lo ve, pero no lo puede cambiar ni borrar.
+              {esDemo ? '' : 'Tu fichero nunca sale de este navegador. '}Lo que se guarda es el
+              plan ya calculado, con los nombres que hayas puesto en el cuadrante, para que puedas
+              volver a él y compartirlo con un enlace corto. Quien lo abra lo ve, pero no lo puede
+              cambiar ni borrar.
             </>
           ) : (
             <>
-              Tu fichero de ventas sigue solo en este navegador. Mientras el plan no tenga un
-              enlace corto, puedes descargar una copia o compartir el enlace completo.
+              {esDemo ? '' : 'Tu fichero sigue solo en este navegador. '}Este plan aún no está
+              guardado en nuestro servidor: puedes descargar una copia o compartir el enlace largo,
+              que lleva el plan dentro (también los nombres del cuadrante).
             </>
           )}
         </p>
@@ -1593,6 +2289,34 @@ export function StepResult() {
             onClick={() => void copiarEnlace()}
           >
             {enlaceCopiado ? 'Enlace copiado' : 'Copiar enlace'}
+          </Button>
+        </div>
+
+        {/* EL CUADRANTE, TAMBIÉN AQUÍ (ronda 7, M2 de pantallas). Quien va
+            directo al final a por el cuadrante para colgarlo el lunes no lo
+            encontraba: solo estaba en el sub-paso "El cuadrante". Los mismos
+            dos botones, que llaman a lo mismo que los de allí. */}
+        <div className="mt-3 flex flex-wrap gap-2.5">
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<Printer size={15} />}
+            onClick={() =>
+              void descargarCuadranteCocina(roster, model, {
+                lunes: primerLunesPublicable(new Date()),
+                nota: rueda.semanas > 1 ? 'Semana 1 de la rueda.' : undefined,
+              })
+            }
+          >
+            PDF para colgar
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<CalendarDays size={15} />}
+            onClick={() => downloadCuadranteCsv(roster, model)}
+          >
+            Cuadrante (CSV)
           </Button>
         </div>
 
@@ -1657,13 +2381,14 @@ export function StepResult() {
       <SubNav
         index={sub}
         onBack={() => setSub((v) => Math.max(0, v - 1))}
-        onNext={() => setSub((v) => Math.min(RESULT_SUBSTEPS.length - 1, v + 1))}
+        // Al final no hay un botón apagado, que parecía un fallo (ronda 3,
+        // punto 34): vuelve al resumen de la plantilla.
+        onNext={() => setSub((v) => (v < RESULT_SUBSTEPS.length - 1 ? v + 1 : 0))}
         nextLabel={
           sub < RESULT_SUBSTEPS.length - 1
             ? `Siguiente: ${etiquetaSiguiente(RESULT_SUBSTEPS[sub + 1].label)}`
-            : 'Ya está'
+            : 'Volver a tu plantilla'
         }
-        nextDisabled={sub === RESULT_SUBSTEPS.length - 1}
       />
 
       <Modal
@@ -1710,4 +2435,11 @@ export function StepResult() {
       />
     </div>
   )
+}
+
+/** "17 por el pico, 4 por el calendario y 1 de mando": solo las partes que no son cero. */
+function listarPartes(partes: [number, string][]): string {
+  const t = partes.filter(([n]) => n !== 0).map(([n, txt]) => `${n} ${txt}`)
+  if (t.length <= 1) return t[0] ?? ''
+  return `${t.slice(0, -1).join(', ')} y ${t[t.length - 1]}`
 }

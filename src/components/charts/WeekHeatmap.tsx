@@ -118,11 +118,13 @@ function rectCells(r: Rect): number {
   return (r.d1 - r.d0 + 1) * (r.s1 - r.s0 + 1)
 }
 
+/** En castellano: "1.600", no "1.6k" con punto decimal inglés (ronda 3, 28). */
+const nfEs = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1, useGrouping: true })
 function fmt(n: number): string {
   if (!Number.isFinite(n)) return ''
-  if (n >= 10000) return `${Math.round(n / 1000)}k`
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
-  return Number.isInteger(n) ? String(n) : n.toFixed(1)
+  if (n >= 10000) return `${nfEs.format(Math.round(n / 1000))} mil`
+  if (n >= 1000) return nfEs.format(Math.round(n))
+  return nfEs.format(n)
 }
 
 function cellElFrom(target: EventTarget | null): HTMLElement | null {
@@ -218,8 +220,31 @@ export function WeekHeatmap({
   // Con celdas estrechas las etiquetas de hora se pisarían: se pintan cada 2 h.
   const labelEvery = cellW >= 30 ? 2 : cellW >= 24 ? 4 : 6
 
+  /**
+   * La primera franja con algo, para no abrir la rejilla en siete horas
+   * cerradas (revisión ronda 5, m16): la vista arranca una hora antes y el
+   * cursor del teclado empieza ahí. La rejilla sigue entera; solo cambia
+   * desde dónde se mira.
+   */
+  const primeraFranja = useMemo(() => {
+    const i = slotTotals.findIndex((v) => v > 0)
+    return i < 0 ? 0 : i
+  }, [slotTotals])
+  // Se recoloca si cambia el ancho de celda (la primera medida llega un
+  // render después), pero solo mientras nadie haya movido la rejilla a mano.
+  const ultimoAuto = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    if (ultimoAuto.current !== null && Math.abs(el.scrollLeft - ultimoAuto.current) > 1) return
+    el.scrollLeft = Math.max(0, primeraFranja - 2) * cellW
+    ultimoAuto.current = el.scrollLeft
+  }, [primeraFranja, cellW])
+
   // ── Estado de interacción
-  const [cursor, setCursor] = useState<Cell>({ day: 0, slot: 0 })
+  const [cursor, setCursor] = useState<Cell>(() => ({ day: 0, slot: primeraFranja }))
+  /** El recuadro del cursor solo se pinta con el foco dentro: al cargar no hay nada que señalar. */
+  const [conFoco, setConFoco] = useState(false)
   const [hover, setHover] = useState<{ day: number; slot: number; x: number; y: number } | null>(null)
   const [selection, setSelection] = useState<Rect | null>(null)
   const [edit, setEdit] = useState<{ day: number; slot: number; draft: string } | null>(null)
@@ -536,7 +561,12 @@ export function WeekHeatmap({
           </h3>
           <p className="mt-1 text-[0.82rem] text-content-secondary">
             {max > 0
-              ? `Máximo de la semana: ${fmt(max)} ${unit} en una franja.`
+              ? mode === 'covers'
+                // Son cobros: los que pagan en esa media hora. La gente sentada
+                // a la vez es otra cifra (más alta) y se enseña en el paso de
+                // equipo; llamar a esto "en una franja" sin más las confundía.
+                ? `Máximo de la semana: ${fmt(max)} comensales cobrados en una misma media hora.`
+                : `Máximo de la semana: ${fmt(max)} ${unit} en una franja.`
               : 'Todavía no hay datos en la rejilla.'}
           </p>
         </div>
@@ -615,6 +645,10 @@ export function WeekHeatmap({
           onPointerOver={handlePointerOver}
           onPointerLeave={() => setHover(null)}
           onKeyDown={handleKeyDown}
+          onFocus={() => setConFoco(true)}
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setConFoco(false)
+          }}
         >
           <caption className="sr-only">
             {mode === 'covers' ? 'Comensales' : 'Personas necesarias'} por día y franja de 30
@@ -741,7 +775,7 @@ export function WeekHeatmap({
                           isOpen && t === 0 && 'bg-surface',
                           dark ? 'text-content-inverted' : 'text-content-primary',
                           canEdit && 'cursor-cell',
-                          isCursor && 'z-10 ring-2 ring-brand ring-inset',
+                          isCursor && conFoco && 'z-10 ring-2 ring-brand ring-inset',
                           'focus:z-10 focus:ring-2 focus:ring-brand focus:ring-inset focus:outline-none',
                         )}
                         style={{
@@ -825,7 +859,11 @@ export function WeekHeatmap({
 
       {editable && (
         <p className="mt-2 text-[0.75rem] leading-relaxed text-content-muted">
-          Arrastra o usa mayús + clic para corregir varias franjas de golpe.
+          <span className="hidden sm:inline">
+            Arrastra o usa mayús + clic para corregir varias franjas de golpe.
+          </span>
+          {/* En el móvil no hay mayúsculas que pulsar (revisión ronda 5, m16). */}
+          <span className="sm:hidden">Toca una franja para corregirla.</span>
         </p>
       )}
 

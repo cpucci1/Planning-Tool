@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "comprobar-cuadrante": "esbuild scripts/comprobar-cuadrante.ts --bundle --platform=node --format=esm --alias:@=./src --log-level=error --outfile=node_modules/.tmp/comprobar-cuadrante.mjs && node node_modules/.tmp/comprobar-cuadrante.mjs",
+    "comprobar-coste": "esbuild scripts/comprobar-coste.ts --bundle --platform=node --format=esm --alias:@=./src --log-level=error --outfile=node_modules/.tmp/comprobar-coste.mjs && node node_modules/.tmp/comprobar-coste.mjs",
     "verificar": "esbuild scripts/verificar-calculo.ts --bundle --platform=node --format=esm --alias:@=./src --log-level=error --outfile=node_modules/.tmp/verificar.mjs && node node_modules/.tmp/verificar.mjs"
   },
   "dependencies": {

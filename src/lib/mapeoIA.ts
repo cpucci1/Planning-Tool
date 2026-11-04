@@ -35,7 +35,7 @@
  * `src/lib/` no importa React. Esto es lógica pura.
  */
 
-import { CONFIANZA_MINIMA, mapeoSuficiente } from './mapeo'
+import { CONFIANZA_MINIMA, mapeoConCantidad } from './mapeo'
 import type { ColumnaDetectada, DestinoColumna } from './mapeo'
 import { reetiquetarEjemplos, type FicheroLeido } from './parseFichero'
 import { supabase } from './supabase'
@@ -205,7 +205,7 @@ export function fundirMapeos(
   // que se despiste con la fecha deja al usuario delante de un cartel que le
   // bloquea el paso, y encima con una columna que la heurística SÍ había
   // encontrado.
-  if (mapeoSuficiente(heuristica) && !mapeoSuficiente(limpio)) return heuristica
+  if (mapeoConCantidad(heuristica) && !mapeoConCantidad(limpio)) return heuristica
 
   return limpio
 }

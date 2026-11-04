@@ -79,7 +79,7 @@ function at(arr: number[] | undefined, i: number): number {
 }
 
 function fmtPeople(v: number): string {
-  return Number.isInteger(v) ? String(v) : v.toFixed(1)
+  return Number.isInteger(v) ? String(v) : v.toFixed(1).replace(".", ",")
 }
 
 /** True si la franja `i` cae dentro de algún tramo de apertura. */
@@ -127,6 +127,17 @@ export interface DayCurveProps {
   compact?: boolean
   dayLabel?: string
   className?: string
+  /**
+   * Qué es la serie principal, en minúscula para el texto ("cobrados", "sentados")
+   * y en la leyenda. Por defecto "comensales", que es lo que decía siempre.
+   * Desde el 2026-11-04 conviven dos curvas: los cobros por media hora y las
+   * personas sentadas a la vez, y llamar a las dos "comensales" las confunde.
+   */
+  coversUnit?: string
+  coversLegend?: string
+  /** Lo mismo para la serie discontinua. Por defecto "hora real". */
+  laggedUnit?: string
+  laggedLegend?: string
 }
 
 export function DayCurve({
@@ -138,6 +149,10 @@ export function DayCurve({
   compact = false,
   dayLabel,
   className,
+  coversUnit = 'comensales',
+  coversLegend = 'Comensales',
+  laggedUnit = 'hora real',
+  laggedLegend = 'Hora real del servicio',
 }: DayCurveProps) {
   const gradId = useId()
   const [wrapRef, width] = useWidth<HTMLDivElement>()
@@ -241,7 +256,7 @@ export function DayCurve({
     return { value: best, slot }
   }, [covers])
 
-  const summary = `${dayLabel ? `${dayLabel}. ` : ''}Pico de ${Math.round(peak.value)} comensales a las ${formatSlot(peak.slot)}${
+  const summary = `${dayLabel ? `${dayLabel}. ` : ''}Pico de ${Math.round(peak.value)} ${coversUnit} a las ${formatSlot(peak.slot)}${
     hasPeople ? `, hasta ${fmtPeople(peopleMax)} personas necesarias` : ''
   }.`
 
@@ -487,11 +502,11 @@ export function DayCurve({
           </div>
           <div className="mt-1 space-y-0.5 text-[0.72rem] font-medium whitespace-nowrap text-content-secondary">
             <div>
-              <span className="font-bold text-brand">{Math.round(tipCovers)}</span> comensales
+              <span className="font-bold text-brand">{Math.round(tipCovers)}</span> {coversUnit}
             </div>
             {laggedCovers && (
               <div>
-                <span className="font-bold text-brand/70">{Math.round(tipLagged)}</span> hora real
+                <span className="font-bold text-brand/70">{Math.round(tipLagged)}</span> {laggedUnit}
               </div>
             )}
             {hasPeople && (
@@ -506,9 +521,9 @@ export function DayCurve({
 
       {!compact && (
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 text-[0.72rem] font-semibold text-content-secondary">
-          <LegendDot color="var(--color-brand)" label="Comensales" />
+          <LegendDot color="var(--color-brand)" label={coversLegend} />
           {laggedCovers && (
-            <LegendDot color="var(--color-brand)" faded dashed label="Hora real del servicio" />
+            <LegendDot color="var(--color-brand)" faded dashed label={laggedLegend} />
           )}
           {hasPeople && <LegendDot color="var(--color-content-primary)" label="Personas necesarias" />}
           {closedRuns.length > 0 && <LegendDot color="var(--color-surface)" bordered label="Cerrado" />}
@@ -519,7 +534,7 @@ export function DayCurve({
       {!compact && (
         <span className="sr-only" aria-live="polite">
           {hover !== null
-            ? `${formatSlot(hover)}: ${Math.round(tipCovers)} comensales${
+            ? `${formatSlot(hover)}: ${Math.round(tipCovers)} ${coversUnit}${
                 hasPeople ? `, ${fmtPeople(tipPeople)} personas` : ''
               }`
             : ''}

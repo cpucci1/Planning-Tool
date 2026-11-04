@@ -24,6 +24,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Loader2, Mail, ShieldCheck } from 'lucide-react'
 import { Button, Modal, Note, TextInput } from './ui'
 import { comprobarCodigo, pedirCodigo } from '@/lib/backend'
+import { hayBackend } from '@/lib/supabase'
 
 type Fase = 'email' | 'codigo' | 'listo'
 
@@ -123,7 +124,7 @@ export function CuentaModal({
           ? 'Guardado en tu cuenta'
           : fase === 'codigo'
             ? 'Mira tu correo'
-            : 'Guarda este plan para no perderlo'
+            : 'Llévate este plan a cualquier ordenador'
       }
       subtitle={
         fase === 'listo'
@@ -137,7 +138,7 @@ export function CuentaModal({
         <div className="space-y-4">
           <Note tone="success" icon={<ShieldCheck size={16} strokeWidth={2.4} />}>
             Este plan ya es tuyo. Entra con el mismo correo desde cualquier ordenador y lo tendrás
-            ahí, con los nombres que le hayas puesto a tu gente.
+            ahí, con los nombres que le hayas puesto a tu gente hasta ahora.
           </Note>
           <div className="flex justify-end">
             <Button onClick={onClose}>Seguir trabajando</Button>
@@ -148,8 +149,20 @@ export function CuentaModal({
       {fase === 'email' && (
         <form onSubmit={mandarCodigo} className="space-y-4">
           <p className="text-[0.9rem] leading-relaxed text-content-secondary">
-            Lo que has hecho vive ahora mismo solo en este navegador. Con tu correo lo recuperas
-            desde cualquier sitio, y la semana que viene no vuelves a empezar de cero.
+            {/* Decía "vive solo en este navegador", y con el servidor puesto no es
+                verdad: el plan calculado se guarda al llegar al resultado. */}
+            {hayBackend()
+              ? 'El plan calculado ya se guarda en nuestro servidor, pero sin cuenta solo lo abres desde este navegador o con su enlace. '
+              : 'Lo que has hecho está guardado en este navegador. '}
+            Con tu correo lo recuperas desde cualquier sitio, y la semana que viene no vuelves a
+            empezar de cero. Tu fichero de ventas no se sube nunca.
+          </p>
+          {/* Los nombres de la plantilla son datos de terceros (revisión ronda
+              5, M6): se dice aquí, que es donde se ofrece guardarlos en una
+              cuenta, que viajan con el plan y que son opcionales. */}
+          <p className="text-[0.82rem] leading-relaxed text-content-secondary">
+            Si pones los nombres de tu gente en el cuadrante, se guardan con el plan y los ve quien
+            tenga su enlace. Son opcionales: puedes dejar &laquo;Camarero 1&raquo;.
           </p>
 
           <div>
