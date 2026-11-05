@@ -64,8 +64,8 @@ sin dar ningún error**. Ya ha pasado: ver el punto 6.
    con recargo de noche o festivo: el plus sube el piso del convenio, no se suma a la tarifa),
    `fn_payer_for_worker` y `fn_shifty_tramita_alta` (quién paga y quién da el alta),
    `fn_cancellation_penalty_points` (los puntos por cancelar), `fn_worker_offer_block` (si alguien
-   está bloqueado para un anuncio), `calcular_horas_casuisticas` y `get_night_rate_for_job_day`
-   (horas y tarifa de noche).
+   está bloqueado para un anuncio), **`fn_hours_breakdown_on_date`** y `get_night_rate_for_job_day`
+   (horas y tarifa de noche; `calcular_horas_casuisticas` ya no se llama directa, ver §6 "Horas").
    **Para lo que una empresa ve de un trabajador (25-09-2026):** `fn_company_related_worker_ids` y
    `fn_company_can_see_worker(trabajador, nivel)` (¿tiene la empresa de quien llama relación con
    esta persona? Con el nivel `'team'`, ¿está hoy en su equipo, plantilla o extra propio? Ese nivel
@@ -256,6 +256,25 @@ Cada una ha costado un incidente real.
 - **Nunca devolver `SQLERRM` al cliente** en un `EXCEPTION WHEN OTHERS`: enseña las tripas de
   Postgres y **esconde el bug**. El detalle va al log con `RAISE WARNING`. A 2026-07-17 quedaban ~55.
 - **`jsonb_build_object` admite 100 argumentos** (50 pares). Para más, concatenar con `||`.
+
+### Horas: el reloj miente dos noches al año
+
+- **Unas horas nunca se cuentan restando horas de reloj.** España cambia de hora el último domingo
+  de marzo y de octubre a las 02:00: esa noche un turno de 23:30 a 06:30 dura 8 h en octubre y 6 h
+  en marzo, aunque el reloj diga 7. `calcular_horas_casuisticas` solo recibe horas sin fecha y no
+  lo ve. Desde el 05-11-2026 las cuatro vistas de precio y las cinco funciones que reparten horas
+  (`fn_pay_breakdown`, `fn_square_shift_quote`, `get_job_days_payment_breakdown`,
+  `get_job_offer_draft_quote`, `get_worker_payments`) llaman a **`fn_hours_breakdown_on_date`**,
+  que recibe el día y la zona y suma o resta esa hora en su tramo.
+  - CORRECTO: para unas horas de un turno, `fn_hours_breakdown_on_date(día, zona, …)`; para una
+    duración entre dos instantes, restar los `timestamptz`, nunca sus `::time`.
+  - INCORRECTO: la noche del 24 al 25-10-2026 tres turnos de NUIT se pagaron con 1 h de menos
+    (6,97 h de 7,97 reales), y el 28-03-2026 cuatro turnos se pagaron con 1 h de más. Nadie lo vio
+    hasta que reclamaron.
+- **La corrección solo vale desde el 01-11-2026.** Los 8 turnos anteriores afectados ya estaban
+  pagados y facturados con la hora de reloj; moverlos es tocar pagos y lo decide Crescente (regla 11).
+- **Antes de cada cambio de hora** (último domingo de marzo y de octubre), comprobar con una
+  consulta que los turnos de esa noche salen con su duración real en `v_shifts_closed`.
 
 ### Estados que engañan
 
