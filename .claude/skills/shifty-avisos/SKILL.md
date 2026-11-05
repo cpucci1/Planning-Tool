@@ -213,5 +213,6 @@ percentil 95 es **5**. Un tipo de descubrimiento que pase de 2 por persona y dí
 | 25-09-2026 | A las empresas en iOS no les llega casi ninguna push (23 de 1.457 en 30 días) | El día que se arregle, les llegará una por anuncio: agrupar antes (ver `PENDIENTE.md`) |
 | 25-09-2026 | Pausar una campaña push en el panel no la paraba: la función de la base no miraba el interruptor | Si un aviso tiene interruptor en el panel, el código que lo crea lo consulta. Pausado "16 turnos disponibles" |
 | 06-07-2026 | Un deploy de edge function reemplazó el paquete y se perdió una semana de arreglos | Comparar con producción antes de desplegar el orquestador |
+| 04/05-11-2026 | Puestos temporales: cada guardado en el panel abría una confirmación nueva y una push "Confirma tus turnos" con clave única por confirmación; Nico recibió 12 en 50 minutos | La clave de deduplicación tiene que ser del hecho, no de cada fila nueva. `tp_selection_confirmation_open` ya no repite la push a la misma persona por el mismo puesto en una hora (30 de 49 se habrían ahorrado ese mes) |
 
 Cuando pase algo nuevo con los avisos, se añade aquí una fila.

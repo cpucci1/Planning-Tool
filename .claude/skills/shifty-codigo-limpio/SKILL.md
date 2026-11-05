@@ -134,6 +134,14 @@ sales-tool. No aplica a Worker-App, que tiene sus propios contextos, ni a Websit
    de empresas decía "Las horas se han guardado" al editar en lote y no guardaba nada. Antes de dar
    por bueno un `.update()`, lee los disparadores `BEFORE UPDATE` de la tabla y comprueba en los datos
    que el valor quedó escrito (y mejor: usa la RPC).
+8. **Antes de coger algo de un hook, de un objeto o de una respuesta, abre de dónde sale y comprueba
+   que ese nombre existe.** En JavaScript, un nombre que no está vale `undefined` sin dar ningún error,
+   y donde se use como función la app se cierra. El 03-11-2026 Ajustes cogió `recargar` de un hook
+   que no lo devuelve, lo puso a escuchar el foco de la pantalla, y la 1.9.1 y la 1.9.2 se cerraban
+   al entrar en Ajustes (27 personas en un día). En la app única lo vigila un test que corre en cada
+   push (`scripts/comprobar-propiedades-de-hooks.js`): **si salta, se arregla el nombre, nunca se
+   silencia el test**. Y lo que solo sirve para tapar el hueco (`?.()` sobre algo que debería existir)
+   tampoco: esconde el fallo en vez de arreglarlo.
 
 ---
 
