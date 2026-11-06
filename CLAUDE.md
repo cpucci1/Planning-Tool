@@ -126,6 +126,11 @@ desplegar se hace sin pedir permiso, y se cuenta después qué se ha hecho.
     Elegir una opción tipo "bloquear y avisar" en una pregunta de diseño no es permiso para enviar.
     Una función que avisa nace con el envío apagado hasta su OK. El 10-10-2026 la relectura de
     documentos avisó a 46 personas por el chat sin su autorización: *"gran error"*.
+    **Lo mismo vale para los avisos que dispara un cambio hecho a mano** (turnos, horas, puestos,
+    candidaturas, bloqueos de personas reales): antes de ejecutarlo se enseña la lista de avisos
+    que va a mandar, con su texto y a quién, como propuesta, y se espera el OK. El 06-11-2026 una
+    reubicación de Pistola hecha por SQL mandó 9 "Turno cancelado" a 5 personas a las que solo se
+    les cambiaba el turno. Cómo sacar la lista sin mandar nada, en la skill `shifty-avisos` §2 bis.
 11. **NUNCA tocar nada de pagos** para empresas que no sean de test sin aprobación explícita **en esa
     misma conversación**, describiendo qué tabla, qué registro y qué pasa de qué a qué.
 12. **NUNCA editar un plan que ya tenga empresas asignadas.** Se crea uno nuevo específico.

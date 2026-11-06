@@ -5,10 +5,11 @@ description: >
   inundar a nadie: por dónde viaja un aviso, las reglas antes de crear un tipo nuevo (si ya hay
   otro sistema que avisa de lo mismo, nace apagado para quien ya tiene cuenta, el tope diario
   compartido, la deduplicación, el interruptor en Ajustes, sin datos personales en el texto), las
-  pruebas de volumen antes de encenderlo, la vigilancia después y los incidentes que ya han
-  pasado. Úsala SIEMPRE antes de crear un tipo de aviso nuevo, de cambiar a quién o cuántas veces
-  avisa uno que existe, de crear una alerta, cascada, recordatorio o campaña que mande push, y
-  cuando alguien diga "me llegan demasiadas notificaciones", "crea un aviso", "avisa al
+  pruebas de volumen antes de encenderlo, la vigilancia después, la lista de avisos que hay que
+  enseñar antes de un cambio a mano y los incidentes que ya han pasado. Úsala SIEMPRE antes de
+  crear un tipo de aviso nuevo, de cambiar a quién o cuántas veces avisa uno que existe, de crear
+  una alerta, cascada, recordatorio o campaña que mande push, ANTES de cambiar a mano en producción
+  turnos, horas, puestos, candidaturas o bloqueos de personas reales, y cuando alguien diga "me llegan demasiadas notificaciones", "crea un aviso", "avisa al
   trabajador cuando", "manda una push" o "por qué le llegó esto".
 ---
 
@@ -156,6 +157,50 @@ vacío.** Y el SMS de reconfirmación dice "o lo perderás", que no es verdad.
 
 ---
 
+## 2 bis. Cambios a mano en producción: la lista de avisos antes de confirmar
+
+Regla de Crescente, 06-11-2026. **Siempre que Claude cambie algo de personas reales en producción**
+(turnos, horas, días de un puesto, candidaturas, bloqueos, invitaciones, cancelaciones, cuadres),
+sea por SQL, por un bloque `do` o llamando a las funciones del panel, **antes de ejecutarlo enseña a
+quien lo pide la lista de avisos que va a disparar**, como una propuesta, y espera su OK. Vale
+aunque el cambio en sí ya esté autorizado: autorizar el cambio no es autorizar los avisos.
+
+**Por qué.** El 06-11-2026 una sesión aplicó por SQL la reubicación de Pistola Madrid que pidió Gema.
+Para quitar los turnos que se movían llamó a `cancel_shift` con el aviso encendido, y 5 personas
+recibieron 9 avisos de "📉 Turno cancelado… ¡Busca otro turno para llenar el hueco!", a la vez que
+"Tus turnos del puesto han cambiado" y "¡Te han elegido!". Solo les estaban cambiando el turno.
+Desde la pantalla no habría pasado: el sistema quita esos turnos sin avisar. Las funciones avisan
+por defecto, y una llamada a mano no trae la pantalla que sabe cuándo callar.
+
+**La propuesta lleva, por cada aviso:**
+
+| Qué | Ejemplo |
+|---|---|
+| Tipo y canal | `shift_cancelled`, push |
+| A cuántas personas y cuántos avisos a cada una | 5 personas, hasta 4 a la misma |
+| El texto tal cual le llega | "📉 Turno cancelado. Se ha cancelado tu turno del 8 nov…" |
+| Si cuadra con lo que pasa de verdad | **No**: no pierde el turno, se lo cambian |
+| Qué se propone | Apagarlo (`p_send_notification => false`, o el camino `tp_*` que no avisa) y dejar solo "Tus turnos del puesto han cambiado" |
+
+Y al final, cuántos avisos recibirá cada persona en total con ese cambio. Si alguien recibe más de
+uno por el mismo hecho, se agrupa o se apagan los que sobran (regla 2.4).
+
+**Cómo se saca la lista sin mandar nada.** Se ensaya el cambio entero dentro de una transacción
+que termina en error a propósito: se ejecuta, se leen las filas de `notifications` creadas en esa
+transacción (las que tienen `created_at = now()`, que es la hora de la transacción) y se lanza un
+`raise exception` con el resumen, para que no se aplique nada. Las filas no llegan a salir: la
+llamada al orquestador va por `pg_net`, que solo envía lo confirmado. Dos excepciones que obligan a
+mirar el código: una función que llame a una edge function con `http` síncrono, o que mande correo
+o WhatsApp sin pasar por `notifications`. Esas se leen antes y se dicen en la propuesta.
+
+- Lo que se ensaya es exactamente lo que se aplica después: el mismo bloque, con el mismo usuario.
+- Si la lista sale vacía en un cambio que toca a personas, se dice también: "no sale ningún aviso".
+  Puede ser lo correcto o puede ser que falte uno, y eso lo decide quien pide el cambio.
+- Ningún aviso nuevo se escribe a mano para "explicar" el cambio sin su OK al texto (regla 10 de
+  las comunes).
+
+---
+
 ## 3. Pruebas antes de encenderlo
 
 1. **Prueba de volumen con el pasado.** Antes de encender, calcula cuántos avisos habría recibido
@@ -214,5 +259,6 @@ percentil 95 es **5**. Un tipo de descubrimiento que pase de 2 por persona y dí
 | 25-09-2026 | Pausar una campaña push en el panel no la paraba: la función de la base no miraba el interruptor | Si un aviso tiene interruptor en el panel, el código que lo crea lo consulta. Pausado "16 turnos disponibles" |
 | 06-07-2026 | Un deploy de edge function reemplazó el paquete y se perdió una semana de arreglos | Comparar con producción antes de desplegar el orquestador |
 | 04/05-11-2026 | Puestos temporales: cada guardado en el panel abría una confirmación nueva y una push "Confirma tus turnos" con clave única por confirmación; Nico recibió 12 en 50 minutos | La clave de deduplicación tiene que ser del hecho, no de cada fila nueva. `tp_selection_confirmation_open` ya no repite la push a la misma persona por el mismo puesto en una hora (30 de 49 se habrían ahorrado ese mes) |
+| 06-11-2026 | Reubicación de Pistola aplicada por SQL: `cancel_shift` con aviso encendido mandó 9 "Turno cancelado" a 5 personas a las que solo se les cambiaba el turno | Regla 2 bis: antes de cualquier cambio a mano con personas reales, la lista de avisos como propuesta |
 
 Cuando pase algo nuevo con los avisos, se añade aquí una fila.
