@@ -31,8 +31,9 @@ import { DayCurve } from '@/components/charts/DayCurve'
 import { HoursEditor } from '@/components/HoursEditor'
 import { SubNav, SubProgress } from '@/components/SubSteps'
 import { RoleCatalog } from '@/components/RoleCatalog'
+import { TrabajoFijoEditor } from '@/components/TrabajoFijoEditor'
 import { DESTINO_POR_ETIQUETA } from '@/lib/parseFichero'
-import type { FormatoFecha } from '@/lib/parseFichero'
+import type { FormatoFecha, FuenteLeida } from '@/lib/parseFichero'
 import {
   MapeoColumnas,
   mapeoSuficiente,
@@ -55,15 +56,23 @@ import {
   cn,
 } from '@/components/ui'
 import { KITCHEN_BLOCK_ID } from '@/data/presets'
+import { openingRoleFor } from '@/lib/staffing'
 import { TERRITORIOS, sugerirNombreSemana } from '@/lib/territorio'
 import { sugerirNombreSemanaConIA } from '@/lib/territorioIA'
 import type { Sugerencia } from '@/lib/territorio'
+
+/**
+ * "Otra provincia" en el desplegable. No está en `TERRITORIOS` a propósito: no
+ * hay fiestas que proponer para ella y no se le pregunta al modelo. Vale para
+ * que quien no está en la lista no tenga que mentir eligiendo una que no es.
+ */
+const OTRA_PROVINCIA = 'otra'
 import { overcoverage } from '@/lib/demand'
 import { SPECIAL_LABELS, describeMapping, isoWeekStart } from '@/lib/holidays'
 import { DAYS } from '@/lib/time'
 import type { SpecialWeek } from '@/lib/types'
 
-const nf = new Intl.NumberFormat('es-ES')
+const nf = new Intl.NumberFormat('es-ES', { useGrouping: true })
 
 // Meses propios en vez de Intl: el CLDR nuevo abrevia septiembre como "sept" y
 // desencaja con las etiquetas del gráfico anual, que ya usan estos mismos.
@@ -124,9 +133,30 @@ const AVISOS_QUE_PESAN = new Set<string>([
   'sin-detalle-horario',
 ])
 
+/** "2024-12-30 → 2025-12-22" a "30/12/2024 a 22/12/2025": nadie lee fechas ISO. */
+/**
+ * Los avisos que ya van con su pregunta debajo: el periodo de fuera y los
+ * huecos largos. Repetirlos arriba como aviso suelto los diría dos veces.
+ */
+const AVISOS_CON_PREGUNTA = new Set<string>(['periodo-del-fichero', 'hueco-en-el-fichero'])
+
+/** El nombre corto de cada periodo para su botón. */
+function nombreDelPeriodo(clave: string): string {
+  if (clave === 'todo') return 'Todo el fichero'
+  if (clave === 'ultimas-52') return 'Las últimas 52 semanas'
+  if (clave.startsWith('ano-')) return `Solo ${clave.slice(4)}`
+  return clave
+}
+
+function fechasEnCastellano(rango: string): string {
+  return rango
+    .replace(/(\d{4})-(\d{2})-(\d{2})/g, (_, y, m, d) => `${d}/${m}/${y}`)
+    .replace(/\s*→\s*/, ' a ')
+}
+
 const DEMAND_SUBSTEPS: { id: string; label: string }[] = [
   { id: 'lectura', label: 'Lectura' },
-  { id: 'ano', label: 'Tu histórico' },
+  { id: 'ano', label: 'Tu año' },
   { id: 'horario', label: 'Horario' },
   { id: 'especiales', label: 'Semanas raras' },
   { id: 'semana', label: 'Semana tipo' },
@@ -144,7 +174,10 @@ export function StepDemand() {
   const [showAllSpecials, setShowAllSpecials] = useState(false)
 
   // Qué sección de las cinco se ve ahora mismo. Ver `DEMAND_SUBSTEPS`.
-  const [sub, setSub] = useState(0)
+  // Quien vuelve desde Equipo o Tu plan cae en la semana tipo, la última, y no
+  // en la lectura: si no, para volver tenía que pasar otra vez por las cinco
+  // (ronda 3, punto 15).
+  const [sub, setSub] = useState(() => (p.pasoMaximo > 1 ? DEMAND_SUBSTEPS.length - 1 : 0))
 
   /** Provincia del local. Solo sirve para proponer nombres de fiestas locales. */
   const [territorio, setTerritorio] = useState<string | null>(null)
@@ -297,14 +330,32 @@ export function StepDemand() {
     return overcoverage(p.weeks, conColchon)
   }, [p.weeks, p.coverage, p.settings.safetyMarginPct])
 
+  // Solo los festivos que el fichero trae (ronda 6, M4 de pantallas): un
+  // fichero de tres semanas de marzo no tiene ni Carnaval ni Semana Santa.
   const mappingLines = useMemo(
-    () => (dataset ? describeMapping(dataset.year, dataset.year + 1) : []),
+    () =>
+      dataset
+        ? describeMapping(
+            dataset.year,
+            dataset.year + 1,
+            new Set(dataset.weeks.filter((w) => w.total > 0).map((w) => w.isoWeek)),
+          )
+        : [],
     [dataset],
   )
 
   if (!dataset) return null
 
   const src = dataset.source
+  const periodo = src.periodo
+  const periodosDelFichero = p.lectura?.periodos ?? []
+  const periodoEnUso = periodosDelFichero.find((o) => o.clave === p.lectura?.periodoUsado) ?? null
+  const huecosDelFichero = (src as FuenteLeida).huecos ?? []
+  /** Las fechas de una semana con su propio año: un fichero puede cruzar el cambio de año. */
+  const fechasDeSemana = (isoWeek: number) =>
+    weekDates(dataset.weeks.find((w) => w.isoWeek === isoWeek)?.year ?? dataset.year, isoWeek)
+  /** Semanas que trae el fichero, sin las que se rellenan a cero. */
+  const semanasDelFichero = dataset.weeks.filter((w) => !w.relleno).length
   const day = pickedDay ?? busiestDay
   /**
    * Pide al modelo el nombre de las semanas raras que el calendario no ha sabido
@@ -317,7 +368,7 @@ export function StepDemand() {
    * fichero. Las que no entran se quedan con la tabla de fiestas de siempre.
    */
   useEffect(() => {
-    if (!territorio) return
+    if (!territorio || territorio === OTRA_PROVINCIA) return
     const nombreTerritorio = TERRITORIOS.find((t) => t.id === territorio)?.nombre ?? null
     const pendientes = p.specials
       .filter((s) => s.kind === 'fiesta-local' && !s.confirmed && s.deviation > 0)
@@ -365,20 +416,52 @@ export function StepDemand() {
 
   const excludedCount = p.specials.filter((s) => s.excluded).length
   const remainingWeeks = dataset.weeks.length - excludedCount
+  /**
+   * Las semanas fuera de la temporada no se enseñan una a una: un pop up de
+   * seis semanas tendría 46 filas de "cierre". Van en una sola línea.
+   */
+  const semanasFuera = new Set(dataset.weeks.filter((w) => w.relleno === 'fuera').map((w) => w.isoWeek))
+  const listaSpecials = p.specials.filter((s) => !semanasFuera.has(s.isoWeek))
 
   const patchSpecial = (isoWeek: number, patch: Partial<SpecialWeek>) => {
     p.setSpecials(p.specials.map((s) => (s.isoWeek === isoWeek ? { ...s, ...patch } : s)))
   }
 
-  const pendingSpecials = p.specials.filter((s) => !s.confirmed).length
+  const pendingSpecials = listaSpecials.filter((s) => !s.confirmed).length
+  /**
+   * Cuántas semanas raras reciben ahora una propuesta de nombre por la
+   * provincia, con la misma regla que pinta la propuesta debajo de cada una.
+   * Revisión ronda 5, M5: elegir provincia no cambiaba nada visible cuando no
+   * había fiesta que proponer, y la frase prometía "te digo qué fiesta cae".
+   * Ahora se dice lo que ha pasado.
+   */
+  const semanasNombrables = p.specials.filter((s) => s.kind === 'fiesta-local' && !s.confirmed)
+  const propuestasProvincia = territorio
+    ? semanasNombrables.filter((s) => {
+        const clave = `${territorio}:${s.isoWeek}`
+        const sug = sugerencias.has(clave)
+          ? sugerencias.get(clave) ?? null
+          : sugerirNombreSemana(territorio, s.isoWeek, s.deviation, true)
+        return sug !== null && s.label !== sug.nombre
+      }).length
+    : 0
   const COLLAPSED = 6
-  const collapsible = p.specials.length > COLLAPSED + 2
+  const collapsible = listaSpecials.length > COLLAPSED + 2
   const visibleSpecials =
-    collapsible && !showAllSpecials ? p.specials.slice(0, COLLAPSED) : p.specials
+    collapsible && !showAllSpecials ? listaSpecials.slice(0, COLLAPSED) : listaSpecials
+
+  // La lectura no deja seguir (ronda 8, G1): con este mapeo no entra ni una
+  // fila, o el fichero no trae la hora. El "Siguiente" se para, y también los
+  // saltos del sub-progreso, que si no llevarían a pantallas sin datos.
+  const lecturaParada =
+    !mapeoSuficiente(mapeo) ||
+    (!!p.lectura &&
+      (p.lectura.filasUsadas === 0 || p.lectura.advertencias.some((a) => a.codigo === 'sin-detalle-horario')))
+  const motivoPrincipal = p.lectura?.descartes[0]?.mensaje ?? null
 
   return (
     <div className="stagger space-y-6">
-      <SubProgress steps={DEMAND_SUBSTEPS} index={sub} onGo={setSub} />
+      <SubProgress steps={DEMAND_SUBSTEPS} index={sub} onGo={(i) => setSub(lecturaParada ? 0 : i)} />
 
       {/* ── 1. Lo que ha leído la IA ─────────────────────────────── */}
       {sub === 0 && (
@@ -387,11 +470,11 @@ export function StepDemand() {
         <div className="grid gap-2 sm:grid-cols-3">
           {[
             { icon: <FileSpreadsheet size={15} />, label: 'Fichero', value: src.fileName },
-            { icon: <CalendarRange size={15} />, label: 'Rango de fechas', value: src.dateRange },
+            { icon: <CalendarRange size={15} />, label: 'Rango de fechas', value: fechasEnCastellano(src.dateRange) },
             {
               icon: <Rows3 size={15} />,
               label: 'Filas procesadas',
-              value: `${nf.format(src.rowsDetected)} · ${dataset.weeks.length} semanas`,
+              value: `${nf.format(src.rowsDetected)} · ${semanasDelFichero} semanas`,
             },
           ].map((chip) => (
             <div key={chip.label} className="min-w-0 rounded-lg bg-surface px-3.5 py-2.5">
@@ -411,15 +494,39 @@ export function StepDemand() {
             el usuario ve un total menor del que sabe que tiene y no puede saber
             si es un error suyo, del fichero o de la herramienta. Se dice cuántas,
             por qué, y con qué números de fila mirarlo en su Excel. */}
-        {p.lectura && (p.lectura.descartes.length > 0 || p.lectura.advertencias.length > 0) && (
+        {p.lectura && p.lectura.filasLeidas === 0 && (
+          <div className="mt-5">
+          <Note tone="danger" icon={<TriangleAlert size={16} strokeWidth={2.4} />}>
+            <div>
+              <strong>Tu fichero solo trae la fila de títulos, sin ventas.</strong> Exporta del TPV
+              el histórico con una fila por ticket y{' '}
+              <button
+                type="button"
+                onClick={() => p.setStep('import')}
+                className="font-bold underline underline-offset-2"
+              >
+                vuelve a subirlo.
+              </button>
+            </div>
+          </Note>
+          </div>
+        )}
+        {p.lectura && p.lectura.filasLeidas > 0 && (p.lectura.descartes.length > 0 || p.lectura.advertencias.length > 0) && (
           <div className="mt-5 space-y-2">
             {p.lectura.filasUsadas === 0 && (
               <Note tone="danger" icon={<TriangleAlert size={16} strokeWidth={2.4} />}>
                 <div>
-                  <strong>Con este mapeo no entra ni una fila en el cálculo.</strong> Lo que ves
-                  abajo sigue siendo el resultado del mapeo anterior. Mira los ejemplos de cada
-                  columna: la de comensales o la de tickets tiene que traer NÚMEROS, no un código
-                  de ticket.
+                  <strong>Con este mapeo no entra ni una fila en el cálculo.</strong>{' '}
+                  {motivoPrincipal && <>El motivo de casi todas: {motivoPrincipal.charAt(0).toLowerCase() + motivoPrincipal.slice(1)} </>}
+                  Mira el ejemplo de cada columna y corrige abajo qué es cada una: con la fecha y
+                  la hora de cada cobro basta, aunque no traiga comensales ni tickets.{' '}
+                  <button
+                    type="button"
+                    onClick={() => p.setStep('import')}
+                    className="font-bold underline underline-offset-2"
+                  >
+                    O sube otro fichero.
+                  </button>
                 </div>
               </Note>
             )}
@@ -427,14 +534,14 @@ export function StepDemand() {
               <Note tone="warning" icon={<TriangleAlert size={16} strokeWidth={2.4} />}>
                 <div>
                   <strong>
-                    Hemos usado {p.lectura.filasUsadas.toLocaleString('es-ES')} de las{' '}
-                    {p.lectura.filasLeidas.toLocaleString('es-ES')} filas de tu fichero.
+                    Hemos usado {p.lectura.filasUsadas.toLocaleString('es-ES', { useGrouping: true })} de las{' '}
+                    {p.lectura.filasLeidas.toLocaleString('es-ES', { useGrouping: true })} filas de tu fichero.
                   </strong>{' '}
-                  Se han quedado fuera {(p.lectura.filasLeidas - p.lectura.filasUsadas).toLocaleString('es-ES')}:
+                  Se han quedado fuera {(p.lectura.filasLeidas - p.lectura.filasUsadas).toLocaleString('es-ES', { useGrouping: true })}:
                   <ul className="mt-1.5 space-y-0.5">
                     {p.lectura.descartes.map((d) => (
                       <li key={d.motivo}>
-                        · {d.filas.toLocaleString('es-ES')} {d.filas === 1 ? 'fila' : 'filas'} — {d.mensaje}
+                        · {d.filas.toLocaleString('es-ES', { useGrouping: true })} {d.filas === 1 ? 'fila' : 'filas'}: {d.mensaje}
                         {d.ejemplos.length > 0 && (
                           <span className="text-content-secondary">
                             {' '}(por ejemplo, {d.ejemplos.length === 1 ? 'la fila' : 'las filas'}{' '}
@@ -451,7 +558,7 @@ export function StepDemand() {
                 que los comensales sean una estima cambia lo que significa el
                 numero de abajo, y eso no puede tener el mismo color que "tu
                 historico son 30 semanas". */}
-            {p.lectura.advertencias.map((a) => (
+            {p.lectura.advertencias.filter((a) => !AVISOS_CON_PREGUNTA.has(a.codigo)).map((a) => (
               <Note
                 key={a.codigo}
                 tone={AVISOS_QUE_PESAN.has(a.codigo) ? 'warning' : 'info'}
@@ -464,6 +571,97 @@ export function StepDemand() {
                 {a.mensaje}
               </Note>
             ))}
+          </div>
+        )}
+
+        {/* Qué periodo del fichero se usa (ronda 7, G1). Solo sale si el fichero
+            trae más de un año o cruza el cambio de año: entonces se dice cuál se
+            usa y se deja cambiar, en vez de quedarse con un año en silencio. */}
+        {periodosDelFichero.length > 1 && periodoEnUso && (
+          <div className="mt-5 rounded-lg border border-border-soft bg-surface-alt p-3.5">
+            <p className="text-[0.85rem] leading-relaxed font-medium text-content-primary">
+              Uso {periodoEnUso.etiqueta.charAt(0).toLowerCase() + periodoEnUso.etiqueta.slice(1)}
+              {periodoEnUso.clave === 'todo' ? ', cada semana en su semana del año.' : '.'}{' '}
+              ¿Prefieres otro periodo?
+            </p>
+            <div className="mt-2.5 flex flex-wrap gap-2" role="group" aria-label="Qué periodo del fichero se usa">
+              {periodosDelFichero.map((o) => (
+                <Button
+                  key={o.clave}
+                  size="sm"
+                  variant={o.clave === periodoEnUso.clave ? 'primary' : 'secondary'}
+                  aria-pressed={o.clave === periodoEnUso.clave}
+                  onClick={() => p.elegirPeriodoDelFichero(o.clave)}
+                >
+                  {nombreDelPeriodo(o.clave)}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Los huecos largos dentro del fichero (ronda 7, M3 de cálculo). Pueden
+            ser un cierre o datos que faltan (un cambio de TPV), y la diferencia
+            es pagar la plantilla todo el año o no: se propone y se pregunta. */}
+        {huecosDelFichero.map((h, i) => (
+          <div key={h.desde} className="mt-5 rounded-lg border border-border-soft bg-surface-alt p-3.5">
+            <p className="text-[0.85rem] leading-relaxed font-medium text-content-primary">
+              Del {fechasEnCastellano(h.desde)} al {fechasEnCastellano(h.hasta)} tu fichero no trae ninguna venta
+              ({h.semanas.length} semanas).{' '}
+              {h.cerrado
+                ? 'Lo tomo como un cierre del local: esas semanas no se pagan y, con diez o más cerradas al año, la plantilla es de temporada.'
+                : 'Lo tomo como datos que faltan, por ejemplo un cambio de TPV: esas semanas no cuentan y la plantilla se paga todo el año.'}
+            </p>
+            <div className="mt-2.5 flex flex-wrap gap-2" role="group" aria-label="Qué pasó esas semanas">
+              <Button
+                size="sm"
+                variant={h.cerrado ? 'secondary' : 'primary'}
+                aria-pressed={!h.cerrado}
+                onClick={() => p.elegirHueco(i, false)}
+              >
+                Faltan datos
+              </Button>
+              <Button
+                size="sm"
+                variant={h.cerrado ? 'primary' : 'secondary'}
+                aria-pressed={h.cerrado}
+                onClick={() => p.elegirHueco(i, true)}
+              >
+                Estuvo cerrado
+              </Button>
+            </div>
+          </div>
+        ))}
+
+        {/* El periodo del fichero (ronda 6, G1). Un TPV solo trae las semanas
+            que el local abre, y el fichero no sabe si lo de fuera es una
+            temporada cerrada o meses que no se exportaron: se pregunta. */}
+        {periodo && periodo.semanasFuera > 0 && (
+          <div className="mt-5 rounded-lg border border-border-soft bg-surface-alt p-3.5">
+            <p className="text-[0.85rem] leading-relaxed font-medium text-content-primary">
+              Tu fichero va del {fechasEnCastellano(periodo.desde)} al {fechasEnCastellano(periodo.hasta)}.{' '}
+              {periodo.soloEstePeriodo
+                ? 'Lo tomo como tu temporada: el resto del año el local está cerrado y la plantilla se paga solo las semanas que abres.'
+                : 'Calculo como si abrieras todo el año. Si solo abres esas semanas, dímelo y la plantilla se paga solo esas.'}
+            </p>
+            <div className="mt-2.5 flex flex-wrap gap-2" role="group" aria-label="Qué semanas abre el local">
+              <Button
+                size="sm"
+                variant={periodo.soloEstePeriodo ? 'primary' : 'secondary'}
+                aria-pressed={periodo.soloEstePeriodo}
+                onClick={() => p.elegirPeriodo(true)}
+              >
+                Abro solo esas semanas
+              </Button>
+              <Button
+                size="sm"
+                variant={periodo.soloEstePeriodo ? 'secondary' : 'primary'}
+                aria-pressed={!periodo.soloEstePeriodo}
+                onClick={() => p.elegirPeriodo(false)}
+              >
+                Abro todo el año
+              </Button>
+            </div>
           </div>
         )}
 
@@ -500,6 +698,10 @@ export function StepDemand() {
         onRolesChange={p.setRoles}
         calcularCostes={p.settings.calcularCostes ?? false}
         onCalcularCostes={(v) => p.setSettings((st) => ({ ...st, calcularCostes: v }))}
+        costeBase={p.settings.costeBase ?? 'empresa'}
+        onCosteBase={(costeBase) => p.setSettings((st) => ({ ...st, costeBase }))}
+        cotizacionPct={p.settings.cotizacionEmpresaPct}
+        onCotizacion={(cotizacionEmpresaPct) => p.setSettings((st) => ({ ...st, cotizacionEmpresaPct }))}
       />
       </div>
       )}
@@ -535,7 +737,7 @@ export function StepDemand() {
               <span className="text-brand">
                 marca hasta dónde quieres que llegue tu plantilla fija.
               </span>{' '}
-              Las semanas que asomen por encima son picos, y esos se cubren con extras en vez de
+              Las semanas que asomen por encima son picos, y esos se cubren con refuerzos en vez de
               contratando de más.
             </span>
           </p>
@@ -550,11 +752,12 @@ export function StepDemand() {
             }
             specials={p.specials}
             coveragePct={p.settings.coveragePct}
+            margenPct={p.settings.safetyMarginPct}
             height={260}
           />
           <p className="mt-3 text-[0.82rem] leading-relaxed text-content-secondary">
-            Puedes ajustar la línea ahora y volver a cambiarla al final, cuando veas el coste de la
-            plantilla.
+            Puedes ajustar la línea ahora y volver a cambiarla al final, cuando veas la plantilla
+            que sale.
           </p>
 
           {over && (
@@ -595,8 +798,9 @@ export function StepDemand() {
                       punto que subes aquí es plantilla de más las 52 semanas.
                     </InfoTip>
                   </div>
-                  <div className="scroll-thin -mx-1 mt-2 overflow-x-auto px-1 pb-1">
+                  <div className="mt-2">
                     <Segmented
+                      wrap
                       value={String(p.settings.safetyMarginPct)}
                       onChange={(v) =>
                         p.setSettings((st) => ({ ...st, safetyMarginPct: Number(v) }))
@@ -628,7 +832,7 @@ export function StepDemand() {
               <Stat
                 value={nf.format(yearStats.best.total)}
                 label="Mejor semana"
-                hint={`Semana ${yearStats.best.isoWeek} · ${weekDates(dataset.year, yearStats.best.isoWeek)}`}
+                hint={`Semana ${yearStats.best.isoWeek} · ${weekDates(yearStats.best.year, yearStats.best.isoWeek)}`}
                 tone="success"
               />
             </div>
@@ -642,8 +846,8 @@ export function StepDemand() {
       <div className="space-y-6">
         <div>
           <p className="mb-3 max-w-3xl text-[0.9rem] leading-relaxed text-content-secondary">
-            El horario no venía en el fichero: lo he deducido de las franjas en las que tienes
-            comensales de verdad. Si algún día no cuadra, ajústalo — fuera del horario no se calcula
+            El horario no venía en el fichero: lo hemos deducido de las franjas en las que tienes
+            comensales de verdad. Si algún día no cuadra, ajústalo: fuera del horario no se calcula
             plantilla.
           </p>
           <HoursEditor
@@ -660,12 +864,12 @@ export function StepDemand() {
                 checked={p.kitchenHours !== null}
                 onChange={p.setKitchenHoursEnabled}
                 label="La cocina tiene un horario distinto"
-                hint="Actívalo si cocina abre, cierra o descansa en otro momento que el resto del local — por ejemplo, si cierra la cocina antes que la sala."
+                hint="Actívalo si cocina abre, cierra o descansa en otro momento que el resto del local; por ejemplo, si cierra la cocina antes que la sala."
               />
               <InfoTip title="Qué hace este horario">
                 Cocina deja de pedir personal fuera de este horario, aunque el resto del local siga
-                abierto. Lo que no hace: añadir personal de apertura antes de que haya comensales —
-                para eso manda la curva de demanda, no el horario.
+                abierto. Lo que no hace: añadir personal de apertura antes de que haya comensales,
+                porque para eso manda la curva de demanda, no el horario.
               </InfoTip>
             </div>
 
@@ -707,9 +911,10 @@ export function StepDemand() {
             subtitle="Indica cuántas personas deben estar siempre en cada zona, incluso con la sala vacía."
             info={
               <InfoTip title="Cómo se cubre">
-                El primer puesto de cada área (quien la abre) asume este mínimo, para que el
-                cuadrante se lo asigne a una persona en concreto. Si la previsión de comensales ya pide
-                más gente que el mínimo en una franja, este número no suma nada extra: solo entra
+                El mínimo lo cubre el puesto que abre y cierra cada zona, para que el cuadrante se lo
+                asigne a una persona en concreto. Por defecto es el puesto más básico que ya tiene
+                gente en tus tramos; cámbialo si en tu casa abre otro. Si la previsión de comensales ya
+                pide más gente que el mínimo en una franja, este número no suma nada extra: solo entra
                 donde la previsión necesita menos personal.
               </InfoTip>
             }
@@ -717,9 +922,14 @@ export function StepDemand() {
           <div className="grid gap-4 border-t border-border-soft px-4 py-5 sm:grid-cols-2 sm:px-6">
             {p.model.blocks
               .filter((block) => p.model.roles.some((r) => r.blockId === block.id))
-              .map((block) => (
+              .map((block) => {
+                // Sin mandos: el cuadrante no les reparte turnos de volumen, y el
+                // mínimo que se les cargara se perdería (ver `openingRoleFor`).
+                const own = p.model.roles.filter((r) => r.blockId === block.id && r.kind !== 'estructura')
+                const opener = openingRoleFor(p.model, block.id, p.settings.openingRoleByBlock?.[block.id])
+                return (
                 <Field key={block.id} label={block.name}>
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
                     <span
                       className="h-2.5 w-2.5 shrink-0 rounded-pill"
                       style={{ background: block.color }}
@@ -740,8 +950,37 @@ export function StepDemand() {
                         : 'sin mínimo'}
                     </span>
                   </div>
+                  {/* Quién abre y cierra. Va al lado del mínimo porque es quien lo
+                      cubre: separados, se lee como dos ajustes sueltos. */}
+                  {own.length === 0 ? (
+                    <p className="mt-2 text-[0.8rem] font-medium text-content-secondary">
+                      Esta zona solo tiene mandos, y ellos ya están siempre al frente.
+                    </p>
+                  ) : (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="text-[0.8rem] font-medium text-content-secondary">Abre y cierra</span>
+                    <select
+                      value={opener?.id ?? ''}
+                      onChange={(e) =>
+                        p.setSettings((st) => ({
+                          ...st,
+                          openingRoleByBlock: { ...(st.openingRoleByBlock ?? {}), [block.id]: e.target.value },
+                        }))
+                      }
+                      aria-label={`Puesto que abre y cierra ${block.name}`}
+                      className="h-9 rounded-md border border-border bg-surface-elevated px-2.5 text-[0.82rem] font-semibold text-content-primary transition-colors focus:border-border-focus focus:outline-none"
+                    >
+                      {own.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  )}
                 </Field>
-              ))}
+                )
+              })}
           </div>
 
           {/* 3.2 — el horario de arriba es el horario AL PÚBLICO. La gente
@@ -752,9 +991,69 @@ export function StepDemand() {
           <div className="border-t border-border-soft px-4 pt-5 sm:px-6">
             <h4 className="h4">Antes de abrir y después de cerrar</h4>
             <p className="mt-1 text-[0.82rem] leading-relaxed text-content-secondary">
-              Añade el tiempo que ese equipo necesita antes de abrir y después de cerrar.
+              {p.settings.prepByBlock
+                ? 'Quien abre entra antes y quien cierra sale después. Son las mismas personas del servicio, con el turno más largo.'
+                : 'Añade el tiempo que ese equipo necesita antes de abrir y después de cerrar.'}
             </p>
           </div>
+          {p.settings.prepByBlock ? (
+            // Por zona: la cocina hace la mise en place y la sala no. Con un
+            // valor para todo el local, o la cocina se queda corta o la sala
+            // cobra una hora sin nada que hacer.
+            <div className="grid gap-4 px-4 pt-4 pb-5 sm:grid-cols-2 sm:px-6">
+              {p.model.blocks
+                .filter((block) => p.model.roles.some((r) => r.blockId === block.id))
+                .map((block) => {
+                  const prep = p.settings.prepByBlock?.[block.id] ?? { beforeMin: 0, afterMin: 0 }
+                  const setPrep = (patch: Partial<typeof prep>) =>
+                    p.setSettings((st) => ({
+                      ...st,
+                      prepByBlock: { ...(st.prepByBlock ?? {}), [block.id]: { ...prep, ...patch } },
+                    }))
+                  return (
+                    <div key={block.id} className="space-y-3">
+                      <Field
+                        label={`${block.name}: entra antes`}
+                        info={
+                          <InfoTip title="Antes de abrir">
+                            El horario de arriba es cuando entra el cliente. La mise en place y el
+                            montaje ocurren antes, y esas horas se pagan igual. El equipo que hace la
+                            primera media hora de servicio entra este rato antes.
+                          </InfoTip>
+                        }
+                      >
+                        <Segmented
+                          value={String(prep.beforeMin)}
+                          onChange={(v) => setPrep({ beforeMin: Number(v) })}
+                          options={PREP_OPTIONS.map((v) => ({
+                            value: String(v),
+                            label: v === 0 ? 'Nada' : `${v} min`,
+                          }))}
+                        />
+                      </Field>
+                      <Field
+                        label={`${block.name}: sale después`}
+                        info={
+                          <InfoTip title="Al cerrar">
+                            Recoger, limpiar y cuadrar la caja. El equipo de la última media hora de
+                            servicio se queda este rato más.
+                          </InfoTip>
+                        }
+                      >
+                        <Segmented
+                          value={String(prep.afterMin)}
+                          onChange={(v) => setPrep({ afterMin: Number(v) })}
+                          options={PREP_OPTIONS.map((v) => ({
+                            value: String(v),
+                            label: v === 0 ? 'Nada' : `${v} min`,
+                          }))}
+                        />
+                      </Field>
+                    </div>
+                  )
+                })}
+            </div>
+          ) : (
           <div className="grid gap-4 px-4 pt-4 pb-5 sm:grid-cols-2 sm:px-6">
             <Field
               label="Preparación antes de abrir"
@@ -810,6 +1109,13 @@ export function StepDemand() {
                 </div>
               )}
           </div>
+          )}
+
+          <TrabajoFijoEditor
+            roles={p.model.roles}
+            tareas={p.settings.trabajoFijo ?? []}
+            onChange={(trabajoFijo) => p.setSettings((st) => ({ ...st, trabajoFijo }))}
+          />
         </Card>
         )}
       </div>
@@ -826,8 +1132,8 @@ export function StepDemand() {
             </>
           }
           subtitle={
-            p.specials.length > 0
-              ? `He encontrado ${p.specials.length} ${p.specials.length === 1 ? 'semana que se aleja' : 'semanas que se alejan'} bastante de una semana normal. Revísalas antes de seguir.`
+            listaSpecials.length > 0
+              ? `Hemos encontrado ${listaSpecials.length} ${listaSpecials.length === 1 ? 'semana que se aleja' : 'semanas que se alejan'} bastante de una semana normal. Revísalas antes de seguir.`
               : 'Busco semanas que se alejen bastante de una semana normal para que puedas revisarlas.'
           }
           info={
@@ -840,7 +1146,13 @@ export function StepDemand() {
         />
 
         <div className="px-4 pb-5 sm:px-6">
-          {p.specials.length === 0 ? (
+          {semanasFuera.size > 0 && (
+            <p className="mb-3 text-[0.82rem] leading-relaxed text-content-secondary">
+              Las {semanasFuera.size} semanas fuera de tu temporada cuentan como cerradas y no se pagan.
+              Lo cambias en Lectura.
+            </p>
+          )}
+          {listaSpecials.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border bg-surface px-4 py-8 text-center">
               <p className="text-[0.9rem] font-bold text-content-primary">
                 No hay semanas que necesiten una revisión especial.
@@ -876,9 +1188,18 @@ export function StepDemand() {
                         {t.nombre}
                       </option>
                     ))}
+                    <option value={OTRA_PROVINCIA}>Otra provincia</option>
                   </select>
-                  <span className="text-[0.8rem] text-content-secondary">
-                    y te digo qué fiesta cae en cada semana rara.
+                  <span className="text-[0.8rem] text-content-secondary" aria-live="polite">
+                    {!territorio
+                      ? 'y te proponemos qué fiesta cae en las semanas raras sin nombre.'
+                      : territorio === OTRA_PROVINCIA
+                        ? 'De momento no tenemos las fiestas de otras provincias: ponles nombre tú.'
+                        : semanasNombrables.length === 0
+                          ? 'Tus semanas raras ya tienen nombre por el calendario: la provincia no cambia nada aquí.'
+                          : propuestasProvincia > 0
+                            ? `Te proponemos nombre para ${propuestasProvincia} ${propuestasProvincia === 1 ? 'semana' : 'semanas'}: lo ves debajo de cada una.`
+                            : 'No tenemos ninguna fiesta de tu provincia en esas semanas: ponles nombre tú.'}
                   </span>
                 </div>
               </div>
@@ -887,7 +1208,7 @@ export function StepDemand() {
                 <span className="text-[0.78rem] font-bold text-content-secondary">
                   {pendingSpecials === 0
                     ? 'Todas revisadas'
-                    : `${pendingSpecials} sin revisar de ${p.specials.length}`}
+                    : `${pendingSpecials} sin revisar de ${listaSpecials.length}`}
                 </span>
                 {pendingSpecials > 1 && (
                   <Button
@@ -944,7 +1265,7 @@ export function StepDemand() {
                             {s.moveable && <Badge tone="brand">Festivo móvil</Badge>}
                           </div>
                           <p className="mt-1 text-[0.78rem] font-medium text-content-secondary">
-                            {weekDates(dataset.year, s.isoWeek)}
+                            {fechasDeSemana(s.isoWeek)}
                             <span className="mx-1.5 text-content-muted">·</span>
                             {s.deviation > 0 ? 'por encima' : 'por debajo'} de una semana normal
                           </p>
@@ -1084,7 +1405,7 @@ export function StepDemand() {
                 >
                   {showAllSpecials
                     ? 'Ver solo las primeras'
-                    : `Ver las ${p.specials.length} semanas`}
+                    : `Ver las ${listaSpecials.length} semanas`}
                 </button>
               )}
 
@@ -1092,8 +1413,9 @@ export function StepDemand() {
                 <div className="mt-3">
                   <Note tone="warning" icon={<TriangleAlert size={15} />}>
                     Hay menos de 8 semanas útiles, así que todavía no hay suficiente histórico
-                    para calcular una semana tipo fiable. Mientras tanto, uso todas las semanas
-                    cargadas.
+                    para calcular una semana tipo fiable. Mientras tanto calculo con todas las
+                    semanas que abres, también las raras, y nunca con las cerradas. La línea de
+                    cobertura de la semana tipo decide cuántas de ellas cubre la plantilla fija.
                   </Note>
                 </div>
               )}
@@ -1190,9 +1512,9 @@ export function StepDemand() {
           <h4 className="h4 mt-6 flex items-center gap-2">
             Día a día
             <InfoTip title="La línea discontinua">
-              Es tu curva corregida. El fichero marca la hora del cobro, y se cobra al terminar: los
-              comensales que aparecen a las 15:00 se atendieron sobre las 14:30. La plantilla se
-              calcula sobre la corregida, no sobre la del fichero.
+              {p.seated
+                ? 'Son las personas sentadas a la vez. El fichero marca la hora del cobro, y se cobra al terminar: quien paga a las 15:00 llevaba sentado desde antes de las 14:00. Cada cobro cuenta como una silla ocupada durante lo que dura la comida, y la plantilla se calcula sobre eso, no sobre los cobros.'
+                : 'Es tu curva corregida. El fichero marca la hora del cobro, y se cobra al terminar: los comensales que aparecen a las 15:00 se atendieron sobre las 14:30. La plantilla se calcula sobre la corregida, no sobre la del fichero.'}
             </InfoTip>
           </h4>
           <p className="mt-1 text-[0.85rem] text-content-secondary">
@@ -1227,13 +1549,27 @@ export function StepDemand() {
           </div>
 
           <div className="mt-4 rounded-lg border border-border-soft bg-surface-elevated p-3 sm:p-4">
-            <DayCurve
-              covers={typical[day]}
-              laggedCovers={p.lagged?.[day]}
-              openBlocks={p.hours?.[day]}
-              dayLabel={DAYS[day]}
-              height={220}
-            />
+            {p.seated ? (
+              <DayCurve
+                covers={typical[day]}
+                laggedCovers={p.seated[day]}
+                openBlocks={p.hours?.[day]}
+                dayLabel={DAYS[day]}
+                height={220}
+                coversUnit="cobrados"
+                coversLegend="Cobrados en cada media hora"
+                laggedUnit="sentados a la vez"
+                laggedLegend="Sentados a la vez"
+              />
+            ) : (
+              <DayCurve
+                covers={typical[day]}
+                laggedCovers={p.lagged?.[day]}
+                openBlocks={p.hours?.[day]}
+                dayLabel={DAYS[day]}
+                height={220}
+              />
+            )}
           </div>
         </Card>
       )}
@@ -1241,7 +1577,7 @@ export function StepDemand() {
       {/* ── 6. Siguiente ─────────────────────────────────────────── */}
       <SubNav
         index={sub}
-        nextDisabled={sub === 0 && !mapeoSuficiente(mapeo)}
+        nextDisabled={sub === 0 && lecturaParada}
         onBack={() => setSub((s) => Math.max(0, s - 1))}
         onNext={() => {
           if (sub < DEMAND_SUBSTEPS.length - 1) setSub((s) => s + 1)
@@ -1250,7 +1586,7 @@ export function StepDemand() {
         nextLabel={
           sub < DEMAND_SUBSTEPS.length - 1
             ? `Siguiente: ${DEMAND_SUBSTEPS[sub + 1].label.toLowerCase()}`
-            : 'Ahora dime tu equipo'
+            : 'Ahora dinos tu equipo'
         }
         nextHint={
           sub === DEMAND_SUBSTEPS.length - 1

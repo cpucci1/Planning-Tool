@@ -17,7 +17,7 @@
  */
 
 import { useState } from 'react'
-import { BadgeEuro, Plus, Trash2 } from 'lucide-react'
+import { BadgeEuro, Plus, Trash2, UserCheck } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -28,11 +28,12 @@ import {
   Modal,
   NumberInput,
   Note,
+  Segmented,
   TextInput,
   Toggle,
   cn,
 } from './ui'
-import { SMI_HORA_EUR, porDebajoDelSmi } from '@/lib/contracts'
+import { COTIZACION_EMPRESA_PCT_DEFECTO, SMI_HORA_EUR, porDebajoDelSmi } from '@/lib/contracts'
 import {
   borrarPuesto,
   borrarZona,
@@ -45,7 +46,7 @@ import {
 import { PALETTE } from '@/data/presets'
 import type { Block, Role, Tier } from '@/lib/types'
 
-const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' })
+const eur = new Intl.NumberFormat('es-ES', { useGrouping: true, style: 'currency', currency: 'EUR' })
 
 export function RoleCatalog({
   blocks,
@@ -55,6 +56,10 @@ export function RoleCatalog({
   onRolesChange,
   calcularCostes,
   onCalcularCostes,
+  costeBase = 'empresa',
+  onCosteBase,
+  cotizacionPct = COTIZACION_EMPRESA_PCT_DEFECTO,
+  onCotizacion,
 }: {
   blocks: Block[]
   roles: Role[]
@@ -67,6 +72,15 @@ export function RoleCatalog({
   /** Si está apagado, aquí no se pide ni se enseña ni un euro. */
   calcularCostes: boolean
   onCalcularCostes: (v: boolean) => void
+  /**
+   * Qué es la cifra por hora: sueldo bruto (y se suma la Seguridad Social de
+   * la empresa) o ya coste de empresa. Un plan de antes del 2026-11-04 no lo
+   * trae y se lee como coste de empresa, que es lo que se le pedía entonces.
+   */
+  costeBase?: 'bruto' | 'empresa'
+  onCosteBase?: (b: 'bruto' | 'empresa') => void
+  cotizacionPct?: number
+  onCotizacion?: (pct: number) => void
 }) {
   const [nuevaZona, setNuevaZona] = useState(false)
   const [nombreZona, setNombreZona] = useState('')
@@ -97,10 +111,6 @@ export function RoleCatalog({
   }
 
   const priced = roles.filter((r) => r.hourlyCostEur !== null && r.hourlyCostEur > 0)
-  const avg =
-    priced.length > 0
-      ? priced.reduce((a, r) => a + (r.hourlyCostEur ?? 0), 0) / priced.length
-      : null
 
   return (
     <Card>
@@ -119,32 +129,30 @@ export function RoleCatalog({
         }
         subtitle={
           calcularCostes
-            ? 'Todos los de la lista son puestos que tienes; para quitar uno, la papelera. Pon el coste real de una hora de cada uno y verás lo que cuesta tu plantilla.'
+            ? costeBase === 'bruto'
+              ? 'Todos los de la lista son puestos que tienes; para quitar uno, la papelera. Pon el sueldo bruto por hora de cada uno, con las pagas extra prorrateadas (el bruto del año entre 52 semanas de su jornada: a 40 h son 2.080 h), y verás lo que te cuesta tu plantilla, con la Seguridad Social.'
+              : 'Todos los de la lista son puestos que tienes; para quitar uno, la papelera. Pon el coste de empresa de una hora de cada uno y verás lo que cuesta tu plantilla.'
             : 'Todos los de la lista son puestos que tienes; para quitar uno, la papelera. Si además quieres saber lo que cuesta la plantilla, enciende los costes aquí abajo.'
         }
         info={
-          <InfoTip title="Qué coste poner">
-            El coste real de una hora trabajada de esa categoría, con Seguridad Social incluida si
-            quieres que la cifra sea honesta. Nunca ponemos nosotros un precio: ni de mercado ni de
-            Shifty.
+          <InfoTip title="Qué cifra poner">
+            {costeBase === 'bruto'
+              ? 'El sueldo bruto por hora de contrato, con las pagas extra: el bruto del año entre las horas del contrato. Si alguien cobra 1.400 € brutos al mes en 14 pagas a 40 h, son 1.400 × 14 entre 2.080, unos 9,40 €. La Seguridad Social de la empresa la sumamos nosotros. Nunca ponemos un precio por ti.'
+              : 'El coste de empresa de una hora de contrato de esa categoría: el sueldo bruto más la Seguridad Social de la empresa. Nunca ponemos un precio por ti.'}
           </InfoTip>
         }
         action={
-          calcularCostes && avg !== null ? (
+          // Revisión ronda 5, m10: aquí había una "media del catálogo" que la
+          // propia pantalla decía que no servía (no cuenta cuánta gente hay de
+          // cada puesto). El coste medio de verdad sale en el resultado. Se
+          // queda lo útil: cuántos puestos tienen ya precio.
+          calcularCostes && roles.length > 0 ? (
             <div className="text-right whitespace-nowrap">
               <div className="text-[0.7rem] font-bold tracking-wide text-content-secondary uppercase">
-                Media del catálogo
+                Con precio
               </div>
-              <div className="mt-1 text-[1.25rem] leading-none font-black tracking-tight text-content-primary">
-                {eur.format(avg)}
-              </div>
-              <div className="mt-1 text-[0.75rem] font-medium text-content-secondary">
-                {priced.length} de {roles.length} con precio
-              </div>
-              {/* Se avisa de que NO es el coste medio de la plantilla: aquel va
-                  ponderado por horas y sale distinto. */}
-              <div className="mt-0.5 text-[0.7rem] font-medium text-content-muted">
-                sin contar cuánta gente hay de cada
+              <div className="mt-1 text-[1.25rem] leading-none font-black tracking-tight text-content-primary tnum">
+                {priced.length} de {roles.length}
               </div>
             </div>
           ) : undefined
@@ -152,6 +160,17 @@ export function RoleCatalog({
       />
 
       <div className="border-t border-border-soft px-4 py-5 sm:px-6">
+        <div className="mb-5">
+          <Note tone="neutral" icon={<UserCheck size={15} strokeWidth={2.3} />}>
+            {/* Revisión ronda 5, M2: prometía "siempre uno al frente", y con
+                un encargado de 40 h para 57 h de apertura no puede ser. Se
+                promete lo que hace: cubrir mientras la jornada dé, y marcar
+                los huecos en la revisión del cuadrante. */}
+            Los mandos no van por comensales. Dinos cuántos tienes y su jornada: el cuadrante pone
+            uno al frente de su zona mientras su jornada lo permita, y los huecos te los marcamos en
+            la revisión. Si no tienes, déjalo en 0.
+          </Note>
+        </div>
         {blocks.map((block) => {
           const own = roles.filter((r) => r.blockId === block.id)
           // Las zonas vacías SÍ se pintan: si una que acabas de crear no
@@ -198,7 +217,7 @@ export function RoleCatalog({
                   >
                     {/* En móvil el nombre se queda con su propia línea: con el
                         coste al lado, "Responsable de turno" y el € se tocaban. */}
-                    <span className="w-full min-w-0 sm:w-auto sm:flex-1">
+                    <span className="w-full min-w-0 lg:w-auto lg:flex-1">
                       <InlineName
                         value={role.name}
                         onCommit={(v) => patch(role.id, { name: v })}
@@ -215,15 +234,16 @@ export function RoleCatalog({
                         <NumberInput
                           value={role.hourlyCostEur ?? NaN}
                           onChange={(v) => patch(role.id, { hourlyCostEur: v > 0 ? v : null })}
+                          permitirVacio
                           min={0}
                           max={200}
                           step={0.5}
-                          placeholder="—"
+                          placeholder="-"
                           aria-label={`Coste por hora de ${role.name}, en euros`}
                           className="w-20"
                         />
                         <span className="text-[0.78rem] font-medium text-content-secondary">
-                          /hora
+                          {costeBase === 'bruto' ? 'brutos/hora' : '/hora'}
                         </span>
                         {porDebajoDelSmi(role.hourlyCostEur) && (
                           <Badge tone="warning">Por debajo del SMI</Badge>
@@ -245,6 +265,62 @@ export function RoleCatalog({
                         hay estado apagado que interpretar, y la palabra
                         "contrato" dice de qué va la pregunta. Quitar un puesto
                         es la papelera, que es lo único que lo quita. */}
+                    {/* Dos clases de puesto (revisión del 2026-11-04). Los de
+                        volumen salen de los comensales, en la tabla de tramos.
+                        Los mandos no: con 90 comensales no hacen falta "más
+                        encargados", hace falta que siempre haya uno. Así que se
+                        dice cuántos hay y su jornada, y el cuadrante les da
+                        turnos enteros cubriendo toda la apertura de su zona. */}
+                    <span className="flex shrink-0 items-center gap-2">
+                      <span className="text-[0.7rem] font-bold tracking-wide text-content-muted uppercase">
+                        Se calcula
+                      </span>
+                      <select
+                        aria-label={`Cómo se calcula el puesto ${role.name}`}
+                        value={role.kind === 'estructura' ? 'estructura' : 'volumen'}
+                        onChange={(e) =>
+                          patch(
+                            role.id,
+                            e.target.value === 'estructura'
+                              ? { kind: 'estructura', headcount: role.headcount ?? 1, fullTimeOnly: true }
+                              : { kind: 'volumen' },
+                          )
+                        }
+                        className="h-9 rounded-md border border-border bg-surface-elevated px-2.5 text-[0.8rem] font-semibold text-content-primary transition-colors focus:border-border-focus focus:outline-none"
+                      >
+                        <option value="volumen">Por comensales</option>
+                        <option value="estructura">Mando, siempre presente</option>
+                      </select>
+                    </span>
+
+                    {role.kind === 'estructura' && (
+                      <span className="flex shrink-0 items-center gap-2">
+                        <NumberInput
+                          value={role.headcount ?? 0}
+                          onChange={(v) => patch(role.id, { headcount: Math.max(0, Math.round(v || 0)) })}
+                          min={0}
+                          max={10}
+                          step={1}
+                          aria-label={`Cuántas personas de ${role.name} tienes`}
+                          className="w-14"
+                        />
+                        <span className="text-[0.78rem] font-medium text-content-secondary">
+                          {(role.headcount ?? 0) === 1 ? 'persona de' : 'personas de'}
+                        </span>
+                        <NumberInput
+                          value={role.weeklyHours ?? 40}
+                          onChange={(v) => patch(role.id, { weeklyHours: v > 0 ? Math.min(40, Math.round(v)) : undefined })}
+                          min={4}
+                          max={40}
+                          step={1}
+                          aria-label={`Horas a la semana de cada ${role.name}`}
+                          className="w-14"
+                        />
+                        <span className="text-[0.78rem] font-medium text-content-secondary">h/sem</span>
+                      </span>
+                    )}
+
+                    {role.kind !== 'estructura' && (
                     <span className="flex shrink-0 items-center gap-2">
                       <span className="text-[0.7rem] font-bold tracking-wide text-content-muted uppercase">
                         Contrato
@@ -261,6 +337,35 @@ export function RoleCatalog({
                         <option value="completa">Solo jornada completa</option>
                       </select>
                     </span>
+                    )}
+
+                    {/* Un ayudante de 17 años no puede cerrar a la una ni
+                        hacer nueve horas. Si el puesto lo cubren menores, la
+                        revisión del cuadrante lo vigila (lib/avisos.ts). */}
+                    {role.kind !== 'estructura' && (
+                      <span className="flex shrink-0 items-center gap-1">
+                      <label
+                        className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[0.78rem] font-semibold text-content-secondary"
+                        title="La ley no les deja trabajar de 22:00 a 06:00 ni más de 8 h al día"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={role.menores ?? false}
+                          onChange={(e) => patch(role.id, { menores: e.target.checked || undefined })}
+                          className="h-4 w-4 accent-brand"
+                        />
+                        Menores de 18
+                      </label>
+                      {/* El `title` no se ve en el móvil (revisión ronda 5,
+                          m11). Fuera del label: dentro, un clic en el texto
+                          del globo marcaba la casilla. */}
+                      <InfoTip title="Si lo cubren menores">
+                        La ley no les deja trabajar de 22:00 a 06:00 ni más de 8 h al día. Si lo
+                        marcas, la revisión del cuadrante te avisa cuando un turno de este puesto no
+                        lo cumple.
+                      </InfoTip>
+                      </span>
+                    )}
 
                     {/* "Qué puestos tienes" tiene que dejar decir que NO tienes
                         uno. Antes solo se podía en la tabla de tramos, poniendo
@@ -405,8 +510,50 @@ export function RoleCatalog({
             checked={calcularCostes}
             onChange={onCalcularCostes}
             label="Calcular también lo que cuesta"
-            hint="Pide el coste por hora de cada puesto y te da el coste de la plantilla a la semana y al año, y cuánto se lleva el personal de lo que facturas."
+            hint="Pide el sueldo por hora de cada puesto y te da lo que te cuesta la plantilla a la semana y al año, con la Seguridad Social, y cuánto se lleva el personal de lo que facturas."
           />
+          {/* Qué es la cifra de arriba. Sin esto, la mitad pone el sueldo y la
+              otra mitad el coste de empresa, y el porcentaje sobre ventas sale
+              un tercio corto para la primera mitad sin que nadie lo note. */}
+          {calcularCostes && onCosteBase && (
+            <div className="mt-4 space-y-3 border-t border-border-soft pt-4">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <span className="text-[0.85rem] font-bold text-content-primary">La cifra por hora es</span>
+                <Segmented
+                  value={costeBase}
+                  onChange={onCosteBase}
+                  options={[
+                    { value: 'bruto', label: 'Sueldo bruto' },
+                    { value: 'empresa', label: 'Coste de empresa' },
+                  ]}
+                />
+              </div>
+              {costeBase === 'bruto' && onCotizacion && (
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+                  <span className="text-[0.85rem] font-medium text-content-secondary">
+                    Le sumamos la Seguridad Social de la empresa:
+                  </span>
+                  <NumberInput
+                    value={cotizacionPct}
+                    onChange={onCotizacion}
+                    min={0}
+                    max={60}
+                    step={0.5}
+                    aria-label="Seguridad Social de la empresa, en porcentaje sobre el bruto"
+                    className="w-20"
+                  />
+                  <span className="text-[0.85rem] font-bold text-content-secondary">%</span>
+                  <InfoTip title="De dónde sale el 32 %">
+                    Cotización de empresa de 2026 en un contrato indefinido: 23,60 % de
+                    contingencias comunes, 5,50 % de desempleo, 0,20 % de FOGASA, 0,60 % de
+                    formación y 0,75 % de MEI, que suman 30,65 %, más accidentes de trabajo, en
+                    torno al 1,5 % en restaurantes. En un temporal el desempleo sube al 6,70 %.
+                    Fuente: Orden de cotización de 2026. Cambia la cifra si tu gestoría te da otra.
+                  </InfoTip>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="mt-3">
@@ -415,7 +562,7 @@ export function RoleCatalog({
             <strong>solo jornada completa</strong> no bajan nunca a un contrato parcial en el
             cuadrante, aunque sus horas quepan en uno, así que les pagas la jornada entera. Es lo
             normal en los puestos de mando. En el paso de equipo es donde dices cuánta gente de
-            cada puesto hace falta en cada tramo de comensales.
+            cada puesto hace falta según los comensales que tengas sentados a la vez.
             {calcularCostes && (
               <>
                 {' '}

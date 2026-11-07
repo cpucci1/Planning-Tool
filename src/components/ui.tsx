@@ -34,6 +34,7 @@ export function InlineName({
   className,
   autoEdit,
   onEditEnd,
+  wrap,
 }: {
   value: string
   onCommit: (v: string) => void
@@ -41,6 +42,12 @@ export function InlineName({
   className?: string
   autoEdit?: boolean
   onEditEnd?: () => void
+  /**
+   * Parte en líneas en vez de cortar con puntos suspensivos, y el lápiz flota
+   * encima sin ocupar sitio. Para columnas estrechas como la cabecera de los
+   * tramos, donde "Responsable de sala" salía como "Resp…" (ronda 3, punto 18).
+   */
+  wrap?: boolean
 }) {
   const [editing, setEditing] = useState(!!autoEdit)
   const [draft, setDraft] = useState(value)
@@ -85,8 +92,12 @@ export function InlineName({
   }
 
   return (
-    <span className="group/name inline-flex min-w-0 items-center gap-1">
-      <span className={cn('truncate', className)} title={value} onDoubleClick={start}>
+    <span className={cn('group/name min-w-0', wrap ? 'relative block' : 'inline-flex items-center gap-1')}>
+      <span
+        className={cn(wrap ? 'block break-words hyphens-auto' : 'truncate', className)}
+        title={value}
+        onDoubleClick={start}
+      >
         {value}
       </span>
       <button
@@ -94,8 +105,9 @@ export function InlineName({
         onClick={start}
         aria-label={ariaLabel}
         className={cn(
+          wrap && 'absolute -top-1 -right-1 bg-surface-elevated shadow-sm',
           'shrink-0 rounded-md p-1 text-content-muted opacity-0 transition-opacity',
-          'hover:bg-surface hover:text-brand group-hover/name:opacity-100',
+          'hover:bg-surface hover:text-brand group-hover/name:opacity-100 [@media(hover:none)]:opacity-100',
           'focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-brand',
         )}
       >
@@ -202,7 +214,9 @@ export function CardHeader({
   info?: ReactNode
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-4">
+    // En pantallas estrechas la acción va debajo del texto: con botones al
+    // lado, el título salía una palabra por línea (ronda 3, punto 19).
+    <div className="flex flex-col gap-3 px-6 pt-5 pb-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
       <div className="min-w-0">
         {eyebrow && <span className="eyebrow eyebrow--purple mb-2">{eyebrow}</span>}
         {/* El título fluye como texto normal y el InfoTip va incrustado al
@@ -327,6 +341,7 @@ export function NumberInput({
   onChange,
   min = 0,
   max = 999,
+  permitirVacio = false,
   className,
   ...props
 }: {
@@ -334,23 +349,42 @@ export function NumberInput({
   onChange: (v: number) => void
   min?: number
   max?: number
+  /** Dejar el campo en blanco vale (NaN): para datos que pueden no estar, como un precio (ronda 10). */
+  permitirVacio?: boolean
 } & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'min' | 'max'>) {
+  // Mientras se escribe se guarda el texto tal cual: si se corrigiera al
+  // mínimo o al máximo en cada tecla, borrar el campo ponía un 10 y escribir
+  // 25 dejaba 40 (ronda 9). Se corrige al salir del campo.
+  const [draft, setDraft] = useState<string | null>(null)
+  const { onBlur, ...rest } = props
+  const clamp = (n: number) => Math.min(max, Math.max(min, n))
   return (
     <input
       type="number"
-      value={Number.isFinite(value) ? value : ''}
+      value={draft ?? (Number.isFinite(value) ? value : '')}
       min={min}
       max={max}
       onChange={(e) => {
-        const n = Number(e.target.value)
-        onChange(Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : min)
+        const raw = e.target.value
+        setDraft(raw)
+        const n = Number(raw)
+        if (raw !== '' && Number.isFinite(n) && n >= min && n <= max) onChange(n)
+      }}
+      onBlur={(e) => {
+        if (draft !== null) {
+          const n = Number(draft)
+          if (draft.trim() === '' && permitirVacio) onChange(NaN)
+          else onChange(draft !== '' && Number.isFinite(n) ? clamp(n) : Number.isFinite(value) ? clamp(value) : value)
+          setDraft(null)
+        }
+        onBlur?.(e)
       }}
       className={cn(
         'h-input w-full rounded-md border border-border bg-surface-elevated px-3 text-center text-[0.95rem] font-semibold text-content-primary',
         'transition-colors focus:border-border-focus focus:outline-none',
         className,
       )}
-      {...props}
+      {...rest}
     />
   )
 }
@@ -622,13 +656,19 @@ export function Segmented<T extends string>({
   value,
   onChange,
   options,
+  wrap = false,
 }: {
   value: T
   onChange: (v: T) => void
   options: { value: T; label: string }[]
+  /**
+   * Que las opciones bajen de línea si no caben, en vez de salirse de su caja
+   * (revisión ronda 8, m3: las seis del colchón medían 396 px en un móvil de 375).
+   */
+  wrap?: boolean
 }) {
   return (
-    <div className="inline-flex rounded-pill bg-surface p-1">
+    <div className={cn('bg-surface p-1', wrap ? 'flex flex-wrap gap-0.5 rounded-[18px]' : 'inline-flex rounded-pill')}>
       {options.map((o) => (
         <button
           key={o.value}

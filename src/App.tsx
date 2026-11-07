@@ -16,15 +16,19 @@ import { StepDemand } from '@/steps/StepDemand'
 import { StepTeam } from '@/steps/StepTeam'
 import { StepResult } from '@/steps/StepResult'
 import { cn } from '@/components/ui'
+import { SeguirEnOrdenador } from '@/components/SeguirEnOrdenador'
 
 function Progress({
   current,
   onGo,
   reachable,
+  maxReached,
 }: {
   current: StepId
   onGo: (s: StepId) => void
   reachable: boolean
+  /** El paso más avanzado al que se ha llegado: hasta ahí se puede ir hacia delante. */
+  maxReached: number
 }) {
   const index = STEPS.findIndex((s) => s.id === current)
 
@@ -36,9 +40,11 @@ function Progress({
     <div className="flex min-w-0 flex-1 items-center gap-4">
       <ol className="hidden min-w-0 items-center gap-1 md:flex">
         {STEPS.map((s, i) => {
-          const done = i < index
+          // Hecho = ya recorrido, esté antes o después del paso actual: quien
+          // vuelve a "Histórico" tiene que poder volver a su plan desde aquí.
           const active = i === index
-          const clickable = reachable && i <= index
+          const done = !active && i <= Math.max(index, maxReached)
+          const clickable = reachable && i <= Math.max(index, maxReached)
           return (
             <li key={s.id} className="flex min-w-0 items-center">
               <button
@@ -88,6 +94,11 @@ function Progress({
   )
 }
 
+/**
+ * Personas y SUS horas de contrato. Antes iban las horas que pide la curva (597)
+ * al lado de 22 personas que tienen 684 de contrato: dos cifras de la misma
+ * plantilla sin nombre, que se leían como un error (ronda 3, punto 7).
+ */
 function LiveResult({ people, hours }: { people: number; hours: number }) {
   return (
     <div className="animate-slide-down flex items-center gap-2.5 rounded-pill bg-brand-light py-1.5 pr-4 pl-2.5">
@@ -99,7 +110,7 @@ function LiveResult({ people, hours }: { people: number; hours: number }) {
           {people} {people === 1 ? 'persona' : 'personas'}
         </span>
         <span className="block text-[0.68rem] font-semibold text-content-secondary">
-          {Math.round(hours)} h/semana
+          {Math.round(hours).toLocaleString('es-ES', { useGrouping: true })} h de contrato a la semana
         </span>
       </span>
     </div>
@@ -169,8 +180,16 @@ function Inner() {
       <div className="min-h-screen">
         <header className="sticky top-0 z-50 border-b border-border-soft bg-surface-elevated/85 backdrop-blur-md">
           <div className="mx-auto flex h-16 max-w-[1680px] items-center gap-4 px-4 sm:px-6">
-            <a href="https://shifty.es" className="flex shrink-0 items-center gap-2" aria-label="Shifty">
-              <img src="/shifty-logo.svg" alt="" className="h-6 w-auto" />
+            {/* En otra pestaña: un clic sin querer en el logo sacaba de la
+                herramienta a mitad de plan (revisión ronda 6, m11). */}
+            <a
+              href="https://shifty.es"
+              target="_blank"
+              rel="noopener"
+              className="flex shrink-0 items-center gap-2"
+              aria-label="Shifty, se abre en otra pestaña"
+            >
+              <img src="/shifty-logo.svg" alt="" className="h-8 w-auto" />
               <span className="hidden text-[0.78rem] font-bold text-content-muted sm:inline">
                 Planificador
               </span>
@@ -179,16 +198,17 @@ function Inner() {
             {p.dataset && (
               <>
                 <span className="hidden h-6 w-px bg-border sm:block" />
-                <Progress current={p.step} onGo={p.setStep} reachable />
+                <Progress current={p.step} onGo={p.setStep} reachable maxReached={p.pasoMaximo} />
                 {p.plan && index > 0 && (
                   <div className="hidden shrink-0 lg:block">
-                    <LiveResult people={p.plan.totalPeople} hours={p.needSummary?.totalHours ?? 0} />
+                    <LiveResult people={p.plan.totalPeople} hours={p.plan.contractedHours} />
                   </div>
                 )}
               </>
             )}
           </div>
         </header>
+        <SeguirEnOrdenador planToken={p.planRemoto?.shareToken} />
 
         {p.dataset && index > 0 && (
           <div className="mx-auto max-w-[1680px] px-4 pt-6 sm:px-6">
@@ -209,10 +229,10 @@ function Inner() {
         </main>
 
         {/* En móvil el resultado vivo va abajo, donde no tapa nada. */}
-        {p.dataset && p.plan && index > 0 && (
+        {p.dataset && p.plan && index > 0 && p.step !== 'team' && (
           <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border-soft bg-surface-elevated/95 px-4 py-2.5 backdrop-blur-md lg:hidden">
             <div className="flex items-center justify-between gap-3">
-              <LiveResult people={p.plan.totalPeople} hours={p.needSummary?.totalHours ?? 0} />
+              <LiveResult people={p.plan.totalPeople} hours={p.plan.contractedHours} />
               <span className="text-right text-[0.7rem] leading-tight font-semibold text-content-muted">
                 Cubres {p.coverage?.weeksCovered ?? 0} de {p.weeks.length}
                 <br />

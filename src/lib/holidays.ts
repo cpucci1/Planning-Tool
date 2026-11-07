@@ -99,7 +99,15 @@ export function anchorsFor(year: number): Anchor[] {
   return [
     // Enero arranca flojo en toda la hostelería de ciudad: la cuesta es real y
     // conviene reconocerla, porque si no se etiqueta sale como "semana rara".
-    { kind: 'temporada-baja', label: 'Cuesta de enero', week: 1, span: 3, moveable: false },
+    // La semana ISO 1 tiene dentro el 1 de enero y casi siempre Nochevieja
+    // (en los años de 52 semanas va del 29-31 de diciembre al 4-6 de enero),
+    // y la de Reyes. Se llamaba "Cuesta de enero" con etiqueta de temporada
+    // baja (revisión ronda 5, m5), y la entrada de `christmas + 1` de abajo
+    // apuntaba a la semana 53, que solo existe uno de cada cinco años: en el
+    // resto, Nochevieja no salía nunca con su nombre. Solo cambian nombre y
+    // tipo; las semanas marcadas son las mismas, así que el cálculo no se mueve.
+    { kind: 'nochevieja', label: 'Nochevieja y Reyes', week: 1, span: 1, moveable: false },
+    { kind: 'temporada-baja', label: 'Cuesta de enero', week: 2, span: 2, moveable: false },
     { kind: 'carnaval', label: 'Carnaval', week: carnival, span: 1, moveable: true },
     { kind: 'semana-santa', label: 'Semana Santa', week: holyWeek, span: 1, moveable: true },
     // Agosto vacía la ciudad durante cinco semanas, no tres.
@@ -137,8 +145,10 @@ export function buildWeekMapping(fromYear: number, toYear: number): Map<number, 
 }
 
 /** Explica en una frase qué se ha movido y cuánto. Para enseñárselo al usuario. */
-export function describeMapping(fromYear: number, toYear: number): string[] {
-  const from = anchorsFor(fromYear)
+export function describeMapping(fromYear: number, toYear: number, semanasConDatos?: Set<number>): string[] {
+  // Solo lo que el histórico trae: si el fichero no cubre la semana del
+  // festivo, decir a dónde se mueve es hablar de algo que no se ha medido.
+  const from = anchorsFor(fromYear).filter((a) => !semanasConDatos || semanasConDatos.has(a.week))
   const to = anchorsFor(toYear)
   const out: string[] = []
   for (const a of from) {
@@ -151,7 +161,7 @@ export function describeMapping(fromYear: number, toYear: number): string[] {
       const delta = t.week - a.week
       const dir = delta > 0 ? 'más tarde' : 'antes'
       out.push(
-        `${a.label} pasa de la semana ${a.week} a la ${t.week} — ${Math.abs(delta)} ${Math.abs(delta) === 1 ? 'semana' : 'semanas'} ${dir}.`,
+        `${a.label} pasa de la semana ${a.week} a la ${t.week}, ${Math.abs(delta)} ${Math.abs(delta) === 1 ? 'semana' : 'semanas'} ${dir}.`,
       )
     }
   }
@@ -231,6 +241,30 @@ export function detectSpecialWeeks(weeks: WeekDemand[], year: number, threshold 
         moveable: false,
       })
     }
+  }
+  return out.sort((a, b) => a.isoWeek - b.isoWeek)
+}
+
+/**
+ * Las semanas raras al cambiar las semanas rellenadas a cero (ronda 6): las
+ * que ya no están se van de la lista y las nuevas entran como cierre, fuera
+ * del cálculo. Lo que el usuario corrigió del resto se queda como estaba.
+ */
+export function especialesConRellenos(weeks: WeekDemand[], specials: SpecialWeek[]): SpecialWeek[] {
+  const presentes = new Set(weeks.map((w) => w.isoWeek))
+  const out = specials.filter((s) => presentes.has(s.isoWeek))
+  const ya = new Set(out.map((s) => s.isoWeek))
+  for (const w of weeks) {
+    if (!w.relleno || ya.has(w.isoWeek)) continue
+    out.push({
+      isoWeek: w.isoWeek,
+      kind: 'cierre',
+      label: 'Cierre o vacaciones',
+      deviation: -1,
+      confirmed: false,
+      excluded: true,
+      moveable: false,
+    })
   }
   return out.sort((a, b) => a.isoWeek - b.isoWeek)
 }

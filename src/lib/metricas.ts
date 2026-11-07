@@ -9,8 +9,9 @@
  */
 
 import { DAYS, SLOT_MINUTES, SLOTS_PER_DAY, formatMin, minToSlot, slotStartMin } from './time'
-import type { DayIndex, NeedGrid, Roster, StaffingModel } from './types'
+import type { DayIndex, NeedGrid, Roster, Settings, StaffingModel } from './types'
 import { totalPeopleGrid } from './staffing'
+import { findesDeMedia, type Rueda } from './semana'
 
 export interface HolguraFranja {
   day: DayIndex
@@ -24,7 +25,7 @@ export interface HolguraFranja {
 export interface RepartoFindes {
   personId: string
   label: string
-  /** Sábados o domingos que trabaja. */
+  /** Sábados o domingos que trabaja a la semana. Con rueda, de media (puede llevar decimales). */
   findesTrabajados: number
 }
 
@@ -128,6 +129,8 @@ export function calcularMetricas(
   needGrid: NeedGrid,
   model: StaffingModel,
   lagged: number[][],
+  /** Con la rueda de semanas, los findes se cuentan de media a lo largo de la vuelta. */
+  rueda?: Rueda,
 ): Metricas {
   // 1. Comensales por hora: comensales de la semana tipo entre las horas que
   // de verdad se PAGAN, que son las contratadas del cuadrante, no las que
@@ -150,18 +153,24 @@ export function calcularMetricas(
   const needed = totalPeopleGrid(needGrid, model)
   let horasEnTurnos = 0
   for (const day of staffed) for (const v of day) horasEnTurnos += (v * SLOT_MINUTES) / 60
-  const { tramos: peoresHolguras, total: horasSobrantesTotal } = groupHolguras(staffed, needed)
+  // La lista de dónde sobra gente es franja a franja; la cifra total es la
+  // neta, la misma que el resumen de la plantilla (ronda 5).
+  const { tramos: peoresHolguras } = groupHolguras(staffed, needed)
+  const horasSobrantesTotal = horasDeMasNetas(staffed, needed)
 
   // 3. Reparto de findes: sábado es el día 5 y domingo el 6 (ver DAYS en
   // lib/time.ts, semana española 0=lunes). Un turno partido en el mismo día
-  // de fin de semana solo cuenta una vez: es el mismo día trabajado.
+  // de fin de semana solo cuenta una vez: es el mismo día trabajado. Con la
+  // rueda, quien rota trabaja de media lo que su grupo a lo largo de la vuelta
+  // (lib/semana.ts), y eso es lo que se compara.
+  const media = rueda ? findesDeMedia(roster, rueda) : null
   const findes: RepartoFindes[] = roster.people.map((person) => {
     const trabajaSabado = roster.shifts.some((sh) => sh.personId === person.id && sh.day === 5)
     const trabajaDomingo = roster.shifts.some((sh) => sh.personId === person.id && sh.day === 6)
     return {
       personId: person.id,
       label: person.label,
-      findesTrabajados: (trabajaSabado ? 1 : 0) + (trabajaDomingo ? 1 : 0),
+      findesTrabajados: media?.get(person.id) ?? (trabajaSabado ? 1 : 0) + (trabajaDomingo ? 1 : 0),
     }
   })
   findes.sort((a, b) => b.findesTrabajados - a.findesTrabajados)
@@ -180,4 +189,111 @@ export function calcularMetricas(
     findes,
     desequilibrioFindes,
   }
+}
+
+/**
+ * Jornadas partidas a la semana. El cuadrante solo parte una jornada cuando
+ * eso ahorra una persona (revisión del 2026-11-04, punto 10), y la pantalla
+ * lo dice con este número para que se vea cuántas son.
+ */
+/**
+ * Horas que la gente está en el local por encima de lo que pide la necesidad,
+ * franja a franja y sumando todos los puestos. Es LA cifra de "horas de más":
+ * la tarjeta de métricas y el desglose de las horas pagadas sin servicio
+ * (`summarizePlan`) salen de aquí, para que no haya dos números distintos.
+ */
+export function horasDeMasEnElLocal(roster: Roster, needGrid: NeedGrid, model: StaffingModel): number {
+  return horasDeMasNetas(staffedPeopleGrid(roster), totalPeopleGrid(needGrid, model))
+}
+
+/**
+ * Las horas de más, en NETO (ronda 5, G1 de pantallas): horas en turnos menos
+ * horas que pide el servicio, nunca por debajo de cero. Antes se sumaban solo
+ * las franjas con gente de sobra, sin restar las que tenían de menos (las que
+ * cubre el mando o el equipo que ya está), y las cifras no se podían
+ * comprobar restando: 582 contratadas y 488,5 de necesidad decían 100 h, no
+ * 93,5. Así, contratadas = necesidad + en el local de más + sin turno, exacto.
+ */
+function horasDeMasNetas(staffed: number[][], needed: number[][]): number {
+  return Math.max(0, netoEnTurnos(staffed, needed))
+}
+
+/** Horas en turnos menos horas que pide el servicio, con signo: negativo si faltan. */
+function netoEnTurnos(staffed: number[][], needed: number[][]): number {
+  let neto = 0
+  for (let d = 0; d < 7; d++) for (let s = 0; s < SLOTS_PER_DAY; s++) neto += staffed[d][s] - needed[d][s]
+  return (neto * SLOT_MINUTES) / 60
+}
+
+/**
+ * Las horas que se pagan y el servicio no pide, en sus dos partes (ronda 4):
+ * las que la gente está en el local de más y las de contrato que no llevan
+ * turno. La usan el resumen de la plantilla y la cabecera del cuadrante, para
+ * que las dos pantallas digan la misma cifra.
+ */
+export function horasPagadasSinServicio(
+  roster: Roster,
+  needGrid: NeedGrid,
+  model: StaffingModel,
+): { enElLocal: number; sinTurno: number; sinCubrir: number } {
+  let contratadas = 0
+  let enTurnos = 0
+  for (const p of roster.people) contratadas += p.contractHours
+  for (const sh of roster.shifts) enTurnos += sh.hours
+  const neto = netoEnTurnos(staffedPeopleGrid(roster), totalPeopleGrid(needGrid, model))
+  // `sinCubrir` (ronda 9, hallazgo 6 de cálculo): cuando los turnos no llegan
+  // a lo que pide el servicio, las horas de contrato sin turno se pagan pero
+  // NO son "de más" sobre el servicio. Con él la cuenta vuelve a ser exacta:
+  // contratadas = necesidad + en el local de más + sin turno - sin cubrir.
+  return { enElLocal: Math.max(0, neto), sinTurno: Math.max(0, contratadas - enTurnos), sinCubrir: Math.max(0, -neto) }
+}
+
+/** Por encima de esta parte de la necesidad, las horas de más se explican en pantalla. */
+export const HORAS_DE_MAS_EXPLICAR = 0.1
+
+/**
+ * La frase que explica las horas que se pagan sin servicio, cuando pasan del
+ * 10 % de lo que pide el servicio (ronda 4). Una plantilla bien hecha no se
+ * queda más allá del 10 o 15 % sin una razón que se pueda decir, y esta es
+ * la razón, con sus cifras. Null si no hace falta.
+ */
+export function fraseHorasDeMas(
+  d: { enElLocal: number; sinTurno: number; sinCubrir?: number },
+  neededHours: number,
+  settings: Pick<Settings, 'minShiftMinutes' | 'minContractHours' | 'contratosAMedida' | 'contracts'>,
+): string | null {
+  // Lo que se paga POR ENCIMA del servicio: si quedan horas sin cubrir, las
+  // de contrato sin turno no son de más (ronda 9). Las partes salen de la
+  // MISMA resta que el total (ronda 10): primero se descuenta lo sin cubrir
+  // de las horas sin turno, y lo que sobre, de las del local. Así ninguna
+  // parte puede ser mayor que el total.
+  const sinCubrir = Math.max(0, d.sinCubrir ?? 0)
+  const sinTurno = Math.max(0, d.sinTurno - sinCubrir)
+  const enElLocal = Math.max(0, d.enElLocal - Math.max(0, sinCubrir - d.sinTurno))
+  const total = enElLocal + sinTurno
+  if (neededHours <= 0 || total <= neededHours * HORAS_DE_MAS_EXPLICAR) return null
+  const n = (v: number) => v.toLocaleString('es-ES', { maximumFractionDigits: 1 })
+  const pct = Math.round((total / neededHours) * 100)
+  const partes: string[] = []
+  if (enElLocal >= 0.5) {
+    partes.push(
+      `${n(enElLocal)} h son de turnos más largos que el pico: nadie viene menos de ${n(settings.minShiftMinutes / 60)} h al día, ` +
+        'así que quien refuerza un pico corto se queda hasta cerrar el servicio',
+    )
+  }
+  if (sinTurno >= 0.5) {
+    // El motivo depende de la causa: con contratos a medida es el redondeo;
+    // con una lista cerrada de jornadas, que no hay una más pequeña.
+    const aMedida = settings.contratosAMedida !== false
+    const jornadas = settings.contracts.filter((c) => c.enabled).map((c) => c.hours).sort((a, b) => a - b)
+    const motivo = aMedida
+      ? `porque los contratos se redondean hacia arriba (a 4 h o menos de la jornada completa se firma la completa, y nadie baja de ${n(settings.minContractHours ?? 10)} h)`
+      : `porque solo usas contratos de ${jornadas.map((h) => `${h} h`).join(', ').replace(/, ([^,]*)$/, ' y $1')} y cada persona va al más pequeño que le cabe`
+    partes.push(`${n(sinTurno)} h son de contrato sin turno, ${motivo}`)
+  }
+  return `Pagas ${n(total)} h más de las que pide el servicio, un ${pct} %. ${partes.join('; ')}.`
+}
+
+export function contarPartidas(roster: Roster): number {
+  return roster.shifts.filter((s) => s.blocks.length > 1).length
 }

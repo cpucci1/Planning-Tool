@@ -23,15 +23,17 @@
  */
 
 import type { InformeInput, VersionInforme } from './informe'
-import { WEEKS_PER_YEAR, describeMix, fteFrom } from './contracts'
+import { WEEKS_PER_YEAR, describeMix, fteFrom, jornadasTexto, temporadaDelLocal } from './contracts'
+import { coberturaAusencias, fraseAntesDelRefuerzo } from './ausencias'
+import { describirDuraciones, serviciosDelCobro } from './demand'
 import { DAYS, SLOTS_PER_DAY, formatMin, slotStartMin } from './time'
-import type { DayIndex, OpeningHours } from './types'
+import type { DayIndex, OpeningHours, StaffPlan } from './types'
 
 /* ── Paleta, calcada de los tokens de `src/index.css` ───────────────────── */
-const BRAND = '#6C0FD8'
-const BRAND_DARK = '#5A0CB5'
-const BRAND_SECONDARY = '#8244C7'
-const BRAND_LIGHT = '#F4ECFC'
+const BRAND = '#3C1663'
+const BRAND_DARK = '#2B1048'
+const BRAND_SECONDARY = '#6B4A93'
+const BRAND_LIGHT = '#F1ECF7'
 const INK = '#111118'
 const BODY = '#374151'
 const MUTED = '#71717A'
@@ -46,8 +48,10 @@ const SUCCESS = '#047857'
 /** 22 px de radio (la firma visual de Shifty) en milímetros. */
 const R_CARD = 5.8
 
-const nf = new Intl.NumberFormat('es-ES')
-const nf1 = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 })
+/* `useGrouping: true` también aquí: sin él, en es-ES "5594 h" salía sin punto
+   al lado de "39.000 €" (revisión ronda 6, PDF). */
+const nf = new Intl.NumberFormat('es-ES', { useGrouping: true })
+const nf1 = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1, useGrouping: true })
 /* `useGrouping` explícito: en es-ES un número de cuatro cifras NO se agrupa
    por defecto, así que "9625 €" salía al lado de "500.500 €" y parecía un
    error de la herramienta. Y el espacio fino que mete Intl antes del € se
@@ -59,6 +63,8 @@ const eurFmt = new Intl.NumberFormat('es-ES', {
   useGrouping: true,
 })
 const eur = { format: (n: number) => eurFmt.format(n).replace(/[\u00a0\u202f]/g, ' ') }
+const eur2Fmt = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const eur2 = { format: (n: number) => eur2Fmt.format(n).replace(/[\u00a0\u202f]/g, ' ') }
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -104,7 +110,9 @@ async function cargarLogoPng(
     const vb = /viewBox="([\d.\s-]+)"/.exec(svg)
     const [, , vw, vh] = vb ? vb[1].trim().split(/\s+/).map(Number) : [0, 0, 0, 0]
     if (!vw || !vh) return null
-    const conTamano = svg.replace('<svg', `<svg width="${vw}" height="${vh}"`)
+    // El logo de Shifty Work ya trae width y height; meterlos otra vez daba un
+    // SVG con atributos repetidos, que el navegador no pinta.
+    const conTamano = /<svg[^>]*\swidth=/.test(svg) ? svg : svg.replace('<svg', `<svg width="${vw}" height="${vh}"`)
 
     const img = new Image()
     const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(conTamano)}`
@@ -172,6 +180,9 @@ export async function construirInforme(
   const M = 16
   const CW = W - M * 2
   const completo = version === 'completo'
+  /** Aire entre los bloques de la portada. El resumen promete una página y
+   *  va algo más junto para que la banda de cierre quepa entera. */
+  const hueco = completo ? 8 : 6
 
   doc.setProperties({
     title: `Plan de plantilla · ${input.plan.totalPeople} ${plural(input.plan.totalPeople, 'persona', 'personas')}`,
@@ -481,10 +492,10 @@ export async function construirInforme(
     ],
   ]
   stats.forEach(([l, v, h], i) => statCard(M + i * (anchoStat + 3.5), y, anchoStat, l, v, h))
-  y += 25 + 8
+  y += 25 + hueco
 
   // De dónde sale el número
-  const explic = `Por horas bastarían ${nf1.format(plan.drivers.fteFromHours)} ${plural(plan.drivers.fteFromHours, 'jornada completa', 'jornadas completas')}. Son ${plan.totalPeople} ${plural(plan.totalPeople, 'persona', 'personas')} porque manda el pico: el ${DAYS[input.needSummary.peak.day].toLowerCase()} a las ${formatMin(slotStartMin(input.needSummary.peak.slot))} necesitas ${input.needSummary.peak.people} a la vez${picoRol && picoRol.peak > 0 ? `, ${picoRol.peak} de ${roleName.get(picoRol.roleId) ?? ''}` : ''}. Y el calendario pone el resto: nadie trabaja los siete días, así que cubrir todos los turnos pide ${plan.drivers.peopleFromDays} ${plural(plan.drivers.peopleFromDays, 'persona', 'personas')}.`
+  const explic = `Por horas bastarían ${nf1.format(plan.drivers.fteFromHours)} ${plural(plan.drivers.fteFromHours, 'jornada completa', 'jornadas completas')}. Son ${plan.totalPeople} ${plural(plan.totalPeople, 'persona', 'personas')} porque manda el pico: el ${DAYS[input.needSummary.peak.day].toLowerCase()} a las ${formatMin(slotStartMin(input.needSummary.peak.slot))} necesitas ${input.needSummary.peak.people} a la vez${picoRol && picoRol.peak > 0 ? `, ${picoRol.peak} de ${roleName.get(picoRol.roleId) ?? ''}` : ''}. ${desgloseFrase(plan)}`
   font('normal', 9)
   const explicLs = split(explic, CW - 12)
   const explicH = explicLs.length * 4.5 + 12
@@ -495,25 +506,40 @@ export async function construirInforme(
   font('normal', 9)
   ink(BRAND_DARK)
   write(explicLs, M + 6, y + 14, 4.5)
-  y += explicH + 8
+  y += explicH + hueco
 
-  // Los picos, en morado
+  // Los picos, en morado. Con las semanas de pago del local (52, o las que
+  // abre si es de temporada) y las jornadas que piden las horas de la peor
+  // semana, no solo la gente de más a la vez (ronda 5, G2 de pantallas).
+  const temporadaLocal = temporadaDelLocal(input.specials)
+  const semanasDePago = temporadaLocal.semanasDePago
+  // Las horas de contrato de esas personas, no N contratos de 40 h (ronda 7, G2).
+  const horasContratoPico = peaks.worstWeek?.horasContratoSemana ?? input.extraPeopleIfHired * 40
+  const nominaTexto = temporadaLocal.deTemporada ? `las ${semanasDePago} semanas que abres` : `las ${WEEKS_PER_YEAR} semanas del año`
+  // Ronda 8 (M3): sin más gente a la vez, contratar fijo es la opción descartada.
+  const picoSoloHoras = peaks.worstWeek !== null && peaks.worstWeek.extraPeople === 0
   const picoTitulo =
     peaks.peakWeeks.length > 0
       ? `${peaks.peakWeeks.length} ${plural(peaks.peakWeeks.length, 'semana necesita', 'semanas necesitan')} refuerzo`
       : 'Tu plantilla cubre incluso la semana más exigente'
   const picoCuerpo =
     peaks.peakWeeks.length > 0
-      ? `${nf.format(peaks.peakHoursPerYear)} horas de refuerzo que tu plantilla fija no llega a cubrir. Contratar para el pico exige ${input.extraPeopleIfHired} ${plural(input.extraPeopleIfHired, 'persona más', 'personas más')} en nómina las ${WEEKS_PER_YEAR} semanas del año para cubrir solo ${peaks.peakWeeks.length} ${plural(peaks.peakWeeks.length, 'semana punta', 'semanas punta')}: pagas ${nf1.format(peaks.weeksPaidPerWeekWorked)} semanas de sueldo por cada semana en la que de verdad hacen falta.`
-      : `Al ${input.coveragePct}% has dimensionado la plantilla para la semana más exigente y la mantienes durante las ${WEEKS_PER_YEAR} semanas del año. Bajar la línea permite comparar esa opción con cubrir los picos mediante refuerzos.`
+      ? `En esas semanas faltan ${nf.format(peaks.peakHoursPerYear)} horas que tu plantilla fija no llega a cubrir${fraseAntesDelRefuerzo(input.horasSinTurnoPicos ?? 0, input.horasComplementariasPicos) ? `: ${fraseAntesDelRefuerzo(input.horasSinTurnoPicos ?? 0, input.horasComplementariasPicos)}, y quedan ${nf.format(input.horasRefuerzo)} de refuerzo` : ''}. ${picoSoloHoras ? `La peor semana pide ${nf.format(peaks.worstWeek!.extraHours)} h más, ${jornadasTexto(peaks.worstWeek!.jornadasPorHoras ?? peaks.worstWeek!.extraHours / 40)}, sin más gente a la vez que una semana normal: son más horas de los mismos, no más personas, y contratar para el pico no hace falta. Pagarlas con contratos fijos serían ${input.extraPeopleIfHired} ${plural(input.extraPeopleIfHired, 'contrato', 'contratos')} con ${nf.format(horasContratoPico)} h a la semana` : `Contratar para el pico exige ${input.extraPeopleIfHired} ${plural(input.extraPeopleIfHired, 'persona fija más', 'personas fijas más')} con ${nf.format(horasContratoPico)} h de contrato a la semana${peaks.worstWeek ? ` (la peor semana pide ${nf.format(peaks.worstWeek.extraHours)} h más, ${jornadasTexto(peaks.worstWeek.jornadasPorHoras ?? peaks.worstWeek.extraHours / 40)}, con hasta ${peaks.worstWeek.extraPeople} ${plural(peaks.worstWeek.extraPeople, 'persona', 'personas')} más a la vez)` : ''}`} en nómina ${nominaTexto} para cubrir solo ${peaks.peakWeeks.length} ${plural(peaks.peakWeeks.length, 'semana punta', 'semanas punta')}: pagas ${nf1.format(peaks.weeksPaidPerWeekWorked)} semanas de sueldo por cada semana en la que de verdad hacen falta.`
+      : `Al ${input.coveragePct}% has dimensionado la plantilla para la semana más exigente y la mantienes durante ${nominaTexto}. Bajar la línea permite comparar esa opción con cubrir los picos mediante refuerzos.`
   font('normal', 9)
   const picoLs = split(picoCuerpo, CW - 14)
   const dineroPico =
-    cost && peaks.peakWeeks.length > 0
-      ? `A tu coste medio de ${eur.format(cost.avgHourlyEur)} la hora: tenerlas fijas todo el año son ${eur.format(input.extraPeopleIfHired * 40 * WEEKS_PER_YEAR * cost.avgHourlyEur)}; pagar solo las horas que te faltan son ${eur.format(peaks.peakHoursPerYear * cost.avgHourlyEur)}.`
+    cost && peaks.peakWeeks.length > 0 && peaks.peakHoursPerYear - (input.horasSinTurnoPicos ?? 0) > 0
+      ? `En coste de empresa: ${picoSoloHoras ? 'si las metieras en nómina' : 'tenerlas fijas'} ${temporadaLocal.deTemporada ? 'toda la temporada' : 'todo el año'} son ${eur.format(horasContratoPico * semanasDePago * cost.avgHourlyEur)}; pagar solo las horas que te faltan${(input.horasSinTurnoPicos ?? 0) > 0 ? ' (sin las de contrato sin turno, que ya pagas)' : ''}, a lo que te cuesta una hora trabajada de tu gente (${eur2.format(cost.costeHoraTrabajadaEur)}), son ${eur.format(Math.max(0, peaks.peakHoursPerYear - (input.horasSinTurnoPicos ?? 0)) * cost.costeHoraTrabajadaEur)} al año.`
       : null
+  /* Cada texto se mide con la letra con la que se pinta: la frase del dinero
+     va en negrita, y medida en normal se salía del recuadro por la derecha
+     (revisión ronda 6, M1). */
+  font('bold', 9)
   const dineroLs = dineroPico ? split(dineroPico, CW - 14) : []
-  const picoH = 16 + picoLs.length * 4.5 + (dineroLs.length ? dineroLs.length * 4.5 + 3 : 0) + 9
+  font('bold', 13)
+  const picoTituloLs = split(picoTitulo, CW - 14)
+  const picoH = 16 + (picoTituloLs.length - 1) * 6 + picoLs.length * 4.5 + (dineroLs.length ? dineroLs.length * 4.5 + 3.5 : 0) + 9
   asegurar(picoH + 4)
   fill(BRAND)
   doc.roundedRect(M, y, CW, picoH, R_CARD, R_CARD, 'F')
@@ -521,9 +547,9 @@ export async function construirInforme(
   font('bold', 13)
   ink(WHITE)
   doc.setCharSpace(-0.2)
-  write(split(picoTitulo, CW - 14), M + 7, y + 16.5, 6)
+  write(picoTituloLs, M + 7, y + 16.5, 6)
   doc.setCharSpace(0)
-  let yy = y + 16.5 + split(picoTitulo, CW - 14).length * 6 + 1
+  let yy = y + 16.5 + picoTituloLs.length * 6 + 1
   font('normal', 9)
   ink(mix(BRAND, WHITE, 0.88))
   write(picoLs, M + 7, yy, 4.5)
@@ -534,15 +560,20 @@ export async function construirInforme(
     write(dineroLs, M + 7, yy + 3.5, 4.5)
     yy += dineroLs.length * 4.5 + 3.5
   }
-  y = Math.max(y + picoH, yy) + 8
+  y = Math.max(y + picoH, yy) + hueco
 
   // El dinero, solo si hay precios en el catálogo
   if (cost) {
     const ratio =
       input.ratioPersonal !== null
-        ? ` Eso es el ${input.ratioPersonal}% de lo que facturas${input.weeklySalesEur ? ` (${eur.format(input.weeklySalesEur)} a la semana)` : ''}.`
+        ? ` Con lo que cuesta cubrir vacaciones, festivos y bajas, el personal se lleva el ${input.ratioPersonal}% de lo que facturas sin IVA${input.weeklySalesEur ? ` (${eur.format(input.weeklySalesEur)} a la semana)` : ''}.`
         : ''
-    const dineroTexto = `Esta plantilla cuesta ${eur.format(cost.weeklyEur)} a la semana y ${eur.format(cost.annualEur)} al año, con los precios por hora que has puesto en tu catálogo de puestos.${ratio}${cost.complete ? '' : ` Faltan los de ${cost.missing.join(', ')}, así que la cifra se queda corta.`}`
+    const queIncluye =
+      cost.weeklyBrutoEur !== null
+        ? `en coste de empresa: el sueldo bruto de tus puestos (${eur.format(cost.weeklyBrutoEur)} a la semana) más un ${nf1.format(cost.cotizacionPct)} % de Seguridad Social, ${nominaTexto}${temporadaLocal.deTemporada ? ' con la plantilla en fijo discontinuo' : ''}`
+        : `en coste de empresa, con los precios por hora de tus puestos, ${nominaTexto}${temporadaLocal.deTemporada ? ' con la plantilla en fijo discontinuo' : ''}`
+    const ausencias = coberturaAusencias(roster.people, settings, 40, semanasDePago, temporadaLocal.semanasCerradas)
+    const dineroTexto = `Esta plantilla cuesta ${eur.format(cost.weeklyEur)} a la semana y ${eur.format(cost.annualEur)} al año ${queIncluye}. Cada hora trabajada te sale por ${eur2.format(cost.costeHoraTrabajadaEur)}, porque las vacaciones y los festivos se pagan sin trabajarse.${ratio} Además, vacaciones, festivos y bajas dejan ${nf.format(Math.round(ausencias.horasACubrirAno))} h${ausencias.vacacionesEnCierreDias > 0 ? ` (sin los ${ausencias.vacacionesEnCierreDias} días de vacaciones que se toman con el local cerrado)` : ''} de ausencia al año que hay que cubrir, ${Math.round(ausencias.jornadasExtra * 10) / 10 === 1 ? '' : 'unas '}${jornadasTexto(ausencias.jornadasExtra)}${input.costeAusenciasEur !== null ? `; poniendo las vacaciones en tus semanas flojas, cubrir lo que queda son unos ${eur.format(input.costeAusenciasEur)} al año a ese mismo precio por hora` : ''}.${cost.nocturnidad.weeklyEur > 0 ? ` Lleva dentro ${eur.format(cost.nocturnidad.weeklyEur)} a la semana de plus de nocturnidad.` : cost.nocturnidad.horasSemana > 0 ? ` No incluye plus de nocturnidad: el cuadrante tiene ${nf1.format(cost.nocturnidad.horasSemana)} h a la semana entre las 22:00 y las 06:00.` : ''}${cost.complete ? '' : ` Faltan los precios de ${cost.missing.join(', ')}, así que la cifra se queda corta.`}`
     font('normal', 9)
     const dl = split(dineroTexto, CW - 12)
     const dh = dl.length * 4.5 + 12
@@ -554,7 +585,7 @@ export async function construirInforme(
     font('normal', 9)
     ink(BODY)
     write(dl, M + 6, y + 14, 4.5)
-    y += dh + 8
+    y += dh + hueco
   }
 
   /* ── El informe completo: el detalle ──────────────────────────────────── */
@@ -592,7 +623,7 @@ export async function construirInforme(
           const rol = model.roles.find((r) => r.id === per.roleId)
           return [
             nombreDe(per.id, per.label),
-            rol?.name ?? '—',
+            rol?.name ?? '-',
             `${per.contractHours} h${rol?.fullTimeOnly ? ' (fija)' : ''}`,
             `${nf1.format(per.assignedHours)} h`,
             /* Con cuatro días o más la lista no cabe en la columna y salía
@@ -638,7 +669,11 @@ export async function construirInforme(
     roster.people.forEach((per, i) => {
       const turnos = roster.shifts.filter((s) => s.personId === per.id)
       const maxBloques = Math.max(1, ...turnos.map((s) => s.blocks.length))
-      const filaH = 4.6 + (maxBloques - 1) * 3.2
+      // El nombre en dos líneas si no cabe, en vez de quedarse con la primera:
+      // "María José Fernández-Villalobos" salía como "María José" (ronda 7, m7).
+      font('bold', 6.8)
+      const nombreLs = split(nombreDe(per.id, per.label), anchoNombre - 5).slice(0, 2)
+      const filaH = Math.max(4.6 + (maxBloques - 1) * 3.2, 4.6 + (nombreLs.length - 1) * 2.9)
       if (y + filaH > fondo()) {
         y = nuevaPagina('El cuadrante')
         cuadranteCabecera()
@@ -649,13 +684,13 @@ export async function construirInforme(
       }
       font('bold', 6.8)
       ink(INK)
-      doc.text(split(nombreDe(per.id, per.label), anchoNombre - 5)[0], M + 3, y + 3)
+      nombreLs.forEach((l, k) => doc.text(l, M + 3, y + 3 + k * 2.9))
       font('normal', 5.6)
       ink(MUTED)
       doc.text(
         `${model.roles.find((r) => r.id === per.roleId)?.name ?? ''} · ${per.contractHours} h`,
         M + 3,
-        y + 3 + 2.9,
+        y + 3 + nombreLs.length * 2.9,
       )
       DAYS.forEach((_, d) => {
         const t = turnos.find((s) => s.day === d)
@@ -708,7 +743,7 @@ export async function construirInforme(
       DAYS.map((d, i) => {
         const bloques = input.hours?.[i as DayIndex] ?? []
         const horas = bloques.reduce((s, b) => s + (b.endMin - b.startMin) / 60, 0)
-        return [d, horarioDelDia(input.hours, i as DayIndex), horas > 0 ? `${nf1.format(horas)} h` : '—']
+        return [d, horarioDelDia(input.hours, i as DayIndex), horas > 0 ? `${nf1.format(horas)} h` : '-']
       }),
     )
     font('bold', 8.6)
@@ -725,13 +760,26 @@ export async function construirInforme(
         DAYS.map((d, i) => [d, horarioDelDia(input.kitchenHours, i as DayIndex)]),
       )
     }
-    if ((settings.prepBeforeMin ?? 0) > 0 || (settings.prepAfterMin ?? 0) > 0) {
+    // Desde el 2026-11-04 la preparación va por zona y alarga el turno de quien
+    // abre y de quien cierra; los planes de antes la tienen global y solo
+    // estiraba el mínimo.
+    const prepPorZona = settings.prepByBlock
+      ? input.model.blocks
+          .map((b) => ({ b, p: settings.prepByBlock?.[b.id] }))
+          .filter((x) => x.p && (x.p.beforeMin > 0 || x.p.afterMin > 0))
+          .map((x) => `${x.b.name}, ${x.p?.beforeMin ?? 0} min antes de abrir y ${x.p?.afterMin ?? 0} después de cerrar`)
+      : []
+    const textoPrep = settings.prepByBlock
+      ? prepPorZona.length > 0
+        ? `Quien abre entra antes y quien cierra sale después: ${prepPorZona.join('; ')}.`
+        : ''
+      : (settings.prepBeforeMin ?? 0) > 0 || (settings.prepAfterMin ?? 0) > 0
+        ? `Además se cuentan ${settings.prepBeforeMin ?? 0} min de montaje antes de abrir y ${settings.prepAfterMin ?? 0} min de cierre después, para el mínimo de personal de apertura.`
+        : ''
+    if (textoPrep) {
       font('normal', 8.6)
       ink(MUTED)
-      const prep = split(
-        `Además se cuentan ${settings.prepBeforeMin ?? 0} min de montaje antes de abrir y ${settings.prepAfterMin ?? 0} min de cierre después, para el mínimo de personal de apertura.`,
-        CW,
-      )
+      const prep = split(textoPrep, CW)
       asegurar(prep.length * 4 + 4)
       write(prep, M, y, 4)
       y += prep.length * 4 + 4
@@ -742,7 +790,9 @@ export async function construirInforme(
     titulo(
       'La demanda',
       'Tu semana tipo, hora a hora',
-      `Comensales de la semana con la que se dimensiona la plantilla, que recoge la actividad del ${input.coveragePct}% de las semanas del histórico. Cada casilla es el máximo de las dos medias horas, ya corregido el desfase del cobro.`,
+      settings.mealMinutes
+        ? `Personas sentadas a la vez en la semana con la que se dimensiona la plantilla, que recoge la actividad del ${input.coveragePct}% de las semanas del histórico. Cada mesa cuenta desde que se sienta hasta que paga (${describirDuraciones(settings.mealMinutes, serviciosDelCobro(input.typical))}). Cada casilla es el máximo de las dos medias horas.`
+        : `Comensales de la semana con la que se dimensiona la plantilla, que recoge la actividad del ${input.coveragePct}% de las semanas del histórico. Cada casilla es el máximo de las dos medias horas, ya corregido el desfase del cobro.`,
     )
     /* Solo las horas en las que pasa algo: las 24 no caben y, en un
        restaurante de menú, veinte de ellas están siempre a cero. */
@@ -827,7 +877,10 @@ export async function construirInforme(
     } else {
       input.avisos.forEach((a) => {
         font('normal', 8.4)
-        const ls = split(a.mensaje, CW - 10)
+        // El texto empieza en M + 22 (después de la etiqueta) y acaba 4 mm
+        // antes del borde: se mide con ese ancho, no con CW - 10, que lo
+        // sacaba de la caja por la derecha (ronda 6).
+        const ls = split(a.mensaje, CW - 26)
         const h = ls.length * 4.2 + 6
         asegurar(h + 2)
         fill(a.gravedad === 'legal' ? '#FEF2F2' : '#FFFBEB')
@@ -860,22 +913,31 @@ export async function construirInforme(
     const metricasCards: [string, string, string][] = [
       [
         'Comensales por hora',
-        metricas.comensalesPorHora !== null ? nf1.format(metricas.comensalesPorHora) : '—',
+        metricas.comensalesPorHora !== null ? nf1.format(metricas.comensalesPorHora) : '-',
         'Por cada hora de trabajo que pagas',
       ],
       [
-        'Horas de más',
+        // Mismo nombre y misma pista que la tarjeta de la pantalla (ronda 9),
+        // más corta: la tarjeta solo pinta dos líneas.
+        'En turno sin servicio',
         `${nf1.format(metricas.horasSobrantesTotal)} h`,
-        `Sobre las ${nf1.format(metricas.horasEnTurnos)} h que la gente está en el local`,
+        metricas.horasSobrantesTotal <= 0
+          ? 'Nada que recortar'
+          : plan.slackHours > metricas.horasSobrantesTotal + 0.25
+            ? `De ${nf1.format(plan.slackHours)} h pagadas sin servicio; ${nf1.format(plan.slackHours - metricas.horasSobrantesTotal)} son contrato sin turno`
+            : `Sobre las ${nf1.format(metricas.horasEnTurnos)} h que la gente está en el local`,
       ],
+      /* "2 y 1 · Repartido de forma pareja" no se entendía (revisión ronda 6,
+         m5): se dice qué son esos números. Con la rueda son medias, de ahí
+         el formato con un decimal. */
       [
-        'Findes',
+        'Findes por persona',
         metricas.findes.length > 0
-          ? `${metricas.findes[0].findesTrabajados} y ${metricas.findes[metricas.findes.length - 1].findesTrabajados}`
-          : '—',
+          ? `entre ${nf1.format(metricas.findes[metricas.findes.length - 1].findesTrabajados)} y ${nf1.format(metricas.findes[0].findesTrabajados)}`
+          : '-',
         metricas.desequilibrioFindes <= 1
-          ? 'Repartido de forma pareja'
-          : `${metricas.desequilibrioFindes} días de diferencia`,
+          ? 'Días de sábado o domingo que trabaja cada uno a la semana'
+          : `Días de finde a la semana: ${nf1.format(metricas.desequilibrioFindes)} de diferencia entre unos y otros`,
       ],
     ]
     asegurar(29)
@@ -908,55 +970,101 @@ export async function construirInforme(
       y += aux.length * 4 + 4
     }
 
-    // 7. Con qué se ha calculado
-    seccion('Los criterios', 60)
-    titulo(
-      'Los criterios',
-      'Con qué se ha calculado',
-      'Todo lo que ha entrado en el cálculo. Si algo no es como en tu casa, cámbialo en la herramienta y vuelve a bajarte el informe.',
-    )
+    // 7. Con qué se ha calculado. Antes reservaba 60 mm a ojo, pintaba las
+    // filas sin mirar el pie y cortaba cada valor a su primera línea: la
+    // tabla pasaba por debajo del pie y salía "75 min la comida y 90 la"
+    // (revisión ronda 6, G1). Ahora cada fila se mide entera, con los
+    // valores en las líneas que hagan falta, la sección reserva su alto real
+    // y, si una fila no cabe, pasa a la página siguiente.
     const mitad = Math.ceil(input.criterios.length / 2)
     const colAncho = (CW - 8) / 2
-    const arranque = y
-    let bajo = y
-    input.criterios.forEach((c, i) => {
-      const col = i < mitad ? 0 : 1
-      const yy = (i < mitad ? arranque + i * 7 : arranque + (i - mitad) * 7)
-      const x = M + col * (colAncho + 8)
-      font('normal', 8)
-      ink(MUTED)
-      doc.text(split(c.label, colAncho * 0.55)[0], x, yy + 4)
-      font('bold', 8)
-      ink(INK)
-      doc.text(split(c.value, colAncho * 0.45)[0], x + colAncho, yy + 4, { align: 'right' })
-      stroke(LINE_SOFT)
-      doc.line(x, yy + 5.8, x + colAncho, yy + 5.8)
-      bajo = Math.max(bajo, yy + 7)
+    const anchoEtiqueta = colAncho * 0.46
+    const anchoValor = colAncho - anchoEtiqueta - 3
+    const lhCrit = 3.6
+    const filasCrit = Array.from({ length: mitad }, (_, i) => {
+      const celdas = [input.criterios[i], input.criterios[i + mitad]].map((c) => {
+        if (!c) return null
+        font('normal', 8)
+        const et = split(c.label, anchoEtiqueta)
+        font('bold', 8)
+        const va = split(c.value, anchoValor)
+        return { et, va }
+      })
+      const lineas = Math.max(1, ...celdas.map((c) => (c ? Math.max(c.et.length, c.va.length) : 1)))
+      return { celdas, h: 3.4 + lineas * lhCrit }
     })
-    y = bajo + 8
+    const pistaCrit =
+      'Todo lo que ha entrado en el cálculo. Si algo no es como en tu casa, cámbialo en la herramienta y vuelve a bajarte el informe.'
+    font('normal', 8.6)
+    const tituloCritH = 15 + split(pistaCrit, CW).length * 4 + 1.5
+    const tablaCritH = filasCrit.reduce((a, f) => a + f.h, 0)
+    // Reserva el alto entero si la tabla cabe en una página limpia (lo normal:
+    // son nueve filas); solo si ni así cabe, basta con el título y tres filas.
+    const altoPaginaLimpia = fondo() - 25
+    seccion(
+      'Los criterios',
+      tituloCritH + tablaCritH <= altoPaginaLimpia
+        ? tituloCritH + tablaCritH
+        : tituloCritH + filasCrit.slice(0, 3).reduce((a, f) => a + f.h, 0),
+    )
+    titulo('Los criterios', 'Con qué se ha calculado', pistaCrit)
+    filasCrit.forEach((f) => {
+      if (y + f.h > fondo()) y = nuevaPagina('Los criterios')
+      f.celdas.forEach((c, col) => {
+        if (!c) return
+        const x = M + col * (colAncho + 8)
+        font('normal', 8)
+        ink(MUTED)
+        write(c.et, x, y + 4, lhCrit)
+        font('bold', 8)
+        ink(INK)
+        c.va.forEach((l, k) => doc.text(l, x + colAncho, y + 4 + k * lhCrit, { align: 'right' }))
+        stroke(LINE_SOFT)
+        doc.line(x, y + f.h - 1.2, x + colAncho, y + f.h - 1.2)
+      })
+      y += f.h
+    })
+    y += 8
   }
 
   /* ── La banda de cierre, medida antes de pintar nada más ───────────────
-     Copy de la skill `shifty-marca-y-copy`: el titular es el claim que la
-     tabla de claims reserva para cobertura y cierres. Frases cortas, tuteando,
-     con un verbo concreto en cada una, y cierre con acción. Y las dos rojas:
-     Shifty NO es una ETT (las altas las gestiona una ETT colaboradora, que es
-     la forma correcta de contarlo) y aquí no se promete ningún pago rápido.
+     Copy de la skill `shifty-marca-y-copy`. Frases cortas, tuteando, con un
+     verbo concreto en cada una, y cierre con acción. Y las dos rojas: Shifty
+     NO es una ETT (las altas las gestiona una ETT colaboradora, que es la
+     forma correcta de contarlo) y aquí no se promete ningún pago rápido.
      Nada de cifras de marketing: este informe lo lee alguien que acaba de ver
      sus propios números.
 
+     El titular era "Nunca te quedes sin personal", y la herramienta dice en
+     pantalla que se cubre el 81 % de lo que se pide con menos de 24 h: un PDF
+     que se reenvía no puede prometer el 100 % (revisión ronda 6, M7). Va el
+     mismo titular que la pantalla "Con Shifty".
+
      Se mide aquí arriba porque de su alto depende si cabe el bloque de pasos. */
 
+  const bandaTitulo = 'Cubre los picos sin inflar tu plantilla'
   const promoTexto =
     'Publicas el turno, recibes candidatos verificados con reseñas y eliges tú. Las altas las gestiona una ETT colaboradora. Sin cuota fija: pagas solo las horas que cubres.'
   const ctaTexto = 'Publica tu turno en shifty.es'
   const ctaAncho = pillWidth(ctaTexto, 10.5, 9.5)
-  font('normal', 8.6)
   /* 24 mm de respiro contra la píldora: con 10 la tercera línea se metía
      debajo del botón, y un texto que pasa por detrás de un botón es lo
      primero que se ve mal en un PDF. */
-  const promoLineas = split(promoTexto, CW - ctaAncho - 24)
+  const anchoTextoBanda = CW - ctaAncho - 24
+  font('normal', 8.6)
+  const promoLineas = split(promoTexto, anchoTextoBanda)
+  // El titular, al tamaño que quepa en una línea al lado de la píldora.
+  let tituloBandaPt = 12.5
+  font('bold', tituloBandaPt)
+  while (doc.getTextWidth(bandaTitulo) > anchoTextoBanda && tituloBandaPt > 9) {
+    tituloBandaPt -= 0.5
+    font('bold', tituloBandaPt)
+  }
   const bandaH = Math.max(34, 21 + promoLineas.length * 4.2 + 5)
+  /** La banda sin el párrafo, para el resumen cuando la entera no cabe. */
+  const bandaCompactaH = 21
+  /** Lo último que se puede pintar: por debajo va el pie, con su línea. */
+  const limite = H - 14
 
   /* ── Cómo se cubre una semana punta ────────────────────────────────────
      Rellena el hueco que quedaba en la página del resumen cuando el plan es
@@ -972,7 +1080,7 @@ export async function construirInforme(
   ]
   const pasoH = 21
   const pasosH = 9 + pasoH + 5
-  if (y + pasosH + bandaH + 8 <= H - 12) {
+  const pintarPasos = () => {
     eyebrow('Cómo se cubre una semana punta', M, y + 3, BRAND, MUTED)
     y += 9
     const anchoPaso = (CW - 3 * 3.5) / 4
@@ -993,46 +1101,106 @@ export async function construirInforme(
     y += pasoH + 5
   }
 
-  /* Si en la última página no cabe la banda, se abre una más: una banda
-     medio cortada por el borde del papel es peor que una página extra. */
-  if (y + bandaH + 6 > H - 12) y = nuevaPagina()
-  const bandaY = Math.max(y + 4, H - 12 - bandaH)
+  /* Dónde va la banda. Antes, si no cabía, se abría una página solo para
+     ella: el resumen "en una página" salía en dos, y el informe completo
+     acababa con una hoja en blanco con la cabecera de la sección anterior
+     (revisión ronda 6, G1 y M2).
+     - Si cabe entera, abajo del todo de la última página, como siempre.
+     - En el resumen, que promete una página, si no cabe va compacta (sin
+       el párrafo) y, si tampoco, se queda en una línea encima del pie.
+     - En el informe completo, si no cabe, los pasos y la banda van juntos
+       en una página propia con su nombre, sin hueco entre ellos. */
+  type Banda = 'entera' | 'compacta' | 'linea' | 'ninguna'
+  let banda: Banda = 'entera'
+  let bandaY = 0
+  if (y + pasosH + bandaH + 8 <= limite) pintarPasos()
+  if (y + 4 + bandaH <= limite) {
+    bandaY = Math.max(y + 4, limite - bandaH)
+  } else if (!completo) {
+    if (y + 4 + bandaCompactaH <= limite) {
+      banda = 'compacta'
+      bandaY = Math.max(y + 4, limite - bandaCompactaH)
+    } else {
+      banda = y + 6 <= limite ? 'linea' : 'ninguna'
+    }
+  } else {
+    y = nuevaPagina('Con Shifty')
+    pintarPasos()
+    bandaY = y + 4
+  }
 
-  fill(BRAND_DARK)
-  doc.roundedRect(M, bandaY, CW, bandaH, R_CARD, R_CARD, 'F')
-  pill(ctaTexto, W - M - ctaAncho - 8, bandaY + bandaH / 2 - 5.25, 10.5, WHITE, BRAND_DARK, 9.5)
-  eyebrow('Los picos, cubiertos', M + 7, bandaY + 8, BRAND_SECONDARY, mix(BRAND_DARK, WHITE, 0.72))
-  font('bold', 12.5)
-  ink(WHITE)
-  doc.setCharSpace(-0.18)
-  doc.text('Nunca te quedes sin personal', M + 7, bandaY + 16)
-  doc.setCharSpace(0)
-  font('normal', 8.6)
-  ink(mix(BRAND_DARK, WHITE, 0.86))
-  write(promoLineas, M + 7, bandaY + 21.5, 4.2)
+  if (banda === 'entera' || banda === 'compacta') {
+    const alto = banda === 'entera' ? bandaH : bandaCompactaH
+    fill(BRAND_DARK)
+    doc.roundedRect(M, bandaY, CW, alto, R_CARD, R_CARD, 'F')
+    pill(ctaTexto, W - M - ctaAncho - 8, bandaY + alto / 2 - 5.25, 10.5, WHITE, BRAND_DARK, 9.5)
+    eyebrow('Para las semanas punta', M + 7, bandaY + 8, BRAND_SECONDARY, mix(BRAND_DARK, WHITE, 0.72))
+    font('bold', tituloBandaPt)
+    ink(WHITE)
+    doc.setCharSpace(-0.18)
+    doc.text(bandaTitulo, M + 7, bandaY + 16)
+    doc.setCharSpace(0)
+    if (banda === 'entera') {
+      font('normal', 8.6)
+      ink(mix(BRAND_DARK, WHITE, 0.86))
+      write(promoLineas, M + 7, bandaY + 21.5, 4.2)
+    }
+  } else if (banda === 'linea') {
+    font('bold', 8.6)
+    ink(BRAND_DARK)
+    doc.text(`${bandaTitulo}: publica tu turno en shifty.es`, M, limite - 1)
+  }
 
   /* ── El pie de todas las páginas, al final ─────────────────────────────
      Se escribe ahora porque hasta ahora no se sabía cuántas páginas hay, y un
-     "Página 2 de 5" que diga otra cosa es peor que no ponerlo. */
+     "Página 2 de 5" que diga otra cosa es peor que no ponerlo.
 
+     Decía "el cálculo se hace en tu navegador, sin guardar ningún dato", y
+     la portada dice lo contrario, que es lo cierto: el fichero no se sube,
+     pero el plan calculado se guarda, con los nombres del cuadrante, para
+     poder volver a él (revisión ronda 6, G2). Dice lo mismo que la portada. */
+
+  const pieTexto =
+    'Hecho con el planificador gratuito de Shifty (shifty.es). Tu fichero se lee en tu navegador y no se sube. Guardamos el plan calculado, con los nombres que pongas en el cuadrante, para que puedas volver a él.'
   const paginas = doc.getNumberOfPages()
+  font('normal', 6.6)
+  const pieLs = split(pieTexto, CW - (paginas > 1 ? 24 : 0)).slice(0, 2)
   for (let i = 1; i <= paginas; i++) {
     doc.setPage(i)
     stroke(LINE_SOFT)
-    doc.line(M, H - 10, W - M, H - 10)
-    font('normal', 6.8)
+    doc.line(M, H - 11.5, W - M, H - 11.5)
+    font('normal', 6.6)
     ink(SOFT)
-    doc.text(
-      'Generado con el planificador gratuito de Shifty · shifty.es · el cálculo se hace en tu navegador, sin guardar ningún dato',
-      M,
-      H - 6,
-    )
+    write(pieLs, M, H - 7.8, 2.9)
     if (paginas > 1) {
       font('bold', 6.8)
       ink(MUTED)
-      doc.text(`Página ${i} de ${paginas}`, W - M, H - 6, { align: 'right' })
+      doc.text(`Página ${i} de ${paginas}`, W - M, H - 7.8, { align: 'right' })
     }
   }
 
   doc.save(completo ? 'shifty-plantilla-informe-completo.pdf' : 'shifty-plantilla-resumen.pdf')
+}
+
+/**
+ * De dónde sale cada persona, sumando exacto el total (ronda 3, G9). Es la
+ * misma cuenta que la pantalla de resultado, de `plan.drivers.desglose`.
+ */
+function desgloseFrase(plan: StaffPlan): string {
+  const d = plan.drivers.desglose
+  if (!d) {
+    return `Y el calendario pone el resto: nadie trabaja los siete días, así que cubrir todos los turnos pide ${plan.drivers.peopleFromDays} ${plural(plan.drivers.peopleFromDays, 'persona', 'personas')}.`
+  }
+  const partes = (
+    [
+      [d.pico, 'por el pico'],
+      [d.calendario, 'por el calendario, porque nadie trabaja los siete días'],
+      [d.contratosYHorarios, 'porque los turnos no encajan al minuto'],
+      [d.mandos, 'de mando'],
+    ] as [number, string][]
+  )
+    .filter(([n]) => n !== 0)
+    .map(([n, t]) => `${n} ${t}`)
+  const lista = partes.length <= 1 ? (partes[0] ?? '') : `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}`
+  return `Las ${plan.totalPeople} salen así: ${lista}.`
 }

@@ -9,8 +9,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  applyLag,
-  clampToHours,
+  coherentCoveragePct,
+  conPeriodoAbierto,
   coverageFromThreshold,
   coverageThreshold,
   sortDemand,
@@ -29,21 +29,22 @@ import {
   type PlanLocalGuardado,
 } from '@/lib/backend'
 import { hayBackend } from '@/lib/supabase'
-import { detectSpecialWeeks } from '@/lib/holidays'
+import { detectSpecialWeeks, especialesConRellenos } from '@/lib/holidays'
+import { summarize, totalPeopleGrid } from '@/lib/staffing'
 import {
-  applyOpeningMinimums,
-  buildNeedGrid,
-  clampNeedToBlockHours,
-  clampToTierMax,
-  expandHours,
-  summarize,
-  totalPeopleGrid,
-} from '@/lib/staffing'
-import { buildRoster } from '@/lib/roster'
-import { analyzePeaks, summarizePlan } from '@/lib/contracts'
+  cobrosDeLaSemana,
+  conColchon,
+  contextoDelCuadrante,
+  curvaDeTrabajo,
+  necesidadCompleta,
+  necesidadDeServicio,
+  usaSentados,
+} from '@/lib/necesidad'
+import { buildRoster, type ContextoCuadrante } from '@/lib/roster'
+import { analyzePeaks, contratoMinimoHoras, summarizePlan, temporadaDelLocal } from '@/lib/contracts'
 import { decodificarPlan, type PlanCompartido } from '@/lib/compartir'
-import { construirDatasetConDiagnostico } from '@/lib/parseFichero'
-import type { Descarte, FilaCruda, FormatoFecha, ResultadoDataset } from '@/lib/parseFichero'
+import { aplicarHueco, construirDatasetConDiagnostico } from '@/lib/parseFichero'
+import type { Descarte, FilaCruda, FormatoFecha, FuenteLeida, OpcionPeriodo, ResultadoDataset } from '@/lib/parseFichero'
 import type { ColumnaDetectada } from '@/lib/mapeo'
 import {
   SNAPSHOT_SOURCE,
@@ -60,8 +61,9 @@ import {
   type SnapshotMeta,
 } from '@/lib/persistence'
 import {
-  DEMO_COSTES_HORA,
+  DEMO_MANDOS,
   DEMO_VENTAS_SEMANA,
+  rolesDeEjemplo,
   DEFAULT_BLOCKS,
   DEFAULT_ROLES,
   DEFAULT_SETTINGS,
@@ -82,9 +84,11 @@ import type {
 
 export type { StepId }
 export const STEPS: { id: StepId; label: string; short: string }[] = [
-  { id: 'import', label: 'Tu histórico', short: 'Histórico' },
-  { id: 'demand', label: 'Lo que hemos leído', short: 'Demanda' },
-  { id: 'team', label: 'Tu equipo por tramos', short: 'Equipo' },
+  // Un solo nombre por paso (ronda 3, punto 15): el de la cabecera es también
+  // el del enlace de volver.
+  { id: 'import', label: 'Histórico', short: 'Histórico' },
+  { id: 'demand', label: 'Demanda', short: 'Demanda' },
+  { id: 'team', label: 'Equipo', short: 'Equipo' },
   { id: 'result', label: 'Tu plan', short: 'Tu plan' },
 ]
 
@@ -115,11 +119,42 @@ export interface LecturaFichero {
    * volvería a detectar y la elección de la persona se perdería sin avisar.
    */
   formatoFechaElegido: FormatoFecha | null
+  /**
+   * Los periodos que se pueden usar del fichero y el que se está usando (ronda
+   * 7, G1 de pantallas). Más de uno solo si trae más de un año o cruza el
+   * cambio de año. Opcionales: una lectura recuperada de un guardado no los
+   * trae hasta que se rehace el cálculo.
+   */
+  periodos?: OpcionPeriodo[]
+  periodoUsado?: string
+  /** El periodo que eligió el usuario a mano. `null` = el que proponga el lector. */
+  periodoElegido?: string | null
+}
+
+/** Las ventas de una semana normal que trae el propio fichero, si trae importe. */
+export function ventasDelFichero(d: DemandDataset): number | null {
+  const v = (d.source as { ventasSemanaNormal?: number | null }).ventasSemanaNormal
+  return typeof v === 'number' && v > 0 ? v : null
 }
 
 export function usePlannerState() {
   const [step, setStep] = useState<StepId>('import')
   const [dataset, setDataset] = useState<DemandDataset | null>(null)
+  /**
+   * El paso más avanzado al que ha llegado con ESTE plan (índice en `STEPS`).
+   * Sirve para que volver a "Histórico" no sea un callejón sin salida: la
+   * cabecera deja ir hacia delante hasta aquí, y la portada ofrece "Seguir con
+   * mi plan" (ronda 3, punto 6). Un fichero nuevo lo vuelve a poner a cero.
+   */
+  const [pasoMaximo, setPasoMaximo] = useState(0)
+  useEffect(() => {
+    if (!dataset) {
+      setPasoMaximo(0)
+      return
+    }
+    const i = STEPS.findIndex((s) => s.id === step)
+    setPasoMaximo((m) => Math.max(m, i))
+  }, [step, dataset])
   /**
    * El fichero que subió el usuario, ya parseado, para poder REHACER el cálculo
    * cuando corrija una columna en la pantalla de mapeo.
@@ -197,6 +232,15 @@ export function usePlannerState() {
    * encima no guardaba NUNCA, y al cerrar la pestaña lo perdía todo.
    */
   const enlaceSinTocar = useRef(false)
+  /**
+   * El plan que acaba de entrar viene de un guardado o de un enlace, no de un
+   * fichero recién leído. Lo usa el ajuste de la cobertura (más abajo) para
+   * NO tocar el porcentaje de un plan guardado: cambiarlo movería un poco la
+   * semana tipo y le daría a esa persona otra plantilla sin haber tocado nada.
+   * Y en un enlace, cambiar el estado al cargar dispararía el autoguardado del
+   * plan de otro. Se baja solo en la primera pasada del efecto.
+   */
+  const planCargado = useRef(false)
   /** Un enlace que no se puede leer: hay que decirlo, no callar. */
   const [enlaceRoto, setEnlaceRoto] = useState(false)
 
@@ -302,6 +346,7 @@ export function usePlannerState() {
     setPlanRemoto(null)
     setFalloGuardado(false)
     setDataset(d)
+    setPasoMaximo(0)
     setLectura(lecturaDelFichero ?? null)
     // Las filas se guardan aparte de la foto, para que quien recupere este plan
     // manana pueda seguir corrigiendo columnas. Ver `guardarFilas`.
@@ -326,13 +371,65 @@ export function usePlannerState() {
     // encargado y las ventas de 26.000 € que nunca escribió, y el resultado le
     // daría un coste inventado con cara de dato suyo.
     if (d.source.isDemo) {
-      setRoles((prev) => prev.map((r) => ({ ...r, hourlyCostEur: DEMO_COSTES_HORA[r.id] ?? null })))
-      setSettings((st) => ({ ...st, weeklySalesEur: DEMO_VENTAS_SEMANA }))
+      setRoles((prev) => rolesDeEjemplo(prev))
+      // Con los costes encendidos: la portada enseña el coste del ejemplo, y
+      // al abrirlo tiene que salir el mismo (ronda 3, punto 13).
+      setSettings((st) => ({ ...st, weeklySalesEur: DEMO_VENTAS_SEMANA, calcularCostes: true }))
     } else {
-      setRoles((prev) => prev.map((r) => ({ ...r, hourlyCostEur: null })))
-      setSettings((st) => ({ ...st, weeklySalesEur: null }))
+      // Si venía del ejemplo, sus dos mandos tampoco son suyos: vuelven a 0.
+      const veniaDelEjemplo = dataset?.source.isDemo === true
+      setRoles((prev) =>
+        prev.map((r) => ({
+          ...r,
+          hourlyCostEur: null,
+          ...(veniaDelEjemplo && DEMO_MANDOS[r.id] !== undefined
+            ? { headcount: DEFAULT_ROLES.find((x) => x.id === r.id)?.headcount ?? 0 }
+            : {}),
+        })),
+      )
+      // Las ventas SÍ son suyas si su fichero trae importe: la mediana semanal
+      // de esa columna (ronda 3). Si no la trae, se quedan sin poner.
+      setSettings((st) => ({
+        ...st,
+        weeklySalesEur: ventasDelFichero(d),
+        // Los costes encendidos del ejemplo tampoco son una decisión suya.
+        ...(veniaDelEjemplo ? { calcularCostes: false } : {}),
+      }))
     }
     setStep('demand')
+  }
+
+  /**
+   * El usuario dice si su local abre solo el periodo que trae el fichero
+   * (ronda 6, G1). Sí: el resto del año entra como semanas cerradas, y un
+   * local de temporada paga solo las que abre. No: se calcula como si abriera
+   * todo el año, con lo que hay.
+   */
+  function elegirPeriodo(soloEstePeriodo: boolean) {
+    const periodo = dataset?.source.periodo
+    if (!dataset || !periodo || periodo.soloEstePeriodo === soloEstePeriodo) return
+    const nuevo = { ...periodo, soloEstePeriodo }
+    const weeks = conPeriodoAbierto(dataset.weeks, dataset.year, nuevo, soloEstePeriodo)
+    setDataset({ ...dataset, weeks, source: { ...dataset.source, periodo: nuevo } })
+    setSpecials((prev) => especialesConRellenos(weeks, prev))
+  }
+
+  /**
+   * El usuario dice qué fue un hueco largo del fichero (ronda 7, M3 de
+   * cálculo): un cierre del local o datos que faltan, como un cambio de TPV.
+   */
+  function elegirHueco(indice: number, cerrado: boolean) {
+    if (!dataset) return
+    const nuevo = aplicarHueco(dataset, indice, cerrado)
+    if (nuevo === dataset) return
+    setDataset(nuevo)
+    setSpecials((prev) => especialesConRellenos(nuevo.weeks, prev))
+  }
+
+  /** El periodo del fichero que se usa, cuando trae más de un año (ronda 7). */
+  function elegirPeriodoDelFichero(clave: string) {
+    if (!lectura) return
+    recalcularConMapeo(lectura.mapeo, lectura.comensalesPorTicket, lectura.formatoFechaElegido, clave)
   }
 
   /**
@@ -357,12 +454,15 @@ export function usePlannerState() {
      * deshacerle la elección.
      */
     formatoFechaElegido: FormatoFecha | null = lectura?.formatoFechaElegido ?? null,
+    /** Igual que el formato: si no se pasa, se mantiene el periodo que eligió. */
+    periodoElegido: string | null = lectura?.periodoElegido ?? null,
   ) {
     if (!lectura) return
     const r = construirDatasetConDiagnostico(lectura.filas, mapeo, {
       fileName: lectura.nombre,
       comensalesPorTicket,
       formatoFecha: formatoFechaElegido ?? undefined,
+      periodo: periodoElegido ?? undefined,
     })
     // Con ese mapeo no entra ni una fila: se guarda el diagnóstico para poder
     // DECIRLO, pero NO se sustituye el histórico. Dejar el dataset vacío
@@ -381,6 +481,9 @@ export function usePlannerState() {
         semanas: 0,
         formatoFecha: r.formatoFecha,
         formatoFechaElegido,
+        periodos: r.periodos,
+        periodoUsado: r.periodoUsado,
+        periodoElegido,
       })
       return
     }
@@ -395,8 +498,40 @@ export function usePlannerState() {
       semanas: r.semanas,
       formatoFecha: r.formatoFecha,
       formatoFechaElegido,
+      periodos: r.periodos,
+      periodoUsado: r.periodoUsado,
+      periodoElegido,
     })
-    setDataset(r.dataset)
+    // Las ventas siguen a la columna de importe mientras el usuario no las
+    // haya escrito él: si coinciden con las que salían del fichero anterior,
+    // son nuestras y se rehacen; si no, manda lo que escribió.
+    const ventasAntes = dataset ? ventasDelFichero(dataset) : null
+    setSettings((st) =>
+      st.weeklySalesEur === null || st.weeklySalesEur === ventasAntes
+        ? { ...st, weeklySalesEur: ventasDelFichero(r.dataset) }
+        : st,
+    )
+    // Si ya había dicho si abre solo el periodo del fichero, se respeta.
+    const antes = dataset?.source.periodo
+    const nuevo = r.dataset.source.periodo
+    let rehecho = r.dataset
+    if (antes && nuevo && antes.soloEstePeriodo !== nuevo.soloEstePeriodo) {
+      const periodo = { ...nuevo, soloEstePeriodo: antes.soloEstePeriodo }
+      rehecho = {
+        ...r.dataset,
+        weeks: conPeriodoAbierto(r.dataset.weeks, r.dataset.year, periodo, periodo.soloEstePeriodo),
+        source: { ...r.dataset.source, periodo },
+      }
+    }
+    // Y lo que dijo de cada hueco largo, si el hueco sigue siendo el mismo.
+    const huecosAntes = (dataset?.source as FuenteLeida | undefined)?.huecos ?? []
+    const huecosAhora = (rehecho.source as FuenteLeida).huecos ?? []
+    huecosAhora.forEach((h, i) => {
+      const antes = huecosAntes.find((x) => x.desde === h.desde && x.hasta === h.hasta)
+      if (antes && antes.cerrado !== h.cerrado) rehecho = aplicarHueco(rehecho, i, antes.cerrado)
+    })
+    setDataset(rehecho)
+    setSpecials((prev) => especialesConRellenos(rehecho.weeks, prev))
     if (!horarioTocado.current) setHours(r.dataset.source.detectedHours)
     // El mapeo corregido tambien se guarda: si no, al recuperar el plan volveria
     // el mapeo original y el usuario veria deshecha su correccion.
@@ -406,6 +541,7 @@ export function usePlannerState() {
       mapeo,
       comensalesPorTicket,
       formatoFechaElegido,
+      periodoElegido,
     })
   }
 
@@ -530,6 +666,7 @@ export function usePlannerState() {
      */
     function volcar(plan: PlanCompartido) {
       vieneDeEnlace.current = true
+      planCargado.current = true
       enlaceSinTocar.current = true
       setDataset(plan.dataset)
       setHours(plan.hours)
@@ -636,6 +773,7 @@ export function usePlannerState() {
 
   /** Aplica una foto guardada al estado actual. */
   function applySnapshot(snap: PlannerSnapshot) {
+    planCargado.current = true
     setDataset(snap.dataset)
     // Y se recuperan las filas del fichero, que viven aparte. Sin esto, quien
     // vuelve al dia siguiente puede corregir una columna y el calculo no se
@@ -659,6 +797,7 @@ export function usePlannerState() {
         // usuario, que es lo unico que no se puede volver a deducir.
         formatoFecha: f.formatoFechaElegido ?? 'dd/mm',
         formatoFechaElegido: f.formatoFechaElegido ?? null,
+        periodoElegido: f.periodoElegido ?? null,
       })
     })
     setHours(snap.hours)
@@ -713,6 +852,25 @@ export function usePlannerState() {
    */
   const sorted = useMemo(() => sortDemand(weeks), [weeks])
 
+  /**
+   * El porcentaje de cobertura se ajusta a las semanas que de verdad cubre
+   * (`coherentCoveragePct`), para que la línea del año y el texto digan la
+   * misma cifra. Solo al leer un fichero o al cambiar las semanas que cuentan
+   * (excluir una semana rara); nunca al abrir un plan guardado o un enlace.
+   * Al arrastrar la línea ya sale coherente de por sí.
+   */
+  useEffect(() => {
+    if (planCargado.current) {
+      planCargado.current = false
+      return
+    }
+    if (!weeks.length) return
+    setSettings((s) => {
+      const pct = coherentCoveragePct(weeks, s.coveragePct)
+      return pct === s.coveragePct ? s : { ...s, coveragePct: pct }
+    })
+  }, [weeks])
+
   const coverage = useMemo(
     () => (weeks.length ? coverageThreshold(weeks, settings.coveragePct) : null),
     [weeks, settings.coveragePct],
@@ -738,31 +896,52 @@ export function usePlannerState() {
   }, [weeks, settings.coveragePct, settings.sizingMode, sorted, overrides])
 
   /**
-   * `lagged` es la curva de TRABAJO REAL: primero se corrige el desfase del dato
-   * (el cobro va después del trabajo) y solo después se recorta al horario. Ese
-   * orden importa: corregir es arreglar el dato, recortar es aplicar una regla
-   * de negocio, y no tiene sentido aplicar la regla sobre el dato torcido.
-   * Es la que alimenta todo el cálculo de plantilla.
+   * La curva con la que se dimensiona (`lib/necesidad.ts`): PERSONAS SENTADAS A
+   * LA VEZ en los planes nuevos, cobros adelantados el desfase en los de antes
+   * del 2026-11-04. Ya recortada al horario.
    */
-  const lagged = useMemo(() => {
-    if (!typical) return null
-    const corrected = applyLag(typical, settings.lagMinutes)
-    return hours ? clampToHours(corrected, hours) : corrected
-  }, [typical, settings.lagMinutes, hours])
+  const workCurve = useMemo(
+    () => (typical ? curvaDeTrabajo(typical, hours, settings) : null),
+    // `settings` entero no: solo lo que mueve la curva, o arrastrar cualquier
+    // otro ajuste reharía la conversión.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [typical, hours, settings.mealMinutes, settings.lagMinutes],
+  )
 
   /**
-   * La misma curva con el colchón de seguridad aplicado. Va SEPARADA de
-   * `lagged` a propósito: `lagged` es lo que se pinta en los gráficos con la
-   * etiqueta "comensales", y enseñar ahí un número inflado por una decisión de
-   * plantilla sería mentir sobre el dato. El colchón es política de personal,
-   * así que solo entra donde se traduce a personas.
+   * `lagged` son los COBROS: los comensales que de verdad pasan por el local,
+   * que es lo que cuentan los totales (comensales por hora trabajada, el ratio
+   * de las semanas punta). En los planes de antes es la misma curva de
+   * trabajo, adelantada el desfase. En los nuevos son los cobros a su hora,
+   * recortados al horario con media hora de margen al cierre: la última mesa
+   * paga cuando ya se ha cerrado la puerta, y el horario deducido sale de la
+   * curva adelantada.
    */
-  const laggedStaffing = useMemo(() => {
-    if (!lagged) return null
-    const margin = 1 + Math.max(0, settings.safetyMarginPct || 0) / 100  // `|| 0`: ver CLAUDE.md, foto antigua sin el campo
-    if (margin === 1) return lagged
-    return lagged.map((day) => day.map((v) => Math.round(v * margin)))
-  }, [lagged, settings.safetyMarginPct])
+  const lagged = useMemo(() => {
+    if (!typical || !workCurve) return null
+    return cobrosDeLaSemana(typical, workCurve, hours, settings)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typical, workCurve, hours, settings.mealMinutes])
+
+  /** Sentados a la vez, o null en un plan de antes que no los usa. Es lo que se pinta junto a los tramos. */
+  const seated = useMemo(
+    () => (workCurve && usaSentados(settings) ? workCurve : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workCurve, settings.mealMinutes],
+  )
+
+  /**
+   * La misma curva con el colchón de seguridad aplicado. Va SEPARADA a
+   * propósito: lo que se pinta en los gráficos es el dato, y enseñar ahí un
+   * número inflado por una decisión de plantilla sería mentir sobre él. El
+   * colchón es política de personal, así que solo entra donde se traduce a
+   * personas.
+   */
+  const laggedStaffing = useMemo(
+    () => (workCurve ? conColchon(workCurve, settings) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workCurve, settings.safetyMarginPct],
+  )
 
   const inflation = useMemo(
     () => (weeks.length ? typicalWeekInflation(weeks, settings.coveragePct, sorted) : null),
@@ -770,57 +949,38 @@ export function usePlannerState() {
   )
 
   /**
-   * Necesidad que sale SOLO de la curva de comensales, sin el mínimo por
+   * Necesidad que sale SOLO de la curva, sin preparación ni mínimo por
    * bloque. Es la base del ratio "horas por comensal" que estima las semanas
-   * punta (`analyzePeaks`, más abajo): el mínimo es un coste plano por estar
-   * abierto, igual todas las semanas, así que no debe repartirse otra vez de
-   * más en las semanas con más comensales — eso infla justo el número que
-   * vende Shifty. El cuadrante de verdad SÍ necesita el mínimo, por eso
-   * sigue en `needGrid` de abajo.
+   * punta (`analyzePeaks`, más abajo): estar abierto es un coste plano, igual
+   * todas las semanas, así que no debe repartirse otra vez de más en las
+   * semanas con más comensales; eso infla justo el número que vende Shifty. El
+   * cuadrante de verdad SÍ lo necesita, por eso sigue en `needGrid`.
    */
-  const needGridDemand = useMemo(() => {
-    if (!laggedStaffing) return null
-    let grid = buildNeedGrid(laggedStaffing, model)
-    // El horario propio de cocina solo RECORTA su necesidad, nunca la amplía
-    // más allá de lo que ya marca el horario general — ver `clampNeedToBlockHours`.
-    if (kitchenHours) grid = clampNeedToBlockHours(grid, model, KITCHEN_BLOCK_ID, kitchenHours)
-    // El techo del tramo entra YA aquí, no solo al final: si el suelo está en
-    // esta rejilla y el techo no, los picos se estiman con una plantilla que
-    // el plan se niega a montar.
-    return clampToTierMax(grid, laggedStaffing, model)
-  }, [laggedStaffing, model, kitchenHours])
+  const needGridDemand = useMemo(
+    () => (laggedStaffing ? necesidadDeServicio(laggedStaffing, model, kitchenHours, KITCHEN_BLOCK_ID) : null),
+    [laggedStaffing, model, kitchenHours],
+  )
 
-  const needGrid = useMemo(() => {
-    if (!needGridDemand) return null
-    // `?? {}`: por si algún día vuelve a enchufarse `persistence.ts` con una
-    // foto guardada de antes de que existiera este campo — ver CLAUDE.md.
-    const minStaffByBlock = settings.minStaffByBlock ?? {}
-    // El mínimo por bloque va DESPUÉS: añade el personal de apertura/cierre
-    // aunque la curva esté a cero, respetando el horario propio de cada
-    // bloque si lo tiene (cocina) — ver `applyOpeningMinimums`.
-    let grid = needGridDemand
-    if (hours && Object.values(minStaffByBlock).some((v) => v > 0)) {
-      // La ventana del mínimo incluye la preparación y el cierre: es
-      // justamente la gente que entra antes y sale después (ver `expandHours`).
-      const withPrep = (h: OpeningHours) =>
-        expandHours(h, settings.prepBeforeMin || 0, settings.prepAfterMin || 0)
-      grid = applyOpeningMinimums(needGridDemand, model, minStaffByBlock, (blockId) =>
-        withPrep(blockId === KITCHEN_BLOCK_ID && kitchenHours ? kitchenHours : hours),
-      )
-    }
-    // Y se vuelve a aplicar al final: si el mínimo por local se lo pudiera
-    // saltar, no sería un techo.
-    return laggedStaffing ? clampToTierMax(grid, laggedStaffing, model) : grid
-  }, [
-    needGridDemand,
-    model,
-    kitchenHours,
-    hours,
-    settings.minStaffByBlock,
-    settings.prepBeforeMin,
-    settings.prepAfterMin,
-    laggedStaffing,
-  ])
+  const needGrid = useMemo(
+    () =>
+      needGridDemand && laggedStaffing
+        ? necesidadCompleta(needGridDemand, laggedStaffing, model, hours, kitchenHours, KITCHEN_BLOCK_ID, settings)
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      needGridDemand,
+      laggedStaffing,
+      model,
+      hours,
+      kitchenHours,
+      settings.prepByBlock,
+      settings.minStaffByBlock,
+      settings.openingRoleByBlock,
+      settings.prepBeforeMin,
+      settings.prepAfterMin,
+      settings.trabajoFijo,
+    ],
+  )
 
   const needSummary = useMemo(
     () => (needGrid ? summarize(needGrid, model) : null),
@@ -837,15 +997,27 @@ export function usePlannerState() {
     [needGrid, model],
   )
 
+  /**
+   * Lo que el cuadrante necesita además de la curva: en qué horario tiene que
+   * haber un mando en cada zona (el de la zona, con la preparación y el cierre)
+   * y cuántos comensales tiene cada día, para que se libre en los flojos.
+   */
+  const contextoCuadrante = useMemo(
+    (): ContextoCuadrante => contextoDelCuadrante(hours, kitchenHours, KITCHEN_BLOCK_ID, settings, lagged),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hours, kitchenHours, settings.prepBeforeMin, settings.prepAfterMin, settings.prepByBlock, lagged],
+  )
+
+
   const roster = useMemo(() => {
     if (!needGrid) return null
-    const built = buildRoster(needGrid, model, settings)
+    const built = buildRoster(needGrid, model, settings, contextoCuadrante)
     if (Object.keys(personNames).length === 0) return built
     return {
       ...built,
       people: built.people.map((p) => (personNames[p.id] ? { ...p, label: personNames[p.id] } : p)),
     }
-  }, [needGrid, model, settings, personNames])
+  }, [needGrid, model, settings, personNames, contextoCuadrante])
 
   const plan = useMemo(
     () =>
@@ -862,8 +1034,24 @@ export function usePlannerState() {
     // estima las semanas punta solo puede venir de lo que de verdad escala
     // con los comensales. El mínimo por bloque es un coste plano, igual en
     // todas las semanas, así que no debe repartirse otra vez de más aquí.
-    return analyzePeaks(weeks, coverage.threshold, needSummaryDemand.totalHours, covers)
-  }, [weeks, coverage, needSummaryDemand, lagged])
+    // La gente de más del titular sale del pico real de la peor semana, con
+    // la misma cuenta que la semana tipo (ronda 3, G10).
+    // La semana punta, SIN margen (ronda 6, M1): el margen es capacidad que ya
+    // tiene la plantilla fija, y medirla con él hacía que subirlo empujara la
+    // peor semana al tramo siguiente y "faltaran" más personas.
+    const personasPico = (days: number[][]) =>
+      summarize(necesidadDeServicio(curvaDeTrabajo(days, hours, settings), model, kitchenHours, KITCHEN_BLOCK_ID), model)
+        .peak.people
+    return analyzePeaks(weeks, coverage.threshold, needSummaryDemand.totalHours, covers, 40, {
+      personasPico,
+      picoTipico: needSummaryDemand.peak.people,
+      margenPct: settings.safetyMarginPct,
+      contratoMinimoHoras: contratoMinimoHoras(settings),
+      capacidadEsSemanaTipo: settings.sizingMode === 'conservador',
+      semanasDePago: temporadaDelLocal(specials).semanasDePago,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weeks, coverage, needSummaryDemand, lagged, hours, model, kitchenHours, settings.mealMinutes, settings.lagMinutes, settings.safetyMarginPct, settings.contratosAMedida, settings.minContractHours, settings.contracts, settings.sizingMode, specials])
 
   // ─────────────────────────────────────────────────────────────
   // Guardado en el servidor
@@ -952,15 +1140,25 @@ export function usePlannerState() {
       return
     }
     await reclamarPlan(planRemoto.planId, planRemoto.editSecret)
+    // Y se vuelve a guardar: lo que esta en el servidor es la foto de cuando se
+    // llego al resultado, y desde entonces puede haber nombres o ajustes nuevos.
+    // Sin esto, el "ya es tuyo, con los nombres que le hayas puesto" del modal
+    // de cuenta no era cierto (revision ronda 5, M6). Mismo contenido de
+    // siempre: solo cambia que se manda una vez mas.
+    await guardarEnServidor()
   }, [planRemoto, guardarEnServidor])
 
   return {
     step,
     setStep,
+    pasoMaximo,
     dataset,
     lectura,
     loadDataset,
     recalcularConMapeo,
+    elegirPeriodo,
+    elegirHueco,
+    elegirPeriodoDelFichero,
     reset,
     hours,
     setHours: setHoursDelUsuario,
@@ -1003,11 +1201,14 @@ export function usePlannerState() {
     coverageFromThreshold: (t: number) => coverageFromThreshold(weeks, t),
     typical,
     lagged,
+    seated,
     inflation,
     needGrid,
     needSummary,
+    needSummaryDemand,
     peopleGrid,
     roster,
+    contextoCuadrante,
     plan,
     peaks,
   }

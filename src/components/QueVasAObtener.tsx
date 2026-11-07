@@ -6,39 +6,42 @@
  * el fichero: enseña las cuatro cosas que se lleva el usuario, con una miniatura
  * de cada una dibujada solo con HTML y CSS — no hay assets y no queremos pesar.
  *
- * Las cifras de las miniaturas 1 y 4 (19 personas, el desglose de contratos, 11
- * de 52 semanas) son las del dataset de ejemplo real del proyecto, sacadas de
- * `npm run verificar`. Se quedan aunque ya no haya botón de "ver el ejemplo":
- * son la muestra de lo que la herramienta devuelve, y por eso tienen que ser
- * ciertas. Una cifra inventada aquí es una promesa que el producto incumple en
- * la pantalla siguiente. La miniatura del coste es la excepción a propósito:
- * `Role.hourlyCostEur` nace en `null` en todo el catálogo (`data/presets.ts`) —
- * el precio lo pone el usuario, nunca se inventa — así que el ejemplo de coste de
- * aquí es ilustrativo y lleva su propia nota diciéndolo. La miniatura del
- * cuadrante (nombres y turnos) tampoco es un cuadrante real: es una rejilla
- * creíble para explicar el concepto.
+ * Las cifras de las miniaturas (personas por jornada, coste, semanas punta) son
+ * las del restaurante de ejemplo tal y como sale al abrirlo, con sus costes de
+ * muestra: viven en `data/ejemploPortada.ts` y `npm run verificar` falla si el
+ * cálculo las mueve (ronda 3). La miniatura del cuadrante (nombres y turnos) y
+ * la forma de las barras de las semanas no son reales: son dibujos creíbles
+ * para explicar el concepto, y la cuenta de semanas sí lo es.
  */
 
 import { Fragment, type ReactNode } from 'react'
 import { BarChart3, Euro, LayoutGrid, Users } from 'lucide-react'
 import { Card } from '@/components/ui'
+import { DEFAULT_ROLES } from '@/data/presets'
+import {
+  PORTADA_CONTRATOS,
+  PORTADA_COSTE_ANO_EUR,
+  PORTADA_COSTE_PUESTOS,
+  PORTADA_COSTE_SEMANA_EUR,
+  PORTADA_SEMANAS_PUNTA,
+} from '@/data/ejemploPortada'
 
 // ─────────────────────────────────────────────────────────────
 // Datos de ejemplo
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Mismas cifras que el dataset de ejemplo: 12 de 40h + 5 de 30h + 1 de 20h +
- * 1 de 15h = 19. Salen de `npm run verificar`, no de la cabeza de nadie: si el
- * reparto de turnos cambia, esta lista hay que volver a copiarla de ahí.
+ * Las jornadas del ejemplo, de `data/ejemploPortada.ts`: las mismas que salen al
+ * abrirlo, y `npm run verificar` falla si dejan de serlo.
  */
-const CONTRACTS = [
-  { hours: 40, count: 12, color: 'var(--color-brand-dark)' },
-  { hours: 30, count: 5, color: 'var(--color-brand)' },
-  { hours: 20, count: 1, color: 'var(--color-brand-secondary)' },
-  { hours: 15, count: 1, color: 'var(--color-content-muted)' },
-] as const
-const MAX_CONTRACT_COUNT = 12
+const CONTRACT_COLORS = [
+  'var(--color-brand-dark)',
+  'var(--color-brand)',
+  'var(--color-brand-secondary)',
+  'var(--color-content-muted)',
+]
+const CONTRACTS = PORTADA_CONTRATOS.map((c, i) => ({ ...c, color: CONTRACT_COLORS[i % CONTRACT_COLORS.length] }))
+const MAX_CONTRACT_COUNT = Math.max(...CONTRACTS.map((c) => c.count))
 
 const DAYS = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
 
@@ -55,13 +58,14 @@ const ROSTER_ROWS: { name: string; shifts: (string | null)[] }[] = [
   { name: 'Max', shifts: [SALA, SALA, SALA, SALA, null, null, SALA] },
 ]
 
-/** Ejemplo ilustrativo con precio puesto a mano — ver nota de cabecera. */
-const ROLE_COSTS = [
-  { name: 'Encargado', pct: 45, color: 'var(--color-brand-dark)' },
-  { name: 'Camarero', pct: 100, color: 'var(--color-brand-secondary)' },
-  { name: 'Cocinero', pct: 62, color: 'var(--color-warning)' },
-  { name: 'Ayudante', pct: 38, color: 'var(--color-info)' },
-]
+/** Los cuatro puestos que más cuestan en el ejemplo, con los costes de muestra. */
+const ROLE_COST_COLORS = ['var(--color-brand-secondary)', 'var(--color-warning)', 'var(--color-brand-dark)', 'var(--color-info)']
+const ROLE_COSTS = PORTADA_COSTE_PUESTOS.map((r, i) => ({
+  name: DEFAULT_ROLES.find((x) => x.id === r.roleId)?.name ?? r.roleId,
+  pct: r.pct,
+  color: ROLE_COST_COLORS[i % ROLE_COST_COLORS.length],
+}))
+const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, useGrouping: true })
 
 /**
  * Altura (0-100) de las 52 semanas del año, en orden de calendario. Diseñada a
@@ -74,7 +78,7 @@ const WEEK_BARS = [
   95, 85, 60, 40,
 ]
 const WEEK_THRESHOLD = 65
-const WEEKS_OVER = WEEK_BARS.filter((h) => h > WEEK_THRESHOLD).length // 11
+const WEEKS_OVER = PORTADA_SEMANAS_PUNTA
 
 // ─────────────────────────────────────────────────────────────
 // Cabecera compartida de cada miniatura
@@ -105,11 +109,11 @@ export function QueVasAObtener() {
     <section className="mx-auto mt-14 max-w-4xl sm:mt-16">
       <div className="text-center">
         <span className="eyebrow eyebrow--purple">Antes de subir nada</span>
-        <h2 className="h2 mt-3 text-[1.4rem] sm:text-[1.75rem]">Esto es lo que sale de tu histórico</h2>
+        <h2 className="h2 mt-3 text-[1.4rem] sm:text-[1.75rem]">Así sale con un restaurante de ejemplo</h2>
         <p className="mx-auto mt-3 max-w-lg text-[0.95rem] leading-relaxed text-content-secondary">
-          Es el resultado real de un restaurante de menú y carta.{' '}
-          <span className="font-bold text-content-primary">No son tus datos</span>: son los
-          nuestros, para que veas lo que sale antes de subir nada tuyo.
+          Un menú y carta de tamaño medio, de comidas y cenas, con encargado y jefe de cocina.{' '}
+          <span className="font-bold text-content-primary">No son tus datos</span>: es lo mismo que
+          verás si abres el ejemplo de arriba, para que sepas qué sale antes de subir nada tuyo.
         </p>
       </div>
 
@@ -124,7 +128,7 @@ export function QueVasAObtener() {
           <div className="mt-5 flex flex-1 items-center gap-5">
             <div className="shrink-0">
               <div className="tnum text-[2.75rem] leading-none font-black tracking-tight text-content-primary">
-                19
+                {CONTRACTS.reduce((n, c) => n + c.count, 0)}
               </div>
               <div className="mt-1.5 text-[0.68rem] font-bold tracking-wide text-content-secondary uppercase">
                 personas
@@ -132,14 +136,14 @@ export function QueVasAObtener() {
             </div>
             <div className="min-w-0 flex-1 space-y-2" aria-hidden="true">
               {CONTRACTS.map((c) => (
-                <div key={c.hours} className="flex items-center gap-2">
-                  <span className="w-7 shrink-0 text-[0.68rem] font-bold text-content-secondary">
-                    {c.hours}h
+                <div key={c.label} className="flex items-center gap-2">
+                  <span className="w-12 shrink-0 whitespace-nowrap text-[0.68rem] font-bold text-content-secondary">
+                    {c.label}
                   </span>
                   <span className="h-2 flex-1 overflow-hidden rounded-pill bg-surface">
                     <span
                       className="block h-full rounded-pill"
-                      style={{ width: `${Math.max((c.count / MAX_CONTRACT_COUNT) * 100, 8)}%`, background: c.color }}
+                      style={{ width: `${c.count ? Math.max((c.count / MAX_CONTRACT_COUNT) * 100, 8) : 0}%`, background: c.color }}
                     />
                   </span>
                   <span className="tnum w-4 shrink-0 text-right text-[0.68rem] font-bold text-content-primary">
@@ -201,7 +205,7 @@ export function QueVasAObtener() {
             <div className="flex items-baseline gap-6" aria-hidden="true">
               <div>
                 <div className="tnum text-[1.3rem] font-black tracking-tight text-content-primary">
-                  7.650 €
+                  {eur.format(PORTADA_COSTE_SEMANA_EUR)}
                 </div>
                 <div className="mt-0.5 text-[0.66rem] font-bold tracking-wide text-content-muted uppercase">
                   a la semana
@@ -209,7 +213,7 @@ export function QueVasAObtener() {
               </div>
               <div>
                 <div className="tnum text-[1.3rem] font-black tracking-tight text-content-primary">
-                  397.800 €
+                  {eur.format(PORTADA_COSTE_ANO_EUR)}
                 </div>
                 <div className="mt-0.5 text-[0.66rem] font-bold tracking-wide text-content-muted uppercase">
                   al año
@@ -232,7 +236,7 @@ export function QueVasAObtener() {
               ))}
             </div>
             <p className="text-[0.72rem] leading-snug text-content-muted">
-              Con los costes por hora del ejemplo. Pones los tuyos, o lo dejas en blanco y no se enseña ninguna cifra.
+              Con sueldos de ejemplo y la Seguridad Social. Pones los tuyos, o lo dejas apagado y no se enseña ninguna cifra.
             </p>
           </div>
         </Card>
@@ -277,7 +281,7 @@ export function QueVasAObtener() {
 
       <div className="mt-9 text-center">
         <p className="mx-auto max-w-md text-[0.98rem] font-bold text-content-primary">
-          Esto no lo calculamos a ojo: sale de tu propio histórico, semana a semana.
+          Con tu fichero no se calcula a ojo: sale de tu propio histórico, semana a semana.
         </p>
       </div>
     </section>

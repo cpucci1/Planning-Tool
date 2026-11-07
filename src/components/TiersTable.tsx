@@ -25,7 +25,7 @@ import {
   type FocusEvent,
   type KeyboardEvent,
 } from 'react'
-import { AlertTriangle, ArrowUpDown, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowUpDown, Plus, RotateCcw, Trash2, UserCheck } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -43,6 +43,7 @@ import {
   DEFAULT_BLOCKS,
   DEFAULT_ROLES,
   DEFAULT_TIERS,
+  DEFAULT_TIERS_COBROS,
   PALETTE,
   SUGGESTED_BLOCKS,
 } from '@/data/presets'
@@ -256,8 +257,8 @@ function AddBlockModal({
     <Modal
       open
       onClose={onClose}
-      title="Añadir un bloque"
-      subtitle="Un bloque es un área del local. Sus puestos se agrupan juntos en la tabla."
+      title="Añadir una zona"
+      subtitle="Una zona es un área del local. Sus puestos se agrupan juntos en la tabla."
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onClose}>
@@ -363,12 +364,22 @@ export function TiersTable({
   onTiersChange,
   onRolesChange,
   onBlocksChange,
+  escala = 'cobros',
 }: {
   model: StaffingModel
   onTiersChange: (t: Tier[]) => void
   onRolesChange: (r: Role[]) => void
   onBlocksChange: (b: Block[]) => void
+  /**
+   * En qué se leen los tramos. 'sentados' (personas sentadas a la vez) en los
+   * planes nuevos; 'cobros' (comensales que pagan en cada media hora) en los
+   * de antes del 2026-11-04. Cambia los textos y, sobre todo, qué tramos se
+   * cargan al volver a los de ejemplo: unos de sentados sobre una curva de
+   * cobros darían la mitad de plantilla sin avisar.
+   */
+  escala?: 'sentados' | 'cobros'
 }) {
+  const unidad = escala === 'sentados' ? 'sentados' : 'comensales'
   const uid = useId()
   const [confirm, setConfirm] = useState<Confirm | null>(null)
   const [blockModal, setBlockModal] = useState(false)
@@ -420,19 +431,26 @@ export function TiersTable({
 
   /** Columnas agrupadas por bloque, en el orden en que se pintan. */
   const groups = useMemo(() => {
+    // Los mandos no son columnas: no salen de los comensales, van por horario
+    // (se dicen cuántos y su jornada en el catálogo). Si salieran aquí, un
+    // número en su celda parecería que hace algo y no hace nada.
+    const deVolumen = roles.filter((r) => r.kind !== 'estructura')
     const gs = blocks.map((block) => ({
       block,
-      roles: roles.filter((r) => r.blockId === block.id),
+      roles: deVolumen.filter((r) => r.blockId === block.id),
     }))
-    const orphans = roles.filter((r) => !blocks.some((b) => b.id === r.blockId))
+    const orphans = deVolumen.filter((r) => !blocks.some((b) => b.id === r.blockId))
     if (orphans.length) {
       gs.push({
-        block: { id: ORPHAN_BLOCK_ID, name: 'Sin bloque', color: 'var(--color-content-muted)' },
+        block: { id: ORPHAN_BLOCK_ID, name: 'Sin zona', color: 'var(--color-content-muted)' },
         roles: orphans,
       })
     }
     return gs
   }, [blocks, roles])
+
+  const mandos = roles.filter((r) => r.kind === 'estructura')
+  const mandosConGente = mandos.filter((r) => (r.headcount ?? 0) > 0)
 
   const issues = useMemo(() => validateTiers(tiers), [tiers])
   const colCount = 1 + groups.reduce((a, g) => a + Math.max(1, g.roles.length), 0) + 1
@@ -567,14 +585,23 @@ export function TiersTable({
   function keepPrices(next: Role[]): Role[] {
     return next.map((r) => {
       const prev = roles.find((x) => x.id === r.id)
-      return prev ? { ...r, hourlyCostEur: prev.hourlyCostEur, fullTimeOnly: prev.fullTimeOnly } : r
+      return prev
+        ? {
+            ...r,
+            hourlyCostEur: prev.hourlyCostEur,
+            fullTimeOnly: prev.fullTimeOnly,
+            kind: prev.kind,
+            headcount: prev.headcount,
+            weeklyHours: prev.weeklyHours,
+          }
+        : r
     })
   }
 
   function restoreDefaults() {
     onBlocksChange(DEFAULT_BLOCKS)
     onRolesChange(keepPrices(DEFAULT_ROLES))
-    onTiersChange(DEFAULT_TIERS)
+    onTiersChange(escala === 'sentados' ? DEFAULT_TIERS : DEFAULT_TIERS_COBROS)
   }
 
   // ── Teclado ───────────────────────────────────────────────
@@ -610,12 +637,16 @@ export function TiersTable({
               Tu equipo <span className="italic text-brand">por volumen.</span>
             </>
           }
-          subtitle="Dinos cuánta gente necesitas en cada tramo de comensales. Es lo único que no podemos deducir de tu histórico: sale de cómo trabajáis vosotros."
+          subtitle={
+            escala === 'sentados'
+              ? 'Dinos cuánta gente necesitas según cuántas personas tienes sentadas a la vez. Es lo único que no podemos deducir de tu histórico: sale de cómo trabajáis vosotros.'
+              : 'Dinos cuánta gente necesitas en cada tramo de comensales. Es lo único que no podemos deducir de tu histórico: sale de cómo trabajáis vosotros.'
+          }
           info={
             <InfoTip title="Para qué sirve esta tabla">
-              Con tus comensales franja a franja y esta tabla sabemos cuántas personas hacen falta
-              en cada media hora de la semana tipo. De ahí salen las horas, los contratos y el
-              cuadrante.
+              {escala === 'sentados'
+                ? 'Con la gente que tienes sentada en cada media hora de la semana tipo y esta tabla sabemos cuántas personas hacen falta en cada momento. De ahí salen las horas, los contratos y el cuadrante.'
+                : 'Con tus comensales franja a franja y esta tabla sabemos cuántas personas hacen falta en cada media hora de la semana tipo. De ahí salen las horas, los contratos y el cuadrante.'}
             </InfoTip>
           }
           action={
@@ -626,11 +657,29 @@ export function TiersTable({
               onClick={() => setConfirm({ kind: 'reset' })}
             >
               <span className="hidden sm:inline">Volver a los valores de ejemplo</span>
-              <span className="sm:hidden">Ejemplo</span>
+              <span className="sm:hidden">Valores de ejemplo</span>
             </Button>
           }
         />
 
+        {mandos.length > 0 && (
+          <div className="border-t border-border-soft px-4 py-3 sm:px-6">
+            <Note tone="neutral" icon={<UserCheck size={15} strokeWidth={2.3} />}>
+              {mandosConGente.length > 0
+                ? `Los mandos no van en esta tabla: van por horario, con uno siempre al frente. Tienes: ${listarMandos(mandosConGente)}. Se cambian en Tus puestos.`
+                : `Los mandos (${mandos.map((r) => r.name.toLowerCase()).join(', ')}) no van en esta tabla: van por horario. Si tienes alguno, dilo en Tus puestos.`}
+            </Note>
+          </div>
+        )}
+
+        {/* A 375 px se ven dos puestos de seis y la sombra sola no se
+            entiende como "hay más" (revisión ronda 5, m14). Solo en móvil y
+            solo mientras quede tabla a la derecha. */}
+        {sombra.der && (
+          <p className="border-t border-border-soft px-4 py-2 text-[0.75rem] font-semibold text-content-muted sm:hidden">
+            Desliza la tabla a la izquierda para ver todos los puestos.
+          </p>
+        )}
         <div className="relative border-t border-border-soft">
           {/* Las sombras van FUERA del que hace scroll y con `pointer-events-none`:
               dentro se moverían con la tabla, y encima taparían los clics de la
@@ -668,11 +717,11 @@ export function TiersTable({
                   )}
                 >
                   <span className="flex items-center gap-1.5 text-[0.72rem] font-bold tracking-wide text-content-secondary uppercase">
-                    Comensales
+                    {escala === 'sentados' ? 'Sentados a la vez' : 'Comensales'}
                     <InfoTip title="Cómo funcionan los tramos">
                       Solo editas el techo de cada tramo: el suelo del siguiente se ajusta solo,
-                      para que ningún número de comensales se quede sin tramo. El último no tiene
-                      techo — cubre todo lo que venga por encima.
+                      para que ningún número de {unidad} se quede sin tramo. El último no tiene
+                      techo: cubre todo lo que venga por encima.
                     </InfoTip>
                   </span>
                 </th>
@@ -706,7 +755,7 @@ export function TiersTable({
                         <>
                           <InlineName
                             value={g.block.name}
-                            ariaLabel={`Renombrar el bloque ${g.block.name}`}
+                            ariaLabel={`Renombrar la zona ${g.block.name}`}
                             onCommit={(v) => renameBlock(g.block.id, v)}
                             className="text-[0.8rem] font-extrabold text-content-primary"
                           />
@@ -729,8 +778,8 @@ export function TiersTable({
                                   roleCount: g.roles.length,
                                 })
                               }
-                              aria-label={`Eliminar el bloque ${g.block.name}`}
-                              title={`Eliminar el bloque ${g.block.name}`}
+                              aria-label={`Eliminar la zona ${g.block.name}`}
+                              title={`Eliminar la zona ${g.block.name}`}
                               className="rounded-md p-1 text-content-muted transition-colors hover:bg-surface-elevated hover:text-destructive focus-visible:outline-2 focus-visible:outline-brand"
                             >
                               <Trash2 size={13} />
@@ -753,8 +802,8 @@ export function TiersTable({
                   <button
                     type="button"
                     onClick={() => setBlockModal(true)}
-                    aria-label="Añadir una categoría nueva, por ejemplo Terraza"
-                    title="Añadir una categoría (ej. Terraza)"
+                    aria-label="Añadir una zona nueva, por ejemplo Terraza"
+                    title="Añadir una zona (ej. Terraza)"
                     className="mx-auto flex h-8 w-8 items-center justify-center rounded-pill text-content-secondary transition-colors hover:bg-brand-light hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                   >
                     <Plus size={16} strokeWidth={3} />
@@ -796,11 +845,13 @@ export function TiersTable({
                           // ocupaba. Con "Responsable de turno" la columna medía
                           // el doble que su contenido real, que es una casilla
                           // de dos dígitos.
-                          'sticky top-9 z-20 max-w-[92px] min-w-[64px] px-1 py-1.5 align-bottom',
+                          // Ronda 3: el nombre entero, partido en líneas, y la
+                          // papelera flota encima en vez de quitarle ancho.
+                          'sticky top-9 z-20 max-w-[104px] min-w-[84px] px-1.5 py-1.5 align-bottom',
                           gi > 0 && ri === 0 && 'border-l-2 border-l-border',
                         )}
                       >
-                        <div className="group/role flex items-start gap-1">
+                        <div className="group/role relative flex items-start gap-1">
                           <span
                             className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-pill"
                             style={{ backgroundColor: role.color }}
@@ -812,7 +863,8 @@ export function TiersTable({
                             autoEdit={pendingRoleId === role.id}
                             onEditEnd={() => setPendingRoleId(null)}
                             onCommit={(v) => renameRole(role.id, v)}
-                            className="min-w-0 text-[0.78rem] leading-tight font-bold break-words text-content-primary"
+                            wrap
+                            className="min-w-0 text-[0.76rem] leading-tight font-bold text-content-primary"
                           />
                           <button
                             type="button"
@@ -824,7 +876,7 @@ export function TiersTable({
                               })
                             }
                             aria-label={`Eliminar el puesto ${role.name}`}
-                            className="ml-auto shrink-0 rounded-md p-1 text-content-muted opacity-0 transition-opacity group-hover/role:opacity-100 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-brand"
+                            className="absolute -top-1 right-4 shrink-0 rounded-md bg-surface-elevated p-1 text-content-muted opacity-0 shadow-sm transition-opacity group-hover/role:opacity-100 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-brand"
                           >
                             <Trash2 size={12} />
                           </button>
@@ -842,8 +894,8 @@ export function TiersTable({
                   <td colSpan={colCount} className="p-0">
                     <div className="sticky left-0 flex max-w-xl flex-col items-start gap-3 px-6 py-10">
                       <p className="text-[0.95rem] font-semibold text-content-secondary">
-                        Todavía no hay ningún tramo. Empieza por el primero —de 1 comensal en
-                        adelante— y ve partiéndolo según crezca el servicio.
+                        Todavía no hay ningún tramo. Empieza por el primero, de 1 en
+                        adelante, y ve partiéndolo según crezca el servicio.
                       </p>
                       <Button icon={<Plus size={16} />} onClick={() => addTierAfter(-1)}>
                         Crear el primer tramo
@@ -882,7 +934,7 @@ export function TiersTable({
                                     value={t.to}
                                     min={t.from}
                                     onCommit={(v) => setBound(row, v)}
-                                    ariaLabel={`Hasta cuántos comensales llega el tramo que empieza en ${t.from}`}
+                                    ariaLabel={`Hasta cuántos ${unidad} llega el tramo que empieza en ${t.from}`}
                                   />
                                 </>
                               )}
@@ -893,7 +945,7 @@ export function TiersTable({
                             <button
                               type="button"
                               onClick={() => addTierAfter(row)}
-                              aria-label={`Insertar un tramo debajo del de ${rangeLabel(t)} comensales`}
+                              aria-label={`Insertar un tramo debajo del de ${rangeLabel(t)} ${unidad}`}
                               title="Insertar un tramo aquí"
                               className="rounded-md p-1 text-content-secondary transition-colors hover:bg-brand-light hover:text-brand focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-brand"
                             >
@@ -902,7 +954,7 @@ export function TiersTable({
                             <button
                               type="button"
                               onClick={() => removeTier(t.id)}
-                              aria-label={`Eliminar el tramo de ${rangeLabel(t)} comensales`}
+                              aria-label={`Eliminar el tramo de ${rangeLabel(t)} ${unidad}`}
                               title="Eliminar este tramo"
                               className="rounded-md p-1 text-content-muted transition-colors hover:bg-destructive-light hover:text-destructive focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-brand"
                             >
@@ -922,7 +974,7 @@ export function TiersTable({
                               gi > 0 && 'border-l-2 border-l-border',
                             )}
                           >
-                            —
+                            -
                           </td>
                         ) : (
                           g.roles.map((role, ri) => {
@@ -943,7 +995,7 @@ export function TiersTable({
                                   onChange={(v) => setCell(t.id, role.id, v)}
                                   onKeyDown={(e) => onCellKey(e, row, thisCol)}
                                   onFocus={(e) => e.currentTarget.select()}
-                                  ariaLabel={`${role.name} de ${g.block.name} en el tramo de ${rangeLabel(t)} comensales`}
+                                  ariaLabel={`${role.name} de ${g.block.name} en el tramo de ${rangeLabel(t)} ${unidad}`}
                                 />
                                 {showLimits && (
                                   <div className="mt-1 flex items-center justify-center gap-1">
@@ -951,13 +1003,13 @@ export function TiersTable({
                                       value={t.staffMin?.[role.id] ?? 0}
                                       onChange={(v) => setLimit(t.id, role.id, 'staffMin', v)}
                                       tone="min"
-                                      ariaLabel={`Mínimo de ${role.name} en el tramo de ${rangeLabel(t)} comensales`}
+                                      ariaLabel={`Mínimo de ${role.name} en el tramo de ${rangeLabel(t)} ${unidad}`}
                                     />
                                     <LimitInput
                                       value={t.staffMax?.[role.id] ?? 0}
                                       onChange={(v) => setLimit(t.id, role.id, 'staffMax', v)}
                                       tone="max"
-                                      ariaLabel={`Máximo de ${role.name} en el tramo de ${rangeLabel(t)} comensales`}
+                                      ariaLabel={`Máximo de ${role.name} en el tramo de ${rangeLabel(t)} ${unidad}`}
                                     />
                                   </div>
                                 )}
@@ -1066,15 +1118,15 @@ export function TiersTable({
       >
         {confirm?.kind === 'reset' && (
           <p className="text-[0.92rem] leading-relaxed text-content-body">
-            Se restauran los bloques, los puestos y los tramos de ejemplo. Todo lo que hayas
+            Se restauran las zonas, los puestos y los tramos de ejemplo. Todo lo que hayas
             cambiado en esta tabla se pierde.
           </p>
         )}
         {confirm?.kind === 'block' && (
           <p className="text-[0.92rem] leading-relaxed text-content-body">
             {confirm.roleCount === 0
-              ? 'Este bloque no tiene ningún puesto, así que no se pierde nada.'
-              : `Se van con él ${confirm.roleCount} ${confirm.roleCount === 1 ? 'puesto' : 'puestos'} y lo que hayas puesto en sus columnas: ${roles
+              ? 'Esta zona no tiene ningún puesto, así que no se pierde nada.'
+              : `Se van con ella ${confirm.roleCount} ${confirm.roleCount === 1 ? 'puesto' : 'puestos'} y lo que hayas puesto en sus columnas: ${roles
                   .filter((r) => r.blockId === confirm.block.id)
                   .map((r) => r.name)
                   .join(', ')}.`}
@@ -1090,4 +1142,12 @@ export function TiersTable({
       </Modal>
     </>
   )
+}
+
+/** "encargado (1) y jefe de cocina (2)": el nombre lo pone el usuario y no se
+ *  puede pluralizar a ciegas, así que el número va entre paréntesis. */
+function listarMandos(roles: Role[]): string {
+  const partes = roles.map((r) => `${r.name.toLowerCase()} (${r.headcount})`)
+  if (partes.length <= 1) return partes[0] ?? ''
+  return `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}`
 }

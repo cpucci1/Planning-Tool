@@ -178,7 +178,9 @@ export async function analyzeFile(
       fileName: name,
       isDemo: file === null,
       rowsDetected: weeks.length * 7 * 14,
-      dateRange: `${firstWeek.startDate} → ${lastWeek.startDate}`,
+      // Hasta el domingo de la última semana, que es el último día con datos
+      // (ronda 6, m1 de pantallas): antes salía su lunes.
+      dateRange: `${firstWeek.startDate} → ${new Date(Date.parse(lastWeek.startDate) + 6 * 86_400_000).toISOString().slice(0, 10)}`,
       columnsDetected: [
         { label: 'Fecha', mappedTo: 'Día del servicio', confidence: 0.99, samples: ['14/06/2025', '14/06/2025', '15/06/2025'] },
         { label: 'Hora', mappedTo: 'Franja horaria', confidence: 0.97, samples: ['14:32:11', '15:07:45', '21:58:03'] },

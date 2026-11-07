@@ -43,7 +43,7 @@ export function AccountTeaserModal({ open, onClose }: { open: boolean; onClose: 
     <Modal
       open={open}
       onClose={handleClose}
-      title={sent ? '¡Ya casi!' : 'Créate una cuenta gratis para no perderlo'}
+      title={sent ? '¡Ya casi!' : 'Si quieres, guárdalo con tu correo'}
       subtitle={
         sent
           ? undefined

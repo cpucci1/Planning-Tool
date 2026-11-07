@@ -43,10 +43,25 @@ export const CONFIANZA_MINIMA = 0.85
  * pantalla tenía dos botones grandes compitiendo y se quitó el de dentro. Sin
  * esta condición, el aviso de "marca qué columna es la fecha" quedaba en un
  * cartel que no impedía nada.
+ *
+ * Desde la ronda 8 basta con la fecha. Sin columna de comensales ni de tickets
+ * el lector cuenta cada fila como un ticket, que es lo que es en el export más
+ * simple de un TPV (fecha, hora e importe). Pedir además una columna de
+ * cantidad dejaba sin salida a quien marcaba la de tickets como "No la uses",
+ * que era justo lo que la herramienta le aconsejaba hacer.
  */
 export function mapeoSuficiente(columnas: ColumnaDetectada[]): boolean {
-  const tieneFecha = columnas.some((c) => c.destino === 'fecha')
-  const tieneComensales = columnas.some((c) => c.destino === 'comensales')
-  const tieneTickets = columnas.some((c) => c.destino === 'tickets')
-  return tieneFecha && (tieneComensales || tieneTickets)
+  return columnas.some((c) => c.destino === 'fecha')
+}
+
+/**
+ * ¿Trae el mapeo algo que CUENTE (comensales o tickets)? Ya no bloquea nada:
+ * lo usa la segunda opinión del modelo para no aceptar un mapeo que pierda la
+ * columna de cantidad que la lectura sí había encontrado.
+ */
+export function mapeoConCantidad(columnas: ColumnaDetectada[]): boolean {
+  return (
+    mapeoSuficiente(columnas) &&
+    columnas.some((c) => c.destino === 'comensales' || c.destino === 'tickets')
+  )
 }

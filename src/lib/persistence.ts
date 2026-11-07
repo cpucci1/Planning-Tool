@@ -209,6 +209,8 @@ export interface FilasGuardadas {
    * lee como "lo decide el lector", que es lo que pasaba entonces.
    */
   formatoFechaElegido?: 'dd/mm' | 'mm/dd' | null
+  /** El periodo del fichero que eligió el usuario (ronda 7). Opcional, como el anterior. */
+  periodoElegido?: string | null
 }
 
 export async function guardarFilas(v: FilasGuardadas): Promise<void> {
