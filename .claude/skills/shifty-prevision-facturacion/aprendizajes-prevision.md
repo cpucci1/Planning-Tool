@@ -96,6 +96,15 @@ Crescente, 07-11-2026, le gustó el ejercicio y pidió meterlo en la skill (§1.
   nuevos. La comisión del último tramo subió un 54 %.
 - Hay que comprobar al cerrar noviembre de 2026 si el reparto se repite. Si no, apuntar aquí qué
   cliente lo cambió.
+- **Diciembre de 2025 engaña** (07-11-2026): 632 turnos recurrentes, pero 384 eran de 26 clientes que
+  hoy no piden (muchos solo vinieron en Navidad) y 106 de Lew Brand. Los 11 clientes que siguen
+  hicieron 139 en noviembre, 142 en diciembre y 145 en enero: **para ellos diciembre no fue pico**.
+  Dentro del mes, el pico fue del 11 al 20 y del 21 al 31 cayó a menos de la mitad (24, 25 y 31).
+  Lew Brand: 17 y 89 turnos en las dos últimas decenas y 198 en enero.
+- Con eso, diciembre de 2026 por tramos, partiendo de noviembre de 2026 (Crescente: los que se
+  fueron, como Pulcinella, no cuentan, y Lew Brand no se sabe si vuelve): unos 965 turnos (370, 410 y
+  185), unos 103.000 de GMV y 14.400 de ingresos de los actuales, 18.400 con pilotos. Lew Brand, si
+  vuelve, +1.500. Comprobar al cerrar.
 
 ## Probabilidades de los nuevos (calibración)
 

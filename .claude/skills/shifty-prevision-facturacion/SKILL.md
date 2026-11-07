@@ -204,6 +204,13 @@ Cómo se lee:
   cliente nuevo mueve el reparto. Por eso no sustituye al modelo, y en meses con un cliente de
   temporada fuerte (diciembre y enero con Autocine o Lew Brand) se mira el reparto sin ese cliente.
 - **No incluye a los nuevos ni a los pilotos**: van aparte (§4) y se suman encima.
+- **Para el mes siguiente** se encadena: la última decena de este mes da la primera del siguiente, y
+  de ahí el resto. Pero antes se separan los turnos del año pasado en tres grupos: **clientes que
+  siguen pidiendo hoy**, clientes que ya no piden y los de temporada que se esperan. **El reparto y el
+  salto entre meses se sacan de los que siguen**, no del total. El 07-11-2026, el diciembre de 2025
+  tal cual daba 2.350 turnos (6 veces la última decena de noviembre); los que siguen hicieron
+  diciembre igual que noviembre y el pico era de 26 clientes que ya no están. Detalle en
+  `prevision-facturacion/2026-11-07-diciembre-por-tramos.md`.
 
 ---
 
